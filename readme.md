@@ -1,20 +1,20 @@
 # TotemCraft
 
-> **Язык:** Русский · [English](readme.en.md)
+> **Language:** Русский · [English](readme.en.md)
 
 Легковесный, полностью настраиваемый Minecraft мод для загрузчика **Fabric 1.21.4**, добавляющий сбалансированный рецепт крафта **Тотема бессмертия** (*Totem of Undying*) в обычном верстаке с полноценным внутриигровым меню настройки через **Mod Menu**, поддержкой книги рецептов и модов на просмотр рецептов (JEI, REI, EMI, JEB), а также уникальным внутриигровым достижением.
 
-![Java 21](https://img.shields.io/badge/Java-21-orange.svg)
-![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-brightgreen.svg)
+![Java 21](https://img.shields.io/badge/Java-21-blue.svg)
+![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-blue.svg)
 ![Fabric](https://img.shields.io/badge/Loader-Fabric-blue.svg)
-![ModMenu](https://img.shields.io/badge/ModMenu-Supported-success.svg)
-![License](https://img.shields.io/badge/License-Apache_2.0-yellow.svg)
+![ModMenu](https://img.shields.io/badge/ModMenu-Supported-blue.svg)
+![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 
 ## Скриншоты
-- Крафт тотема
-- ![Крафт тотема](/images/totemcraft.png)
-- Настройка через ModMenu
-- ![Настройка через ModMenu](/images/totemcraft_modmenu.png)
+
+| Крафт тотема | Настройка через ModMenu |
+|:---:|:---:|
+| ![Крафт тотема](/images/totemcraft.png) | ![Настройка через ModMenu](/images/totemcraft_modmenu.png) |
 
 ## Возможности
 

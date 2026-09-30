@@ -4,17 +4,17 @@
 
 A lightweight, fully configurable Minecraft mod for the **Fabric 1.21.4** mod loader that introduces a balanced crafting recipe for the **Totem of Undying** with an authentic in-game **Mod Menu** GUI configuration screen, Recipe Book & Recipe Viewer (JEI, REI, EMI, JEB) auto-fill support, and a dedicated custom advancement.
 
-![Java 21](https://img.shields.io/badge/Java-21-orange.svg)
-![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-brightgreen.svg)
+![Java 21](https://img.shields.io/badge/Java-21-blue.svg)
+![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-blue.svg)
 ![Fabric](https://img.shields.io/badge/Loader-Fabric-blue.svg)
-![ModMenu](https://img.shields.io/badge/ModMenu-Supported-success.svg)
-![License](https://img.shields.io/badge/License-Apache_2.0-yellow.svg)
+![ModMenu](https://img.shields.io/badge/ModMenu-Supported-blue.svg)
+![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 
 ## Screenshots
-- Totem crafting
-- ![Totem crafting](/images/totemcraft.png)
-- Configuration via ModMenu
-- ![Configuration via ModMenu](/images/totemcraft_modmenu.png)
+
+| Totem Crafting | ModMenu Configuration |
+|:---:|:---:|
+| ![Totem Crafting](/images/totemcraft.png) | ![ModMenu Configuration](/images/totemcraft_modmenu.png) |
 
 ## Features
 

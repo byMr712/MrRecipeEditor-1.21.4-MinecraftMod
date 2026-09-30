@@ -40,18 +40,26 @@ public class TotemCraftCustomRecipe extends ShapedRecipe {
         return RawShapedRecipe.create(key, "AAA", "AGA", "AAA");
     }
 
+    private RawShapedRecipe cachedRawRecipe = null;
+    private int cachedHash = 0;
+
     public RawShapedRecipe getRawRecipe() {
         TotemCraftConfig config = TotemCraftConfig.getInstance();
-        List<Optional<Ingredient>> ingredients = new ArrayList<>(9);
-        for (int i = 0; i < 9; i++) {
-            Item item = config.getItemAt(i);
-            if (item == Items.AIR) {
-                ingredients.add(Optional.empty());
-            } else {
-                ingredients.add(Optional.of(Ingredient.ofItem(item)));
+        int hash = java.util.Arrays.hashCode(config.patternSlots);
+        if (cachedRawRecipe == null || cachedHash != hash) {
+            List<Optional<Ingredient>> ingredients = new ArrayList<>(9);
+            for (int i = 0; i < 9; i++) {
+                Item item = config.getItemAt(i);
+                if (item == Items.AIR) {
+                    ingredients.add(Optional.empty());
+                } else {
+                    ingredients.add(Optional.of(Ingredient.ofItem(item)));
+                }
             }
+            cachedRawRecipe = new RawShapedRecipe(3, 3, ingredients, Optional.empty());
+            cachedHash = hash;
         }
-        return new RawShapedRecipe(3, 3, ingredients, Optional.empty());
+        return cachedRawRecipe;
     }
 
     @Override
