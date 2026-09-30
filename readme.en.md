@@ -102,25 +102,19 @@ Configuration is saved in `config/totemcraft.json`:
 }
 ```
 
-## System Requirements
-
-- **Minecraft:** `1.21.4`
-- **Mod Loader:** [Fabric Loader](https://fabricmc.net/) `0.16.0+`
-- **Java:** `Java 21` or newer
-- **Library:** [Fabric API](https://modrinth.com/mod/fabric-api) (recommended)
-- **Optional:** [Mod Menu](https://modrinth.com/mod/modmenu) (for opening the in-game GUI settings)
-
 ## Installation
 
 ### For Singleplayer / Client
-1. Install [Fabric Loader](https://fabricmc.net/use/) for Minecraft **1.21.4**.
-2. Place `Fabric API`, `Mod Menu` (optional), and `TotemCraft-1.0.0.jar` in your `.minecraft/mods/` directory.
-3. Launch Minecraft.
+1. Download the latest release from [GitHub Releases](https://github.com/byMr712/TotemCraft-MinecraftMod/releases).
+2. Requires:
+   - [Fabric API](https://modrinth.com/mod/fabric-api)
+   - [Mod Menu](https://modrinth.com/mod/modmenu) (optional)
+3. Place the `.jar` file into your `mods/` directory.
+4. Launch the game.
 
 ### For Dedicated Server
-1. Set up a Fabric 1.21.4 server.
-2. Place `Fabric API` and `TotemCraft-1.0.0.jar` into the `mods/` directory.
-3. Restart the server.
+1. Place `Fabric API` and the mod `.jar` file into the `mods/` directory on the server.
+2. Restart the server.
 
 ## Project Structure
 
