@@ -9,8 +9,10 @@ import com.recipeeditor.inspector.RecipeStatus;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.ConfirmScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.CheckboxWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -92,7 +94,10 @@ public class RecipeEditorScreen extends Screen {
     private final List<ButtonWidget> filterButtons = new ArrayList<>();
     private final List<ButtonWidget> typeButtons = new ArrayList<>();
     private ButtonWidget saveCraftBtn;
+    private ButtonWidget clearCraftBtn;
     private ButtonWidget deleteRecipeBtn;
+    private CheckboxWidget createNewCraftBox;
+    private CheckboxWidget overrideExistingBox;
 
     // Drag and drop state
     private Item draggedItem = null;
@@ -226,6 +231,7 @@ public class RecipeEditorScreen extends Screen {
         if (resultCountField != null) {
             resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(currentRecipe.type)));
         }
+        updateCheckboxStates();
         rebuildTypeButtons();
         updateButtonStates();
     }
@@ -249,13 +255,23 @@ public class RecipeEditorScreen extends Screen {
         if (resultCountField != null) {
             resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(currentRecipe.type)));
         }
+        updateCheckboxStates();
         rebuildTypeButtons();
         updateButtonStates();
     }
 
+    private void updateCheckboxStates() {
+        boolean isOverride = currentRecipe != null && currentRecipe.overrideExisting;
+        if (createNewCraftBox != null && createNewCraftBox.isChecked() == isOverride) {
+            createNewCraftBox.onPress();
+        }
+        if (overrideExistingBox != null && overrideExistingBox.isChecked() != isOverride) {
+            overrideExistingBox.onPress();
+        }
+    }
+
     @Override
     protected void init() {
-        int centerX = this.width / 2;
         int topY = 16;
 
         contentY = topY + 24;
@@ -310,11 +326,13 @@ public class RecipeEditorScreen extends Screen {
         resultCountField.setMaxLength(4);
         resultCountField.setChangedListener(text -> {
             try {
-                int val = Integer.parseInt(text.trim());
-                if (val > 1000) val = 1000;
-                if (val < 1) val = 1;
-                if (currentRecipe != null) {
-                    currentRecipe.setResultCountForType(currentRecipe.type, val);
+                if (!text.trim().isEmpty()) {
+                    int val = Integer.parseInt(text.trim());
+                    if (val > 1000) val = 1000;
+                    if (val < 1) val = 1;
+                    if (currentRecipe != null) {
+                        currentRecipe.setResultCountForType(currentRecipe.type, val);
+                    }
                 }
             } catch (NumberFormatException ignored) {}
         });
@@ -324,16 +342,61 @@ public class RecipeEditorScreen extends Screen {
                 .dimensions(countStartX + 46, countY, 14, 16)
                 .build());
 
-        int actionBtnY = contentY + 146;
+        // Dependent Radio Checkboxes (Create New vs Override Existing) - Placed ABOVE action buttons
+        int checkY = contentY + 146;
+        boolean isOverride = currentRecipe != null && currentRecipe.overrideExisting;
+
+        createNewCraftBox = CheckboxWidget.builder(Text.translatable("recipeeditor.gui.craft_new"), this.textRenderer)
+                .pos(leftPaneX, checkY)
+                .maxWidth(LEFT_PANE_WIDTH)
+                .checked(!isOverride)
+                .callback((box, checked) -> {
+                    if (checked) {
+                        if (overrideExistingBox != null && overrideExistingBox.isChecked()) {
+                            overrideExistingBox.onPress();
+                        }
+                        if (currentRecipe != null) currentRecipe.overrideExisting = false;
+                    } else {
+                        if (overrideExistingBox != null && !overrideExistingBox.isChecked()) {
+                            overrideExistingBox.onPress();
+                        }
+                    }
+                })
+                .build();
+
+        overrideExistingBox = CheckboxWidget.builder(Text.translatable("recipeeditor.gui.craft_override"), this.textRenderer)
+                .pos(leftPaneX, checkY + 18)
+                .maxWidth(LEFT_PANE_WIDTH)
+                .checked(isOverride)
+                .callback((box, checked) -> {
+                    if (checked) {
+                        if (createNewCraftBox != null && createNewCraftBox.isChecked()) {
+                            createNewCraftBox.onPress();
+                        }
+                        if (currentRecipe != null) currentRecipe.overrideExisting = true;
+                    } else {
+                        if (createNewCraftBox != null && !createNewCraftBox.isChecked()) {
+                            createNewCraftBox.onPress();
+                        }
+                    }
+                })
+                .build();
+
+        this.addDrawableChild(createNewCraftBox);
+        this.addDrawableChild(overrideExistingBox);
+
+        // Action Buttons with gap below checkboxes
+        int actionBtnY = checkY + 44;
 
         saveCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.save_craft").formatted(Formatting.GREEN, Formatting.BOLD), btn -> saveCurrentCraft())
                 .dimensions(leftPaneX, actionBtnY, LEFT_PANE_WIDTH, 18)
                 .build();
         this.addDrawableChild(saveCraftBtn);
 
-        this.addDrawableChild(ButtonWidget.builder(Text.translatable("recipeeditor.gui.clear_all").formatted(Formatting.RED), btn -> clearAllSlots())
+        clearCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.clear_all").formatted(Formatting.RED), btn -> clearAllSlots())
                 .dimensions(leftPaneX, actionBtnY + 22, LEFT_PANE_WIDTH, 18)
-                .build());
+                .build();
+        this.addDrawableChild(clearCraftBtn);
 
         deleteRecipeBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.delete_custom").formatted(Formatting.RED), btn -> deleteCurrentRecipe())
                 .dimensions(leftPaneX, actionBtnY + 44, LEFT_PANE_WIDTH, 18)
@@ -373,35 +436,51 @@ public class RecipeEditorScreen extends Screen {
         this.addDrawableChild(nextPageBtn);
         updatePaginationButtons();
 
-        // --- BOTTOM PANE (Controls) ---
-        rebuildBottomButtons(centerX, bottomY);
+        // --- BOTTOM PANE (Controls moved to bottom-right corner) ---
+        rebuildBottomButtons(bottomY);
 
         updateButtonStates();
     }
 
-    private void rebuildBottomButtons(int centerX, int bottomY) {
+    private void rebuildBottomButtons(int bottomY) {
         Text exportText = Text.translatable("recipeeditor.gui.export_datapack");
         Text resetText = Text.translatable("recipeeditor.gui.reset_defaults");
         Text exitText = Text.translatable("recipeeditor.gui.exit");
 
+        int wExit = Math.max(65, this.textRenderer.getWidth(exitText) + 20);
+        int wReset = Math.max(115, this.textRenderer.getWidth(resetText) + 16);
         int wExport = Math.max(120, this.textRenderer.getWidth(exportText) + 16);
-        int wReset = Math.max(120, this.textRenderer.getWidth(resetText) + 16);
-        int wExit = Math.max(80, this.textRenderer.getWidth(exitText) + 24);
 
-        int totalBottomWidth = wExport + 8 + wReset + 8 + wExit;
-        int startX = centerX - (totalBottomWidth / 2);
+        int rightMargin = this.width - 12;
+        int exitX = rightMargin - wExit;
+        int resetX = exitX - 6 - wReset;
+        int exportX = resetX - 6 - wExport;
 
         this.addDrawableChild(ButtonWidget.builder(exportText, btn -> exportDatapack())
-                .dimensions(startX, bottomY, wExport, 20)
+                .dimensions(exportX, bottomY, wExport, 20)
                 .build());
 
-        this.addDrawableChild(ButtonWidget.builder(resetText, btn -> resetDefaults())
-                .dimensions(startX + wExport + 8, bottomY, wReset, 20)
+        this.addDrawableChild(ButtonWidget.builder(resetText, btn -> promptResetDefaults())
+                .dimensions(resetX, bottomY, wReset, 20)
                 .build());
 
         this.addDrawableChild(ButtonWidget.builder(exitText, btn -> this.close())
-                .dimensions(startX + wExport + 8 + wReset + 8, bottomY, wExit, 20)
+                .dimensions(exitX, bottomY, wExit, 20)
                 .build());
+    }
+
+    private void promptResetDefaults() {
+        if (this.client == null) return;
+        this.client.setScreen(new ConfirmScreen(
+                confirmed -> {
+                    if (confirmed) {
+                        resetDefaults();
+                    }
+                    this.client.setScreen(this);
+                },
+                Text.translatable("recipeeditor.gui.reset_confirm_title"),
+                Text.translatable("recipeeditor.gui.reset_confirm_msg")
+        ));
     }
 
     private void updateButtonStates() {
@@ -411,6 +490,9 @@ public class RecipeEditorScreen extends Screen {
         }
         if (saveCraftBtn != null) {
             saveCraftBtn.active = item != Items.AIR;
+        }
+        if (clearCraftBtn != null) {
+            clearCraftBtn.active = hasAnyIngredients(currentRecipe);
         }
     }
 
@@ -560,7 +642,8 @@ public class RecipeEditorScreen extends Screen {
 
     private void adjustResultCount(int delta) {
         if (currentRecipe != null) {
-            int newCount = Math.max(1, Math.min(1000, currentRecipe.getResultCountForType(currentRecipe.type) + delta));
+            int currentCount = currentRecipe.getResultCountForType(currentRecipe.type);
+            int newCount = Math.max(1, Math.min(1000, currentCount + delta));
             currentRecipe.setResultCountForType(currentRecipe.type, newCount);
             if (resultCountField != null) {
                 resultCountField.setText(String.valueOf(newCount));
@@ -587,10 +670,15 @@ public class RecipeEditorScreen extends Screen {
         for (int i = 0; i < 9; i++) {
             currentRecipe.setItemAt(i, Items.AIR);
         }
+        updateButtonStates();
     }
 
     private void saveCurrentCraft() {
         if (currentRecipe == null || currentRecipe.getResultItem() == Items.AIR) return;
+
+        if (currentRecipe.getResultCountForType(currentRecipe.type) <= 0) {
+            currentRecipe.setResultCountForType(currentRecipe.type, 1);
+        }
 
         configCopy.addOrUpdateRecipe(currentRecipe.copy());
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
@@ -620,6 +708,7 @@ public class RecipeEditorScreen extends Screen {
         }
         notificationText = Text.translatable("recipeeditor.gui.craft_deleted").formatted(Formatting.RED, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
+        updateCheckboxStates();
         rebuildTypeButtons();
         updateButtonStates();
         refreshFilteredItems();
@@ -649,6 +738,7 @@ public class RecipeEditorScreen extends Screen {
         if (resultCountField != null) {
             resultCountField.setText("1");
         }
+        updateCheckboxStates();
         rebuildTypeButtons();
         updateButtonStates();
         refreshFilteredItems();
@@ -725,11 +815,25 @@ public class RecipeEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        int catalogWidth = catalogCols * SLOT_SIZE + 10;
-        int catalogHeight = (catalogRows * SLOT_SIZE) + 40;
+        int tabY = contentY + 18;
+        int tabHeight = 18;
+        int catalogHeight = (catalogRows * SLOT_SIZE) + 10;
 
-        if (mouseX >= rightPaneX && mouseX <= rightPaneX + catalogWidth &&
-                mouseY >= contentY && mouseY <= catalogGridY + catalogHeight) {
+        // 1. Mouse wheel over Mod Tabs row: scroll tabs
+        if (mouseX >= rightPaneX && mouseX <= rightPaneX + searchWidth &&
+                mouseY >= tabY && mouseY <= tabY + tabHeight) {
+            if (verticalAmount > 0) {
+                scrollTabs(-1);
+                return true;
+            } else if (verticalAmount < 0) {
+                scrollTabs(1);
+                return true;
+            }
+        }
+
+        // 2. Mouse wheel over Catalog Grid: scroll catalog pages
+        if (mouseX >= rightPaneX && mouseX <= rightPaneX + searchWidth &&
+                mouseY >= catalogGridY && mouseY <= catalogGridY + catalogHeight) {
             if (verticalAmount > 0) {
                 changePage(-1);
                 return true;
@@ -738,6 +842,7 @@ public class RecipeEditorScreen extends Screen {
                 return true;
             }
         }
+
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
 
@@ -828,7 +933,7 @@ public class RecipeEditorScreen extends Screen {
         Text slotName = selectedSlot == RESULT_SLOT
                 ? Text.translatable("recipeeditor.gui.selected_result")
                 : Text.translatable("recipeeditor.gui.selected_slot", selectedSlot + 1);
-        context.drawTextWithShadow(this.textRenderer, slotName.copy().formatted(Formatting.GREEN), leftPaneX, contentY + 134, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, slotName.copy().formatted(Formatting.GREEN), leftPaneX, contentY + 132, 0xFF55FF55);
 
         // --- DRAW DYNAMIC CATALOG GRID ---
         int startIndex = catalogPage * itemsPerPage;
@@ -859,9 +964,21 @@ public class RecipeEditorScreen extends Screen {
         MutableText pageInfo = Text.translatable("recipeeditor.gui.items_total", catalogPage + 1, maxPage, filteredItems.size());
         context.drawCenteredTextWithShadow(this.textRenderer, pageInfo.formatted(Formatting.GRAY), rightPaneX + (searchWidth / 2), catalogGridY + (catalogRows * SLOT_SIZE) + 10, 0xFFAAAAAA);
 
-        // Notification overlay message
+        // Notification overlay message (drawn to the left of Export Datapack button)
         if (notificationText != null && System.currentTimeMillis() < notificationTimer) {
-            context.drawCenteredTextWithShadow(this.textRenderer, notificationText, centerX, this.height - 42, 0xFF55FF55);
+            Text exportText = Text.translatable("recipeeditor.gui.export_datapack");
+            Text resetText = Text.translatable("recipeeditor.gui.reset_defaults");
+            Text exitText = Text.translatable("recipeeditor.gui.exit");
+
+            int wExit = Math.max(65, this.textRenderer.getWidth(exitText) + 20);
+            int wReset = Math.max(115, this.textRenderer.getWidth(resetText) + 16);
+            int wExport = Math.max(120, this.textRenderer.getWidth(exportText) + 16);
+            int exportX = (this.width - 12) - wExit - 6 - wReset - 6 - wExport;
+
+            int msgW = this.textRenderer.getWidth(notificationText);
+            int msgX = exportX - msgW - 10;
+            int msgY = this.height - 24 + 6;
+            context.drawTextWithShadow(this.textRenderer, notificationText, Math.max(8, msgX), msgY, 0xFF55FF55);
         }
 
         // Render dragged item or hover tooltip
@@ -931,6 +1048,7 @@ public class RecipeEditorScreen extends Screen {
             if (craftingSlot >= 0 && craftingSlot < 9) {
                 if (currentRecipe != null) {
                     currentRecipe.setItemAt(craftingSlot, Items.AIR);
+                    updateButtonStates();
                 }
                 return true;
             } else if (craftingSlot == RESULT_SLOT) {

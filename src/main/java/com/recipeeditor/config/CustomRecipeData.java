@@ -90,7 +90,17 @@ public class CustomRecipeData {
             return Items.AIR;
         }
         String idStr = patternSlots[slot];
-        if (idStr == null || idStr.isEmpty() || idStr.equals("minecraft:air") || idStr.startsWith("#")) {
+        if (idStr == null || idStr.isEmpty() || idStr.equals("minecraft:air")) {
+            return Items.AIR;
+        }
+        if (idStr.startsWith("#")) {
+            Identifier tagId = Identifier.tryParse(idStr.substring(1));
+            if (tagId != null) {
+                TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, tagId);
+                for (var entry : Registries.ITEM.iterateEntries(tagKey)) {
+                    return entry.value();
+                }
+            }
             return Items.AIR;
         }
         Identifier id = Identifier.tryParse(idStr);
