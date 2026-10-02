@@ -9,9 +9,7 @@ import net.minecraft.client.recipebook.ClientRecipeBook;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
-import net.minecraft.recipe.Recipe;
-import net.minecraft.recipe.RecipeDisplayEntry;
-import net.minecraft.recipe.RecipeEntry;
+import net.minecraft.recipe.*;
 import net.minecraft.recipe.display.*;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
@@ -21,19 +19,21 @@ import net.minecraft.world.World;
 import java.util.*;
 
 public class RecipeInspector {
-    private static final Map<Item, List<RecipeDisplay>> RECIPE_CACHE = new HashMap<>();
+    private static final Map<Item, List<RecipeEntry<?>>> RECIPE_ENTRIES = new HashMap<>();
+    private static final Map<Item, List<RecipeDisplay>> RECIPE_DISPLAYS = new HashMap<>();
     private static boolean cacheInitialized = false;
 
     public static void invalidateCache() {
-        RECIPE_CACHE.clear();
+        RECIPE_ENTRIES.clear();
+        RECIPE_DISPLAYS.clear();
         cacheInitialized = false;
     }
 
     public static void initializeCache(World world) {
-        RECIPE_CACHE.clear();
+        RECIPE_ENTRIES.clear();
+        RECIPE_DISPLAYS.clear();
         MinecraftClient client = MinecraftClient.getInstance();
 
-        // 1. Scan IntegratedServer / DedicatedServer if available (singleplayer world / host)
         if (client != null) {
             MinecraftServer server = client.getServer();
             if (server != null && server.getRecipeManager() != null) {
@@ -44,7 +44,8 @@ public class RecipeInspector {
                         for (RecipeDisplay display : displays) {
                             Item resultItem = getItemFromSlotDisplay(display.result());
                             if (resultItem != Items.AIR) {
-                                RECIPE_CACHE.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
+                                RECIPE_ENTRIES.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(entry);
+                                RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
                             }
                         }
                     } catch (Exception ignored) {}
@@ -53,7 +54,7 @@ public class RecipeInspector {
                 return;
             }
 
-            // 2. Scan ClientRecipeBook if connected to remote server
+            // Fallback for remote server connection via ClientRecipeBook
             if (client.player != null) {
                 ClientRecipeBook recipeBook = client.player.getRecipeBook();
                 if (recipeBook != null) {
@@ -62,7 +63,7 @@ public class RecipeInspector {
                             RecipeDisplay display = entry.display();
                             Item resultItem = getItemFromSlotDisplay(display.result());
                             if (resultItem != Items.AIR) {
-                                RECIPE_CACHE.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
+                                RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
                             }
                         }
                     }
@@ -85,8 +86,8 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        List<RecipeDisplay> entries = RECIPE_CACHE.get(item);
-        if (entries != null && !entries.isEmpty()) {
+        boolean hasEntry = RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item);
+        if (hasEntry) {
             return RecipeStatus.VANILLA_OR_MODDED;
         }
         return RecipeStatus.UNCRAFTABLE;
@@ -97,8 +98,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        List<RecipeDisplay> entries = RECIPE_CACHE.get(item);
-        return entries != null && !entries.isEmpty();
+        return RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item);
     }
 
     public static CustomRecipeData decompileRecipe(Item targetItem, World world) {
@@ -106,12 +106,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        List<RecipeDisplay> displays = RECIPE_CACHE.get(targetItem);
-        if (displays == null || displays.isEmpty()) {
-            return null;
-        }
 
-        RecipeDisplay display = displays.get(0);
         Identifier targetId = Registries.ITEM.getId(targetItem);
         CustomRecipeData data = new CustomRecipeData(
                 targetId != null ? targetId.getPath() : "recipe",
@@ -120,39 +115,92 @@ public class RecipeInspector {
                 RecipeTypeEnum.SHAPED_CRAFTING
         );
 
-        if (display instanceof ShapedCraftingRecipeDisplay shaped) {
-            data.type = RecipeTypeEnum.SHAPED_CRAFTING;
-            int width = shaped.width();
-            int height = shaped.height();
-            List<SlotDisplay> ings = shaped.ingredients();
-            for (int r = 0; r < 3; r++) {
-                for (int c = 0; c < 3; c++) {
-                    int slotIdx = r * 3 + c;
-                    if (r < height && c < width) {
-                        int ingIdx = r * width + c;
-                        if (ingIdx < ings.size()) {
-                            data.setSlotString(slotIdx, getSlotStringFromSlotDisplay(ings.get(ingIdx)));
+        // 1. Try decompiling directly from RecipeEntry<?> (exact ingredient matching)
+        List<RecipeEntry<?>> entries = RECIPE_ENTRIES.get(targetItem);
+        if (entries != null && !entries.isEmpty()) {
+            Recipe<?> recipe = entries.get(0).value();
+            if (recipe instanceof ShapedRecipe shaped) {
+                data.type = RecipeTypeEnum.SHAPED_CRAFTING;
+                int width = shaped.getWidth();
+                int height = shaped.getHeight();
+                List<Optional<Ingredient>> ings = shaped.getIngredients();
+                for (int r = 0; r < 3; r++) {
+                    for (int c = 0; c < 3; c++) {
+                        int slotIdx = r * 3 + c;
+                        if (r < height && c < width) {
+                            int ingIdx = r * width + c;
+                            if (ingIdx < ings.size()) {
+                                Optional<Ingredient> opt = ings.get(ingIdx);
+                                if (opt.isPresent()) {
+                                    data.setSlotString(slotIdx, getSlotStringFromIngredient(opt.get()));
+                                }
+                            }
                         }
                     }
                 }
+                return data;
+            } else if (recipe instanceof ShapelessRecipe shapeless) {
+                data.type = RecipeTypeEnum.SHAPELESS_CRAFTING;
+                List<RecipeDisplay> displays = recipe.getDisplays();
+                if (!displays.isEmpty() && displays.get(0) instanceof ShapelessCraftingRecipeDisplay disp) {
+                    List<SlotDisplay> ings = disp.ingredients();
+                    for (int i = 0; i < Math.min(9, ings.size()); i++) {
+                        data.setSlotString(i, getSlotStringFromSlotDisplay(ings.get(i)));
+                    }
+                }
+                return data;
+            } else if (recipe instanceof SingleStackRecipe singleStack) {
+                data.type = RecipeTypeEnum.STONECUTTING;
+                data.setSlotString(0, getSlotStringFromIngredient(singleStack.ingredient()));
+                return data;
             }
-        } else if (display instanceof ShapelessCraftingRecipeDisplay shapeless) {
-            data.type = RecipeTypeEnum.SHAPELESS_CRAFTING;
-            List<SlotDisplay> ings = shapeless.ingredients();
-            for (int i = 0; i < Math.min(9, ings.size()); i++) {
-                data.setSlotString(i, getSlotStringFromSlotDisplay(ings.get(i)));
-            }
-        } else if (display instanceof FurnaceRecipeDisplay furnace) {
-            data.type = RecipeTypeEnum.SMELTING;
-            data.experience = furnace.experience();
-            data.cookingTime = furnace.duration();
-            data.setSlotString(0, getSlotStringFromSlotDisplay(furnace.ingredient()));
-        } else if (display instanceof StonecutterRecipeDisplay stonecutter) {
-            data.type = RecipeTypeEnum.STONECUTTING;
-            data.setSlotString(0, getSlotStringFromSlotDisplay(stonecutter.input()));
         }
 
-        return data;
+        // 2. Fallback to decompiling from RecipeDisplay
+        List<RecipeDisplay> displays = RECIPE_DISPLAYS.get(targetItem);
+        if (displays != null && !displays.isEmpty()) {
+            RecipeDisplay display = displays.get(0);
+            if (display instanceof ShapedCraftingRecipeDisplay shaped) {
+                data.type = RecipeTypeEnum.SHAPED_CRAFTING;
+                int width = shaped.width();
+                int height = shaped.height();
+                List<SlotDisplay> ings = shaped.ingredients();
+                for (int r = 0; r < 3; r++) {
+                    for (int c = 0; c < 3; c++) {
+                        int slotIdx = r * 3 + c;
+                        if (r < height && c < width) {
+                            int ingIdx = r * width + c;
+                            if (ingIdx < ings.size()) {
+                                data.setSlotString(slotIdx, getSlotStringFromSlotDisplay(ings.get(ingIdx)));
+                            }
+                        }
+                    }
+                }
+            } else if (display instanceof ShapelessCraftingRecipeDisplay shapeless) {
+                data.type = RecipeTypeEnum.SHAPELESS_CRAFTING;
+                List<SlotDisplay> ings = shapeless.ingredients();
+                for (int i = 0; i < Math.min(9, ings.size()); i++) {
+                    data.setSlotString(i, getSlotStringFromSlotDisplay(ings.get(i)));
+                }
+            } else if (display instanceof FurnaceRecipeDisplay furnace) {
+                data.type = RecipeTypeEnum.SMELTING;
+                data.experience = furnace.experience();
+                data.cookingTime = furnace.duration();
+                data.setSlotString(0, getSlotStringFromSlotDisplay(furnace.ingredient()));
+            } else if (display instanceof StonecutterRecipeDisplay stonecutter) {
+                data.type = RecipeTypeEnum.STONECUTTING;
+                data.setSlotString(0, getSlotStringFromSlotDisplay(stonecutter.input()));
+            }
+            return data;
+        }
+
+        return null;
+    }
+
+    public static String getSlotStringFromIngredient(Ingredient ing) {
+        if (ing == null || ing.isEmpty()) return "minecraft:air";
+        SlotDisplay display = ing.toDisplay();
+        return getSlotStringFromSlotDisplay(display);
     }
 
     public static Item getItemFromSlotDisplay(SlotDisplay display) {
@@ -161,6 +209,8 @@ public class RecipeInspector {
             return itemDisplay.item().value();
         } else if (display instanceof SlotDisplay.StackSlotDisplay stackDisplay) {
             return stackDisplay.stack().getItem();
+        } else if (display instanceof SlotDisplay.WithRemainderSlotDisplay withRemainder) {
+            return getItemFromSlotDisplay(withRemainder.input());
         } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
             for (var entry : Registries.ITEM.iterateEntries(tagDisplay.tag())) {
                 return entry.value();
@@ -182,6 +232,8 @@ public class RecipeInspector {
         } else if (display instanceof SlotDisplay.StackSlotDisplay stackDisplay) {
             Identifier id = Registries.ITEM.getId(stackDisplay.stack().getItem());
             return id != null ? id.toString() : "minecraft:air";
+        } else if (display instanceof SlotDisplay.WithRemainderSlotDisplay withRemainder) {
+            return getSlotStringFromSlotDisplay(withRemainder.input());
         } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
             return "#" + tagDisplay.tag().id().toString();
         } else if (display instanceof SlotDisplay.CompositeSlotDisplay composite) {

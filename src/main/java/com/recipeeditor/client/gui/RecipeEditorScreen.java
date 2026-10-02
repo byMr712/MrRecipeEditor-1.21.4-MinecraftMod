@@ -32,10 +32,6 @@ public class RecipeEditorScreen extends Screen {
     private static final int RESULT_SLOT = 9;
     private int selectedSlot = 0; // 0..8 - crafting grid, 9 - result
 
-    // "My Recipes" overlay list state
-    private boolean isMyRecipesOpen = false;
-    private int myRecipesScroll = 0;
-
     // Filter modes
     public enum CatalogFilter {
         ALL("recipeeditor.gui.filter_all"),
@@ -90,7 +86,6 @@ public class RecipeEditorScreen extends Screen {
     private ButtonWidget toggleEnabledBtn;
     private ButtonWidget prevTabBtn;
     private ButtonWidget nextTabBtn;
-    private ButtonWidget myRecipesBtn;
     private final List<ButtonWidget> tabButtons = new ArrayList<>();
     private final List<ButtonWidget> filterButtons = new ArrayList<>();
     private final List<ButtonWidget> typeButtons = new ArrayList<>();
@@ -168,7 +163,7 @@ public class RecipeEditorScreen extends Screen {
                 }
             }
 
-            // Smart Status Filter
+            // Smart Status Filter ("Мои крафты" / "Без крафта" / "С крафтом")
             if (currentFilter == CatalogFilter.UNCRAFTABLE) {
                 if (RecipeInspector.getStatus(item, world, configCopy) != RecipeStatus.UNCRAFTABLE) {
                     continue;
@@ -207,17 +202,10 @@ public class RecipeEditorScreen extends Screen {
         if (configCopy.hasCustomRecipe(item)) {
             currentRecipe = configCopy.getRecipeFor(item);
         } else {
-            // Check if standard recipe can be auto-loaded
-            CustomRecipeData decompiled = RecipeInspector.decompileRecipe(item, this.client != null ? this.client.world : null);
-            if (decompiled != null) {
-                currentRecipe = decompiled;
-            } else {
-                currentRecipe = new CustomRecipeData(id.getPath(), id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
-            }
+            currentRecipe = new CustomRecipeData(id.getPath(), id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
         }
         rebuildTypeButtons();
         updateButtonStates();
-        updateMyRecipesButtonText();
     }
 
     @Override
@@ -259,29 +247,23 @@ public class RecipeEditorScreen extends Screen {
 
         int actionBtnY = contentY + 116;
 
-        // "My Recipes" button
-        myRecipesBtn = ButtonWidget.builder(getMyRecipesText(), btn -> toggleMyRecipes())
-                .dimensions(leftPaneX, actionBtnY, 196, 18)
-                .build();
-        this.addDrawableChild(myRecipesBtn);
-
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("recipeeditor.gui.clear_slot"), btn -> clearSelectedSlot())
-                .dimensions(leftPaneX, actionBtnY + 22, 96, 18)
+                .dimensions(leftPaneX, actionBtnY, 96, 18)
                 .build());
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("recipeeditor.gui.fill_outer"), btn -> fillOuterWithSelected())
-                .dimensions(leftPaneX + 100, actionBtnY + 22, 96, 18)
+                .dimensions(leftPaneX + 100, actionBtnY, 96, 18)
                 .build());
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("recipeeditor.gui.clear_all"), btn -> clearAllSlots())
-                .dimensions(leftPaneX, actionBtnY + 44, 196, 18)
+                .dimensions(leftPaneX, actionBtnY + 22, 196, 18)
                 .build());
 
         loadVanillaBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.load_vanilla"), btn -> loadVanillaForCurrent())
-                .dimensions(leftPaneX, actionBtnY + 66, 196, 18)
+                .dimensions(leftPaneX, actionBtnY + 44, 196, 18)
                 .build();
         this.addDrawableChild(loadVanillaBtn);
 
         deleteRecipeBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.delete_custom").formatted(Formatting.RED), btn -> deleteCurrentRecipe())
-                .dimensions(leftPaneX, actionBtnY + 88, 196, 18)
+                .dimensions(leftPaneX, actionBtnY + 66, 196, 18)
                 .build();
         this.addDrawableChild(deleteRecipeBtn);
 
@@ -345,22 +327,6 @@ public class RecipeEditorScreen extends Screen {
         updateButtonStates();
     }
 
-    private Text getMyRecipesText() {
-        int count = configCopy.recipes != null ? configCopy.recipes.size() : 0;
-        return Text.translatable("recipeeditor.gui.my_recipes", count).formatted(Formatting.GOLD, Formatting.BOLD);
-    }
-
-    private void updateMyRecipesButtonText() {
-        if (myRecipesBtn != null) {
-            myRecipesBtn.setMessage(getMyRecipesText());
-        }
-    }
-
-    private void toggleMyRecipes() {
-        isMyRecipesOpen = !isMyRecipesOpen;
-        myRecipesScroll = 0;
-    }
-
     private void updateButtonStates() {
         var world = this.client != null ? this.client.world : null;
         Item item = currentRecipe != null ? currentRecipe.getResultItem() : Items.AIR;
@@ -370,7 +336,6 @@ public class RecipeEditorScreen extends Screen {
         if (deleteRecipeBtn != null) {
             deleteRecipeBtn.active = configCopy.hasCustomRecipe(item);
         }
-        updateMyRecipesButtonText();
     }
 
     private void rebuildFilterButtons(int startX, int startY) {
@@ -548,6 +513,8 @@ public class RecipeEditorScreen extends Screen {
     private void loadVanillaForCurrent() {
         if (currentRecipe == null) return;
         Item item = currentRecipe.getResultItem();
+        if (item == Items.AIR) return;
+
         var world = this.client != null ? this.client.world : null;
         CustomRecipeData decompiled = RecipeInspector.decompileRecipe(item, world);
         if (decompiled != null) {
@@ -557,6 +524,7 @@ public class RecipeEditorScreen extends Screen {
             currentRecipe.cookingTime = decompiled.cookingTime;
             currentRecipe.invalidateCache();
             rebuildTypeButtons();
+            updateButtonStates();
         }
     }
 
@@ -679,23 +647,6 @@ public class RecipeEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (isMyRecipesOpen) {
-            int overlayX = leftPaneX;
-            int overlayY = contentY + 18;
-            int overlayW = LEFT_PANE_WIDTH;
-            int overlayH = 180;
-            if (mouseX >= overlayX && mouseX <= overlayX + overlayW && mouseY >= overlayY && mouseY <= overlayY + overlayH) {
-                if (verticalAmount > 0) {
-                    myRecipesScroll = Math.max(0, myRecipesScroll - 1);
-                    return true;
-                } else if (verticalAmount < 0) {
-                    int maxScroll = Math.max(0, (configCopy.recipes != null ? configCopy.recipes.size() : 0) - 5);
-                    myRecipesScroll = Math.min(maxScroll, myRecipesScroll + 1);
-                    return true;
-                }
-            }
-        }
-
         int catalogWidth = catalogCols * SLOT_SIZE + 10;
         int catalogHeight = (catalogRows * SLOT_SIZE) + 40;
 
@@ -847,11 +798,6 @@ public class RecipeEditorScreen extends Screen {
         MutableText pageInfo = Text.translatable("recipeeditor.gui.items_total", catalogPage + 1, maxPage, filteredItems.size());
         context.drawCenteredTextWithShadow(this.textRenderer, pageInfo.formatted(Formatting.GRAY), rightPaneX + (searchWidth / 2), catalogGridY + (catalogRows * SLOT_SIZE) + 10, 0xFFAAAAAA);
 
-        // --- RENDER "MY RECIPES" OVERLAY LIST (if opened) ---
-        if (isMyRecipesOpen) {
-            renderMyRecipesOverlay(context, mouseX, mouseY);
-        }
-
         // Notification overlay message
         if (notificationText != null && System.currentTimeMillis() < notificationTimer) {
             context.drawCenteredTextWithShadow(this.textRenderer, notificationText, centerX, this.height - 40, 0xFF55FF55);
@@ -864,73 +810,8 @@ public class RecipeEditorScreen extends Screen {
                     : new ItemStack(draggedItem);
             context.drawItem(dragStack, mouseX - 8, mouseY - 8);
             context.drawStackOverlay(this.textRenderer, dragStack, mouseX - 8, mouseY - 8);
-        } else if (!hoveredStack.isEmpty() && !isMyRecipesOpen) {
+        } else if (!hoveredStack.isEmpty()) {
             context.drawItemTooltip(this.textRenderer, hoveredStack, mouseX, mouseY);
-        }
-    }
-
-    private void renderMyRecipesOverlay(DrawContext context, int mouseX, int mouseY) {
-        int overlayX = leftPaneX;
-        int overlayY = contentY + 20;
-        int overlayW = LEFT_PANE_WIDTH;
-        int overlayH = 185;
-
-        // Dark translucent background with gold border
-        context.fill(overlayX, overlayY, overlayX + overlayW, overlayY + overlayH, 0xEE111111);
-        context.drawBorder(overlayX, overlayY, overlayW, overlayH, 0xFFFFD700);
-
-        // Header
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.my_recipes_title").formatted(Formatting.GOLD, Formatting.BOLD), overlayX + 6, overlayY + 6, 0xFFFFAA00);
-
-        // [+ New Recipe] button
-        int newBtnX = overlayX + overlayW - 68;
-        int newBtnY = overlayY + 4;
-        boolean hoverNew = mouseX >= newBtnX && mouseX <= newBtnX + 62 && mouseY >= newBtnY && mouseY <= newBtnY + 14;
-        context.fill(newBtnX, newBtnY, newBtnX + 62, newBtnY + 14, hoverNew ? 0xFF2E7D32 : 0xFF1B5E20);
-        context.drawBorder(newBtnX, newBtnY, 62, 14, 0xFF4CAF50);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.new_recipe").formatted(Formatting.WHITE), newBtnX + 4, newBtnY + 3, 0xFFFFFFFF);
-
-        List<CustomRecipeData> list = new ArrayList<>(configCopy.recipes.values());
-        if (list.isEmpty()) {
-            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.no_recipes_yet").formatted(Formatting.GRAY), overlayX + (overlayW / 2), overlayY + 80, 0xFFAAAAAA);
-            return;
-        }
-
-        int itemY = overlayY + 22;
-        int visibleCount = 5;
-        int startIndex = Math.min(myRecipesScroll, Math.max(0, list.size() - visibleCount));
-        int endIndex = Math.min(list.size(), startIndex + visibleCount);
-
-        for (int i = startIndex; i < endIndex; i++) {
-            CustomRecipeData r = list.get(i);
-            Item item = r.getResultItem();
-            ItemStack stack = new ItemStack(item, r.resultCount);
-
-            int entryY = itemY + (i - startIndex) * 30;
-            boolean isHovered = mouseX >= overlayX + 4 && mouseX <= overlayX + overlayW - 4 && mouseY >= entryY && mouseY <= entryY + 28;
-            int bg = isHovered ? 0x66FFAA00 : 0x44000000;
-            context.fill(overlayX + 4, entryY, overlayX + overlayW - 4, entryY + 28, bg);
-            context.drawBorder(overlayX + 4, entryY, overlayW - 8, 28, isHovered ? 0xFFFFD700 : 0xFF444444);
-
-            // Icon
-            context.drawItem(stack, overlayX + 8, entryY + 6);
-            context.drawStackOverlay(this.textRenderer, stack, overlayX + 8, entryY + 6);
-
-            // Text
-            String name = item.getName().getString();
-            if (name.length() > 14) name = name.substring(0, 13) + "…";
-            context.drawTextWithShadow(this.textRenderer, Text.literal(name).formatted(Formatting.WHITE), overlayX + 30, entryY + 5, 0xFFFFFFFF);
-
-            Text typeText = r.type.getDisplayName().copy().formatted(Formatting.DARK_GRAY);
-            context.drawTextWithShadow(this.textRenderer, typeText, overlayX + 30, entryY + 16, 0xFFAAAAAA);
-
-            // Delete [X] button
-            int delX = overlayX + overlayW - 22;
-            int delY = entryY + 6;
-            boolean hoverDel = mouseX >= delX && mouseX <= delX + 16 && mouseY >= delY && mouseY <= delY + 16;
-            context.fill(delX, delY, delX + 16, delY + 16, hoverDel ? 0xFFB71C1C : 0xFF441111);
-            context.drawBorder(delX, delY, 16, 16, 0xFFFF5555);
-            context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("✕").formatted(Formatting.RED), delX + 8, delY + 4, 0xFFFF5555);
         }
     }
 
@@ -954,65 +835,6 @@ public class RecipeEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (isMyRecipesOpen) {
-            int overlayX = leftPaneX;
-            int overlayY = contentY + 20;
-            int overlayW = LEFT_PANE_WIDTH;
-            int overlayH = 185;
-
-            // [+ New Recipe] button click
-            int newBtnX = overlayX + overlayW - 68;
-            int newBtnY = overlayY + 4;
-            if (mouseX >= newBtnX && mouseX <= newBtnX + 62 && mouseY >= newBtnY && mouseY <= newBtnY + 14) {
-                currentRecipe = new CustomRecipeData("", "minecraft:air", 1, RecipeTypeEnum.SHAPED_CRAFTING);
-                isMyRecipesOpen = false;
-                rebuildTypeButtons();
-                updateButtonStates();
-                return true;
-            }
-
-            // Click on list entry
-            List<CustomRecipeData> list = new ArrayList<>(configCopy.recipes.values());
-            int itemY = overlayY + 22;
-            int visibleCount = 5;
-            int startIndex = Math.min(myRecipesScroll, Math.max(0, list.size() - visibleCount));
-            int endIndex = Math.min(list.size(), startIndex + visibleCount);
-
-            for (int i = startIndex; i < endIndex; i++) {
-                int entryY = itemY + (i - startIndex) * 30;
-                CustomRecipeData r = list.get(i);
-
-                // Check delete [X] click
-                int delX = overlayX + overlayW - 22;
-                int delY = entryY + 6;
-                if (mouseX >= delX && mouseX <= delX + 16 && mouseY >= delY && mouseY <= delY + 16) {
-                    configCopy.removeRecipe(r.resultItemId);
-                    if (currentRecipe != null && currentRecipe.resultItemId.equals(r.resultItemId)) {
-                        currentRecipe = new CustomRecipeData("", "minecraft:air", 1, RecipeTypeEnum.SHAPED_CRAFTING);
-                    }
-                    updateButtonStates();
-                    refreshFilteredItems();
-                    return true;
-                }
-
-                // Check entry select click
-                if (mouseX >= overlayX + 4 && mouseX <= overlayX + overlayW - 24 && mouseY >= entryY && mouseY <= entryY + 28) {
-                    currentRecipe = r;
-                    isMyRecipesOpen = false;
-                    rebuildTypeButtons();
-                    updateButtonStates();
-                    return true;
-                }
-            }
-
-            // Click outside overlay closes it
-            if (mouseX < overlayX || mouseX > overlayX + overlayW || mouseY < overlayY || mouseY > overlayY + overlayH) {
-                isMyRecipesOpen = false;
-                return true;
-            }
-            return true;
-        }
-
         if (super.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
