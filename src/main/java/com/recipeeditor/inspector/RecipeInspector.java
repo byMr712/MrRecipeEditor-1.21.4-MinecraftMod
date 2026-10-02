@@ -316,7 +316,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        boolean hasEntry = RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || getSyntheticDynamicRecipe(item) != null;
+        boolean hasEntry = RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || !getSyntheticDynamicRecipes(item).isEmpty();
         if (hasEntry) {
             return RecipeStatus.VANILLA_OR_MODDED;
         }
@@ -328,7 +328,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        return RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || getSyntheticDynamicRecipe(item) != null;
+        return RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || !getSyntheticDynamicRecipes(item).isEmpty();
     }
 
     public static List<CustomRecipeData> getAllRecipeVariants(Item targetItem, World world) {
@@ -374,12 +374,10 @@ public class RecipeInspector {
             }
         }
 
-        // 4. Dynamic Vanilla Special Recipes (Colored Bundles, Colored Shulkers, Colored Candles)
-        if (variants.isEmpty()) {
-            CustomRecipeData synthetic = getSyntheticDynamicRecipe(targetItem);
-            if (synthetic != null) {
-                adder.accept(synthetic);
-            }
+        // 4. Dynamic Vanilla Special Recipes (Colored Bundles, Wools, Beds, Shulkers, Candles, etc.)
+        List<CustomRecipeData> synthetics = getSyntheticDynamicRecipes(targetItem);
+        for (CustomRecipeData syn : synthetics) {
+            adder.accept(syn);
         }
 
         return variants;
@@ -446,10 +444,10 @@ public class RecipeInspector {
         return currentLevel;
     }
 
-    public static CustomRecipeData getSyntheticDynamicRecipe(Item targetItem) {
-        if (targetItem == null || targetItem == Items.AIR) return null;
+    public static List<CustomRecipeData> getSyntheticDynamicRecipes(Item targetItem) {
+        if (targetItem == null || targetItem == Items.AIR) return Collections.emptyList();
         Identifier id = Registries.ITEM.getId(targetItem);
-        if (id == null) return null;
+        if (id == null) return Collections.emptyList();
         String path = id.getPath();
 
         String[] colors = new String[]{
@@ -457,51 +455,168 @@ public class RecipeInspector {
                 "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"
         };
 
-        // Colored Bundles (e.g. red_bundle -> bundle + red_dye)
+        List<CustomRecipeData> list = new ArrayList<>();
+
+        // 1. Colored Bundles (e.g. red_bundle -> bundle + red_dye, or other_bundle + red_dye)
         if (path.endsWith("_bundle") && !path.equals("bundle")) {
             for (String color : colors) {
                 if (path.equals(color + "_bundle")) {
-                    CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
-                    data.setSlotString(0, "minecraft:bundle");
-                    data.setSlotString(1, "minecraft:" + color + "_dye");
-                    return data;
+                    String dye = "minecraft:" + color + "_dye";
+                    // Base undyed bundle + dye
+                    CustomRecipeData baseVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                    baseVar.setSlotString(0, "minecraft:bundle");
+                    baseVar.setSlotString(1, dye);
+                    list.add(baseVar);
+
+                    // Re-dye from every other bundle color
+                    for (String other : colors) {
+                        if (!other.equals(color)) {
+                            CustomRecipeData otherVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            otherVar.setSlotString(0, "minecraft:" + other + "_bundle");
+                            otherVar.setSlotString(1, dye);
+                            list.add(otherVar);
+                        }
+                    }
+                    return list;
                 }
             }
         }
 
-        // Undyed Bundle (string + leather)
+        // 2. Undyed Bundle (string + leather)
         if (path.equals("bundle") && id.getNamespace().equals("minecraft")) {
             CustomRecipeData data = new CustomRecipeData("bundle", "minecraft:bundle", 1, RecipeTypeEnum.SHAPED_CRAFTING);
             data.setSlotString(1, "minecraft:string");
             data.setSlotString(4, "minecraft:leather");
-            return data;
+            list.add(data);
+            return list;
         }
 
-        // Colored Shulker Boxes (shulker_box + color_dye)
-        if (path.endsWith("_shulker_box") && !path.equals("shulker_box")) {
+        // 3. Colored Wool (dye from every other wool color)
+        if (path.endsWith("_wool")) {
             for (String color : colors) {
-                if (path.equals(color + "_shulker_box")) {
-                    CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
-                    data.setSlotString(0, "minecraft:shulker_box");
-                    data.setSlotString(1, "minecraft:" + color + "_dye");
-                    return data;
+                if (path.equals(color + "_wool")) {
+                    String dye = "minecraft:" + color + "_dye";
+                    if (color.equals("white")) {
+                        CustomRecipeData stringCraft = new CustomRecipeData("white_wool_string", "minecraft:white_wool", 1, RecipeTypeEnum.SHAPED_CRAFTING);
+                        stringCraft.setSlotString(0, "minecraft:string");
+                        stringCraft.setSlotString(1, "minecraft:string");
+                        stringCraft.setSlotString(3, "minecraft:string");
+                        stringCraft.setSlotString(4, "minecraft:string");
+                        list.add(stringCraft);
+                    }
+                    for (String other : colors) {
+                        if (!other.equals(color)) {
+                            CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            data.setSlotString(0, "minecraft:" + other + "_wool");
+                            data.setSlotString(1, dye);
+                            list.add(data);
+                        }
+                    }
+                    return list;
                 }
             }
         }
 
-        // Colored Candles (candle + color_dye)
+        // 4. Colored Beds (bed + dye, or 3 wool + 3 planks)
+        if (path.endsWith("_bed")) {
+            for (String color : colors) {
+                if (path.equals(color + "_bed")) {
+                    String dye = "minecraft:" + color + "_dye";
+                    // Dye from any other bed
+                    for (String other : colors) {
+                        if (!other.equals(color)) {
+                            CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            data.setSlotString(0, "minecraft:" + other + "_bed");
+                            data.setSlotString(1, dye);
+                            list.add(data);
+                        }
+                    }
+                    // Shaped craft from 3 wool + 3 planks
+                    CustomRecipeData bedCraft = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
+                    bedCraft.setSlotString(0, "minecraft:" + color + "_wool");
+                    bedCraft.setSlotString(1, "minecraft:" + color + "_wool");
+                    bedCraft.setSlotString(2, "minecraft:" + color + "_wool");
+                    bedCraft.setSlotString(3, "#minecraft:planks");
+                    bedCraft.setSlotString(4, "#minecraft:planks");
+                    bedCraft.setSlotString(5, "#minecraft:planks");
+                    list.add(bedCraft);
+                    return list;
+                }
+            }
+        }
+
+        // 5. Colored Candles (candle + dye, or other_candle + dye)
         if (path.endsWith("_candle") && !path.equals("candle")) {
             for (String color : colors) {
                 if (path.equals(color + "_candle")) {
-                    CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
-                    data.setSlotString(0, "minecraft:candle");
-                    data.setSlotString(1, "minecraft:" + color + "_dye");
-                    return data;
+                    String dye = "minecraft:" + color + "_dye";
+                    CustomRecipeData baseVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                    baseVar.setSlotString(0, "minecraft:candle");
+                    baseVar.setSlotString(1, dye);
+                    list.add(baseVar);
+
+                    for (String other : colors) {
+                        if (!other.equals(color)) {
+                            CustomRecipeData otherVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            otherVar.setSlotString(0, "minecraft:" + other + "_candle");
+                            otherVar.setSlotString(1, dye);
+                            list.add(otherVar);
+                        }
+                    }
+                    return list;
                 }
             }
         }
 
-        return null;
+        // 6. Colored Shulker Boxes (shulker_box + dye, or other_shulker_box + dye)
+        if (path.endsWith("_shulker_box") && !path.equals("shulker_box")) {
+            for (String color : colors) {
+                if (path.equals(color + "_shulker_box")) {
+                    String dye = "minecraft:" + color + "_dye";
+                    CustomRecipeData baseVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                    baseVar.setSlotString(0, "minecraft:shulker_box");
+                    baseVar.setSlotString(1, dye);
+                    list.add(baseVar);
+
+                    for (String other : colors) {
+                        if (!other.equals(color)) {
+                            CustomRecipeData otherVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            otherVar.setSlotString(0, "minecraft:" + other + "_shulker_box");
+                            otherVar.setSlotString(1, dye);
+                            list.add(otherVar);
+                        }
+                    }
+                    return list;
+                }
+            }
+        }
+
+        // 7. Colored Carpets (2 wool, or 8 carpets + dye)
+        if (path.endsWith("_carpet")) {
+            for (String color : colors) {
+                if (path.equals(color + "_carpet")) {
+                    String dye = "minecraft:" + color + "_dye";
+                    CustomRecipeData woolCraft = new CustomRecipeData(path, id.toString(), 3, RecipeTypeEnum.SHAPED_CRAFTING);
+                    woolCraft.setSlotString(0, "minecraft:" + color + "_wool");
+                    woolCraft.setSlotString(1, "minecraft:" + color + "_wool");
+                    list.add(woolCraft);
+
+                    for (String other : colors) {
+                        if (!other.equals(color)) {
+                            CustomRecipeData data = new CustomRecipeData(path, id.toString(), 8, RecipeTypeEnum.SHAPED_CRAFTING);
+                            for (int i = 0; i < 9; i++) {
+                                if (i == 4) data.setSlotString(i, dye);
+                                else data.setSlotString(i, "minecraft:" + other + "_carpet");
+                            }
+                            list.add(data);
+                        }
+                    }
+                    return list;
+                }
+            }
+        }
+
+        return list;
     }
 
     private static String getRecipeSignature(CustomRecipeData d) {

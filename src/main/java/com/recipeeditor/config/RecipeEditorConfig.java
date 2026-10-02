@@ -20,6 +20,7 @@ public class RecipeEditorConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static RecipeEditorConfig INSTANCE;
 
+    public boolean modEnabled = true;
     public Map<String, CustomRecipeData> recipes = new LinkedHashMap<>();
 
     public static RecipeEditorConfig getInstance() {
@@ -56,6 +57,7 @@ public class RecipeEditorConfig {
     }
 
     public void initDefaults() {
+        modEnabled = true;
         recipes.clear(); // Clean slate by default - no pre-added recipes
     }
 
@@ -93,13 +95,13 @@ public class RecipeEditorConfig {
     }
 
     public boolean hasCustomRecipe(Item item) {
-        if (item == null || item == Items.AIR) return false;
+        if (!modEnabled || item == null || item == Items.AIR) return false;
         Identifier id = Registries.ITEM.getId(item);
         return id != null && hasCustomRecipe(id.toString());
     }
 
     public boolean hasCustomRecipe(String itemId) {
-        if (recipes == null || itemId == null) return false;
+        if (!modEnabled || recipes == null || itemId == null) return false;
         for (CustomRecipeData r : recipes.values()) {
             if (r.enabled && itemId.equals(r.resultItemId)) {
                 return true;
@@ -167,6 +169,7 @@ public class RecipeEditorConfig {
 
     public RecipeEditorConfig copy() {
         RecipeEditorConfig copy = new RecipeEditorConfig();
+        copy.modEnabled = this.modEnabled;
         if (this.recipes != null) {
             for (Map.Entry<String, CustomRecipeData> entry : this.recipes.entrySet()) {
                 copy.recipes.put(entry.getKey(), entry.getValue().copy());

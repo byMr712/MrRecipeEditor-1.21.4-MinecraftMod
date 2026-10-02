@@ -59,7 +59,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
 
     private CustomRecipeData findMatchingRecipe(CraftingRecipeInput input) {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
-        if (config == null || config.recipes == null || config.recipes.isEmpty() || input.isEmpty()) {
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty() || input.isEmpty()) {
             return null;
         }
 
@@ -215,7 +215,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
     @Override
     public List<RecipeDisplay> getDisplays() {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
-        if (config == null || config.recipes == null || config.recipes.isEmpty()) {
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
             return Collections.emptyList();
         }
 

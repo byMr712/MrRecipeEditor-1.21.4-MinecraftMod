@@ -493,7 +493,7 @@ public class RecipeEditorScreen extends Screen {
         this.addDrawableChild(plusCountBtn);
 
         // Action Buttons
-        int actionBtnY = gridStartY + 84;
+        int actionBtnY = gridStartY + 96;
 
         saveCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.save_craft").formatted(Formatting.GREEN, Formatting.BOLD), btn -> saveCurrentCraft())
                 .dimensions(leftPaneX, actionBtnY, LEFT_PANE_WIDTH, 18)
@@ -711,16 +711,19 @@ public class RecipeEditorScreen extends Screen {
         if (toggleEnabledBtn != null) {
             this.remove(toggleEnabledBtn);
         }
-        boolean enabled = currentRecipe == null || currentRecipe.enabled;
+        boolean enabled = configCopy.modEnabled;
         Text toggleText = enabled
                 ? Text.translatable("recipeeditor.gui.recipe_enabled").formatted(Formatting.GREEN, Formatting.BOLD)
                 : Text.translatable("recipeeditor.gui.recipe_disabled").formatted(Formatting.RED, Formatting.BOLD);
 
         toggleEnabledBtn = ButtonWidget.builder(toggleText, btn -> {
-            if (currentRecipe != null) {
-                currentRecipe.enabled = !currentRecipe.enabled;
-                updateToggleBtn(x, y);
-            }
+            configCopy.modEnabled = !configCopy.modEnabled;
+            RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
+            actual.modEnabled = configCopy.modEnabled;
+            actual.save();
+            updateToggleBtn(x, y);
+            refreshFilteredItems();
+            updateButtonStates();
         }).dimensions(x, y, LEFT_PANE_WIDTH, 18).build();
         this.addDrawableChild(toggleEnabledBtn);
     }
@@ -1044,7 +1047,7 @@ public class RecipeEditorScreen extends Screen {
 
             // Active variant description text below crafting grid
             Text variantText = Text.translatable("recipeeditor.gui.craft_variant", currentVariantIndex + 1, variantTotal).formatted(Formatting.GREEN);
-            context.drawTextWithShadow(this.textRenderer, variantText, leftPaneX, gridStartY + 68, 0xFF55FF55);
+            context.drawTextWithShadow(this.textRenderer, variantText, leftPaneX, gridStartY + 80, 0xFF55FF55);
         }
 
         // --- DRAW DYNAMIC CATALOG GRID ---
