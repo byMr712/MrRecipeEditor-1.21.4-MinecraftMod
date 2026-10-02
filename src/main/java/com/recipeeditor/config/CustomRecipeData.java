@@ -33,7 +33,7 @@ public class CustomRecipeData {
     public CustomRecipeData(String id, String resultItemId, int resultCount, RecipeTypeEnum type) {
         this.id = id;
         this.resultItemId = resultItemId;
-        this.resultCount = Math.max(1, Math.min(64, resultCount));
+        this.resultCount = Math.max(1, Math.min(1000, resultCount));
         this.type = type != null ? type : RecipeTypeEnum.SHAPED_CRAFTING;
         this.patternSlots = new String[9];
         Arrays.fill(this.patternSlots, "minecraft:air");

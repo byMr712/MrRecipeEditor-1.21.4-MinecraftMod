@@ -69,7 +69,7 @@ public class RecipeEditorConfig {
                 Arrays.fill(recipe.patternSlots, "minecraft:air");
             }
             if (recipe.resultCount < 1) recipe.resultCount = 1;
-            if (recipe.resultCount > 64) recipe.resultCount = 64;
+            if (recipe.resultCount > 1000) recipe.resultCount = 1000;
             if (recipe.type == null) recipe.type = RecipeTypeEnum.SHAPED_CRAFTING;
         }
     }

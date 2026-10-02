@@ -38,39 +38,100 @@ public class RecipeInspector {
             MinecraftServer server = client.getServer();
             if (server != null && server.getRecipeManager() != null) {
                 for (RecipeEntry<?> entry : server.getRecipeManager().values()) {
-                    Recipe<?> recipe = entry.value();
-                    try {
-                        List<RecipeDisplay> displays = recipe.getDisplays();
-                        for (RecipeDisplay display : displays) {
-                            Item resultItem = getItemFromSlotDisplay(display.result());
-                            if (resultItem != Items.AIR) {
-                                RECIPE_ENTRIES.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(entry);
-                                RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
-                            }
-                        }
-                    } catch (Exception ignored) {}
+                    indexRecipeEntry(entry);
                 }
                 cacheInitialized = true;
                 return;
             }
 
-            // Fallback for remote server connection via ClientRecipeBook
             if (client.player != null) {
                 ClientRecipeBook recipeBook = client.player.getRecipeBook();
                 if (recipeBook != null) {
                     for (RecipeResultCollection collection : recipeBook.getOrderedResults()) {
                         for (RecipeDisplayEntry entry : collection.getAllRecipes()) {
                             RecipeDisplay display = entry.display();
-                            Item resultItem = getItemFromSlotDisplay(display.result());
-                            if (resultItem != Items.AIR) {
-                                RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
+                            Set<Item> resultItems = getAllItemsFromSlotDisplay(display.result());
+                            for (Item resultItem : resultItems) {
+                                if (resultItem != Items.AIR) {
+                                    RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
+                                }
                             }
                         }
                     }
                 }
+                cacheInitialized = true;
+                return;
             }
         }
+
+        // Offline / Main Menu Fallback: Load default vanilla recipes
+        try (net.minecraft.resource.LifecycledResourceManager resourceManager =
+                     new net.minecraft.resource.LifecycledResourceManagerImpl(
+                             net.minecraft.resource.ResourceType.SERVER_DATA,
+                             java.util.List.of(net.minecraft.resource.VanillaDataPackProvider.createDefaultPack()))) {
+            OfflineRecipeManager offlineManager = new OfflineRecipeManager(net.minecraft.registry.DynamicRegistryManager.of(Registries.REGISTRIES));
+            offlineManager.load(resourceManager);
+            for (RecipeEntry<?> entry : offlineManager.values()) {
+                indexRecipeEntry(entry);
+            }
+        } catch (Exception e) {
+            com.recipeeditor.RecipeEditorMod.LOGGER.error("Failed to load offline vanilla recipes", e);
+        }
+
         cacheInitialized = true;
+    }
+
+    private static class OfflineRecipeManager extends ServerRecipeManager {
+        public OfflineRecipeManager(net.minecraft.registry.RegistryWrapper.WrapperLookup registries) {
+            super(registries);
+        }
+
+        public void load(net.minecraft.resource.ResourceManager resourceManager) {
+            net.minecraft.recipe.PreparedRecipes prepared = this.prepare(resourceManager, net.minecraft.util.profiler.DummyProfiler.INSTANCE);
+            this.apply(prepared, resourceManager, net.minecraft.util.profiler.DummyProfiler.INSTANCE);
+            this.initialize(net.minecraft.resource.featuretoggle.FeatureFlags.VANILLA_FEATURES);
+        }
+    }
+
+    private static void indexRecipeEntry(RecipeEntry<?> entry) {
+        Recipe<?> recipe = entry.value();
+        try {
+            List<RecipeDisplay> displays = recipe.getDisplays();
+            for (RecipeDisplay display : displays) {
+                Set<Item> resultItems = getAllItemsFromSlotDisplay(display.result());
+                for (Item resultItem : resultItems) {
+                    if (resultItem != Items.AIR) {
+                        RECIPE_ENTRIES.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(entry);
+                        RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    public static Set<Item> getAllItemsFromSlotDisplay(SlotDisplay display) {
+        Set<Item> items = new HashSet<>();
+        collectItemsFromSlotDisplay(display, items);
+        return items;
+    }
+
+    private static void collectItemsFromSlotDisplay(SlotDisplay display, Set<Item> items) {
+        if (display == null) return;
+        if (display instanceof SlotDisplay.ItemSlotDisplay itemDisplay) {
+            items.add(itemDisplay.item().value());
+        } else if (display instanceof SlotDisplay.StackSlotDisplay stackDisplay) {
+            items.add(stackDisplay.stack().getItem());
+        } else if (display instanceof SlotDisplay.WithRemainderSlotDisplay withRemainder) {
+            collectItemsFromSlotDisplay(withRemainder.input(), items);
+        } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
+            for (var entry : Registries.ITEM.iterateEntries(tagDisplay.tag())) {
+                items.add(entry.value());
+            }
+        } else if (display instanceof SlotDisplay.CompositeSlotDisplay composite) {
+            for (SlotDisplay child : composite.contents()) {
+                collectItemsFromSlotDisplay(child, items);
+            }
+        }
     }
 
     public static RecipeStatus getStatus(Item item, World world, RecipeEditorConfig config) {
