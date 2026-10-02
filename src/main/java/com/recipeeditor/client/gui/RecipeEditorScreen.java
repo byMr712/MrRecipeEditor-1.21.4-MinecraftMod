@@ -783,6 +783,7 @@ public class RecipeEditorScreen extends Screen {
             RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
             actual.modEnabled = configCopy.modEnabled;
             actual.save();
+            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_TOGGLE_ENABLED, String.valueOf(configCopy.modEnabled));
             updateToggleBtn(x, y);
             refreshFilteredItems();
             updateButtonStates();
@@ -838,6 +839,30 @@ public class RecipeEditorScreen extends Screen {
         updateButtonStates();
     }
 
+    private void sendNetworkUpdate(int action, String payload) {
+        try {
+            if (net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.canSend(com.recipeeditor.network.UpdateRecipeC2SPacket.ID)) {
+                net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(new com.recipeeditor.network.UpdateRecipeC2SPacket(action, payload));
+            }
+        } catch (Exception ignored) {}
+    }
+
+    public void onServerConfigSynced(RecipeEditorConfig synced) {
+        if (synced == null) return;
+        this.configCopy.modEnabled = synced.modEnabled;
+        this.configCopy.recipes.clear();
+        if (synced.recipes != null) {
+            for (Map.Entry<String, CustomRecipeData> e : synced.recipes.entrySet()) {
+                this.configCopy.recipes.put(e.getKey(), e.getValue().copy());
+            }
+        }
+        if (targetItem != null) {
+            refreshTypeVariants(selectedType, false);
+        }
+        refreshFilteredItems();
+        updateButtonStates();
+    }
+
     private void saveCurrentCraft() {
         if (targetItem == null || currentRecipe == null || targetItem == Items.AIR) return;
 
@@ -882,6 +907,7 @@ public class RecipeEditorScreen extends Screen {
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
         actual.addOrUpdateRecipe(currentRecipe.copy());
         actual.save();
+        sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE, currentRecipe.toJson());
 
         notificationText = Text.translatable("recipeeditor.gui.craft_saved").formatted(Formatting.GREEN, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
@@ -897,6 +923,7 @@ public class RecipeEditorScreen extends Screen {
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
         actual.removeRecipe(currentRecipe);
         actual.save();
+        sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, currentRecipe.toJson());
 
         notificationText = Text.translatable("recipeeditor.gui.craft_deleted").formatted(Formatting.RED, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
@@ -911,6 +938,7 @@ public class RecipeEditorScreen extends Screen {
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
         actual.initDefaults();
         actual.save();
+        sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_RESET_DEFAULTS, "");
 
         this.targetItem = null;
         this.currentRecipe = null;

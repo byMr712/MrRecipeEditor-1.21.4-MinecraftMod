@@ -226,4 +226,19 @@ public class CustomRecipeData {
         }
         return copy;
     }
+
+    private static final com.google.gson.Gson GSON = new com.google.gson.Gson();
+
+    public String toJson() {
+        return GSON.toJson(this);
+    }
+
+    public static CustomRecipeData fromJson(String json) {
+        if (json == null || json.isEmpty()) return null;
+        try {
+            return GSON.fromJson(json, CustomRecipeData.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

@@ -17,6 +17,9 @@
     "main": [
       "com.recipeeditor.RecipeEditorMod"
     ],
+    "client": [
+      "com.recipeeditor.client.RecipeEditorClient"
+    ],
     "modmenu": [
       "com.recipeeditor.integration.ModMenuIntegration"
     ]

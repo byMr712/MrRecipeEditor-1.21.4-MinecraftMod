@@ -190,4 +190,22 @@ public class RecipeEditorConfig {
         }
         return copy;
     }
+
+    public String toJson() {
+        return GSON.toJson(this);
+    }
+
+    public static RecipeEditorConfig fromJson(String json) {
+        if (json == null || json.isEmpty()) return null;
+        try {
+            RecipeEditorConfig config = GSON.fromJson(json, RecipeEditorConfig.class);
+            if (config != null) {
+                config.validate();
+            }
+            return config;
+        } catch (Exception e) {
+            RecipeEditorMod.LOGGER.error("Failed to parse RecipeEditorConfig from JSON", e);
+            return null;
+        }
+    }
 }
