@@ -104,8 +104,121 @@ public class TagResolver {
         STATIC_FALLBACKS.put("c:white_dyes", "minecraft:white_dye");
     }
 
+    private static final Map<String, List<String>> STATIC_TAG_EXPANSIONS = new HashMap<>();
+    static {
+        STATIC_TAG_EXPANSIONS.put("minecraft:planks", List.of(
+                "minecraft:oak_planks", "minecraft:spruce_planks", "minecraft:birch_planks",
+                "minecraft:jungle_planks", "minecraft:acacia_planks", "minecraft:dark_oak_planks",
+                "minecraft:mangrove_planks", "minecraft:cherry_planks", "minecraft:bamboo_planks",
+                "minecraft:crimson_planks", "minecraft:warped_planks"
+        ));
+        STATIC_TAG_EXPANSIONS.put("minecraft:logs", List.of(
+                "minecraft:oak_log", "minecraft:spruce_log", "minecraft:birch_log",
+                "minecraft:jungle_log", "minecraft:acacia_log", "minecraft:dark_oak_log",
+                "minecraft:mangrove_log", "minecraft:cherry_log", "minecraft:bamboo_block",
+                "minecraft:crimson_stem", "minecraft:warped_stem"
+        ));
+        STATIC_TAG_EXPANSIONS.put("minecraft:logs_that_burn", List.of(
+                "minecraft:oak_log", "minecraft:spruce_log", "minecraft:birch_log",
+                "minecraft:jungle_log", "minecraft:acacia_log", "minecraft:dark_oak_log",
+                "minecraft:mangrove_log", "minecraft:cherry_log"
+        ));
+        STATIC_TAG_EXPANSIONS.put("minecraft:wool", List.of(
+                "minecraft:white_wool", "minecraft:orange_wool", "minecraft:magenta_wool",
+                "minecraft:light_blue_wool", "minecraft:yellow_wool", "minecraft:lime_wool",
+                "minecraft:pink_wool", "minecraft:gray_wool", "minecraft:light_gray_wool",
+                "minecraft:cyan_wool", "minecraft:purple_wool", "minecraft:blue_wool",
+                "minecraft:brown_wool", "minecraft:green_wool", "minecraft:red_wool", "minecraft:black_wool"
+        ));
+        STATIC_TAG_EXPANSIONS.put("minecraft:coals", List.of("minecraft:coal", "minecraft:charcoal"));
+        STATIC_TAG_EXPANSIONS.put("minecraft:stone_tool_materials", List.of("minecraft:cobblestone", "minecraft:blackstone", "minecraft:cobbled_deepslate"));
+        STATIC_TAG_EXPANSIONS.put("minecraft:stone_crafting_materials", List.of("minecraft:cobblestone", "minecraft:blackstone", "minecraft:cobbled_deepslate"));
+        STATIC_TAG_EXPANSIONS.put("minecraft:sand", List.of("minecraft:sand", "minecraft:red_sand"));
+        STATIC_TAG_EXPANSIONS.put("minecraft:smelts_to_glass", List.of("minecraft:sand", "minecraft:red_sand"));
+    }
+
     public static void clearCache() {
         RESOLVE_CACHE.clear();
+    }
+
+    /**
+     * Returns all distinct items matching a given tag (e.g. all 11 wood planks for #minecraft:planks).
+     */
+    public static List<Item> getAllItemsForTag(String tagString) {
+        if (tagString == null || tagString.isEmpty()) return Collections.emptyList();
+        String tagId = tagString.startsWith("#") ? tagString.substring(1) : tagString;
+        Set<Item> items = new LinkedHashSet<>();
+
+        // 1. World dynamic registry entries (if in-world)
+        try {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client != null && client.world != null) {
+                Identifier id = Identifier.tryParse(tagId);
+                if (id != null) {
+                    TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
+                    var entryList = client.world.getRegistryManager().getOrThrow(RegistryKeys.ITEM).getOptional(tagKey);
+                    if (entryList.isPresent()) {
+                        for (var entry : entryList.get()) {
+                            Item item = entry.value();
+                            if (item != null && item != Items.AIR) {
+                                items.add(item);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 2. Static Registries.ITEM
+        try {
+            Identifier id = Identifier.tryParse(tagId);
+            if (id != null) {
+                TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
+                for (var entry : Registries.ITEM.iterateEntries(tagKey)) {
+                    if (entry.value() != null && entry.value() != Items.AIR) {
+                        items.add(entry.value());
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 3. Scanned Mod TAG_ITEMS JSON
+        List<String> values = TAG_ITEMS.get(tagId);
+        if (values != null && !values.isEmpty()) {
+            for (String val : values) {
+                if (val.startsWith("#")) {
+                    items.addAll(getAllItemsForTag(val));
+                } else {
+                    Identifier id = Identifier.tryParse(val);
+                    if (id != null && Registries.ITEM.containsId(id)) {
+                        Item item = Registries.ITEM.get(id);
+                        if (item != Items.AIR) items.add(item);
+                    }
+                }
+            }
+        }
+
+        // 4. Static expansion table (e.g. all vanilla plank types before world load)
+        List<String> staticList = STATIC_TAG_EXPANSIONS.get(tagId);
+        if (staticList != null) {
+            for (String idStr : staticList) {
+                Identifier id = Identifier.tryParse(idStr);
+                if (id != null && Registries.ITEM.containsId(id)) {
+                    Item item = Registries.ITEM.get(id);
+                    if (item != Items.AIR) items.add(item);
+                }
+            }
+        }
+
+        // 5. Fallback single resolve
+        if (items.isEmpty()) {
+            Item single = resolveTag(tagId);
+            if (single != Items.AIR) {
+                items.add(single);
+            }
+        }
+
+        return new ArrayList<>(items);
     }
 
     /**

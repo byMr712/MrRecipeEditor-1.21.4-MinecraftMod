@@ -307,6 +307,7 @@ public class RecipeEditorScreen extends Screen {
             resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
         }
         updateVariantButtons();
+        updateToggleBtn(leftPaneX, contentY);
         updateButtonStates();
     }
 
@@ -348,6 +349,7 @@ public class RecipeEditorScreen extends Screen {
             resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
         }
         updateVariantButtons();
+        updateToggleBtn(leftPaneX, contentY);
         updateButtonStates();
     }
 
@@ -709,7 +711,7 @@ public class RecipeEditorScreen extends Screen {
         if (toggleEnabledBtn != null) {
             this.remove(toggleEnabledBtn);
         }
-        boolean enabled = currentRecipe != null && currentRecipe.enabled;
+        boolean enabled = currentRecipe == null || currentRecipe.enabled;
         Text toggleText = enabled
                 ? Text.translatable("recipeeditor.gui.recipe_enabled").formatted(Formatting.GREEN, Formatting.BOLD)
                 : Text.translatable("recipeeditor.gui.recipe_disabled").formatted(Formatting.RED, Formatting.BOLD);

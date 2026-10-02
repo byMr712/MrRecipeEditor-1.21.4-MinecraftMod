@@ -340,14 +340,21 @@ public class RecipeInspector {
         List<CustomRecipeData> variants = new ArrayList<>();
         Set<String> seenSignatures = new HashSet<>();
 
+        java.util.function.Consumer<CustomRecipeData> adder = d -> {
+            if (d == null) return;
+            List<CustomRecipeData> expanded = expandRecipeTags(d);
+            for (CustomRecipeData exp : expanded) {
+                if (seenSignatures.add(getRecipeSignature(exp))) {
+                    variants.add(exp);
+                }
+            }
+        };
+
         // 1. From Server Recipe Entries
         List<RecipeEntry<?>> entries = RECIPE_ENTRIES.get(targetItem);
         if (entries != null) {
             for (RecipeEntry<?> entry : entries) {
-                CustomRecipeData d = decompileFromEntry(entry, targetItem);
-                if (d != null && seenSignatures.add(getRecipeSignature(d))) {
-                    variants.add(d);
-                }
+                adder.accept(decompileFromEntry(entry, targetItem));
             }
         }
 
@@ -355,10 +362,7 @@ public class RecipeInspector {
         List<RecipeDisplay> displays = RECIPE_DISPLAYS.get(targetItem);
         if (displays != null) {
             for (RecipeDisplay disp : displays) {
-                CustomRecipeData d = decompileFromDisplay(disp, targetItem);
-                if (d != null && seenSignatures.add(getRecipeSignature(d))) {
-                    variants.add(d);
-                }
+                adder.accept(decompileFromDisplay(disp, targetItem));
             }
         }
 
@@ -366,21 +370,80 @@ public class RecipeInspector {
         List<CustomRecipeData> fromJars = DECOMPILED_VARIANTS.get(targetItem);
         if (fromJars != null) {
             for (CustomRecipeData d : fromJars) {
-                if (seenSignatures.add(getRecipeSignature(d))) {
-                    variants.add(d.copy());
-                }
+                adder.accept(d);
             }
         }
 
         // 4. Dynamic Vanilla Special Recipes (Colored Bundles, Colored Shulkers, Colored Candles)
         if (variants.isEmpty()) {
             CustomRecipeData synthetic = getSyntheticDynamicRecipe(targetItem);
-            if (synthetic != null && seenSignatures.add(getRecipeSignature(synthetic))) {
-                variants.add(synthetic);
+            if (synthetic != null) {
+                adder.accept(synthetic);
             }
         }
 
         return variants;
+    }
+
+    public static List<CustomRecipeData> expandRecipeTags(CustomRecipeData recipe) {
+        if (recipe == null || recipe.patternSlots == null) return Collections.emptyList();
+
+        // 1. Collect all distinct tags used in recipe pattern
+        Set<String> tags = new LinkedHashSet<>();
+        for (String slot : recipe.patternSlots) {
+            if (slot != null && slot.startsWith("#")) {
+                tags.add(slot);
+            }
+        }
+
+        if (tags.isEmpty()) {
+            return Collections.singletonList(recipe);
+        }
+
+        List<CustomRecipeData> currentLevel = new ArrayList<>();
+        currentLevel.add(recipe.copy());
+
+        for (String tag : tags) {
+            List<Item> tagItems = TagResolver.getAllItemsForTag(tag);
+            if (tagItems.isEmpty()) {
+                Item resolved = TagResolver.resolveTag(tag);
+                if (resolved != Items.AIR) {
+                    tagItems = Collections.singletonList(resolved);
+                }
+            }
+
+            if (!tagItems.isEmpty()) {
+                List<CustomRecipeData> nextLevel = new ArrayList<>();
+                for (CustomRecipeData parent : currentLevel) {
+                    for (Item item : tagItems) {
+                        Identifier itemId = Registries.ITEM.getId(item);
+                        if (itemId != null) {
+                            CustomRecipeData variant = parent.copy();
+                            for (int i = 0; i < 9; i++) {
+                                if (tag.equals(variant.patternSlots[i])) {
+                                    variant.setSlotString(i, itemId.toString());
+                                }
+                            }
+                            nextLevel.add(variant);
+                        }
+                    }
+                }
+                currentLevel = nextLevel;
+            }
+        }
+
+        // Final sanity check: ensure no remaining "#" tags exist in any slot
+        for (CustomRecipeData r : currentLevel) {
+            for (int i = 0; i < 9; i++) {
+                if (r.patternSlots[i] != null && r.patternSlots[i].startsWith("#")) {
+                    Item res = TagResolver.resolveTag(r.patternSlots[i]);
+                    Identifier id = Registries.ITEM.getId(res);
+                    r.setSlotString(i, id != null ? id.toString() : "minecraft:air");
+                }
+            }
+        }
+
+        return currentLevel;
     }
 
     public static CustomRecipeData getSyntheticDynamicRecipe(Item targetItem) {
