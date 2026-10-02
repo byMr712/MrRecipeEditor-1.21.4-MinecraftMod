@@ -6,6 +6,8 @@ public enum RecipeTypeEnum {
     SHAPED_CRAFTING("recipeeditor.gui.type_shaped"),
     SHAPELESS_CRAFTING("recipeeditor.gui.type_shapeless"),
     SMELTING("recipeeditor.gui.type_smelting"),
+    BLASTING("recipeeditor.gui.type_blasting"),
+    SMOKING("recipeeditor.gui.type_smoking"),
     STONECUTTING("recipeeditor.gui.type_stonecutting");
 
     private final String translationKey;

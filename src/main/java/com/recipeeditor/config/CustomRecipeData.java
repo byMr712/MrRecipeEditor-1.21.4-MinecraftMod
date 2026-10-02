@@ -22,9 +22,30 @@ public class CustomRecipeData {
     public int cookingTime = 200;
     public boolean enabled = true;
     public boolean overrideExisting = false;
+    public Map<String, Integer> typeCounts = new HashMap<>();
 
     private transient RawShapedRecipe cachedRawRecipe = null;
     private transient int cachedHash = 0;
+
+    public int getResultCountForType(RecipeTypeEnum t) {
+        if (t == null) t = this.type != null ? this.type : RecipeTypeEnum.SHAPED_CRAFTING;
+        if (typeCounts != null && typeCounts.containsKey(t.name())) {
+            return typeCounts.get(t.name());
+        }
+        return this.resultCount > 0 ? this.resultCount : 1;
+    }
+
+    public void setResultCountForType(RecipeTypeEnum t, int count) {
+        if (t == null) t = this.type != null ? this.type : RecipeTypeEnum.SHAPED_CRAFTING;
+        int clamped = Math.max(1, Math.min(1000, count));
+        if (typeCounts == null) {
+            typeCounts = new HashMap<>();
+        }
+        typeCounts.put(t.name(), clamped);
+        if (this.type == t) {
+            this.resultCount = clamped;
+        }
+    }
 
     public CustomRecipeData() {
         Arrays.fill(patternSlots, "minecraft:air");
@@ -165,6 +186,9 @@ public class CustomRecipeData {
         copy.cookingTime = this.cookingTime;
         copy.enabled = this.enabled;
         copy.overrideExisting = this.overrideExisting;
+        if (this.typeCounts != null) {
+            copy.typeCounts = new HashMap<>(this.typeCounts);
+        }
         return copy;
     }
 }
