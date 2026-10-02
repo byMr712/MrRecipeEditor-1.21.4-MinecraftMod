@@ -210,17 +210,6 @@ public class CustomRecipeData {
         return cachedRawRecipe;
     }
 
-    public List<Ingredient> getShapelessIngredients() {
-        List<Ingredient> list = new ArrayList<>();
-        for (int i = 0; i < 9; i++) {
-            Ingredient ing = getIngredientAt(i);
-            if (ing != null) {
-                list.add(ing);
-            }
-        }
-        return list;
-    }
-
     public CustomRecipeData copy() {
         CustomRecipeData copy = new CustomRecipeData();
         copy.id = this.id;

@@ -195,24 +195,16 @@ public class RecipeInspector {
                 }
             }
             return data;
-        } else if (obj.has("ingredients")) {
-            data.type = RecipeTypeEnum.SHAPELESS_CRAFTING;
-            JsonArray ings = obj.getAsJsonArray("ingredients");
-            for (int i = 0; i < Math.min(9, ings.size()); i++) {
-                data.setSlotString(i, parseIngredientElement(ings.get(i)));
-            }
-            return data;
         } else if (typeStr.contains("smithing")) {
-            data.type = RecipeTypeEnum.SHAPELESS_CRAFTING;
-            int idx = 0;
+            data.type = RecipeTypeEnum.SMITHING;
             if (obj.has("template")) {
-                data.setSlotString(idx++, parseIngredientElement(obj.get("template")));
+                data.setSlotString(0, parseIngredientElement(obj.get("template")));
             }
             if (obj.has("base")) {
-                data.setSlotString(idx++, parseIngredientElement(obj.get("base")));
+                data.setSlotString(1, parseIngredientElement(obj.get("base")));
             }
             if (obj.has("addition")) {
-                data.setSlotString(idx++, parseIngredientElement(obj.get("addition")));
+                data.setSlotString(2, parseIngredientElement(obj.get("addition")));
             }
             return data;
         } else if (typeStr.contains("blasting")) {
@@ -227,6 +219,12 @@ public class RecipeInspector {
                 data.setSlotString(0, parseIngredientElement(obj.get("ingredient")));
             }
             return data;
+        } else if (typeStr.contains("campfire")) {
+            data.type = RecipeTypeEnum.CAMPFIRE_COOKING;
+            if (obj.has("ingredient")) {
+                data.setSlotString(0, parseIngredientElement(obj.get("ingredient")));
+            }
+            return data;
         } else if (typeStr.contains("smelt") || obj.has("cookingtime")) {
             data.type = RecipeTypeEnum.SMELTING;
             if (obj.has("ingredient")) {
@@ -237,6 +235,13 @@ public class RecipeInspector {
             data.type = RecipeTypeEnum.STONECUTTING;
             if (obj.has("ingredient")) {
                 data.setSlotString(0, parseIngredientElement(obj.get("ingredient")));
+            }
+            return data;
+        } else if (obj.has("ingredients")) {
+            data.type = RecipeTypeEnum.SHAPED_CRAFTING;
+            JsonArray ings = obj.getAsJsonArray("ingredients");
+            for (int i = 0; i < Math.min(9, ings.size()); i++) {
+                data.setSlotString(i, parseIngredientElement(ings.get(i)));
             }
             return data;
         }
@@ -374,7 +379,7 @@ public class RecipeInspector {
             }
         }
 
-        // 4. Dynamic Vanilla Special Recipes (Colored Bundles, Wools, Beds, Shulkers, Candles, etc.)
+        // 4. Dynamic Vanilla Special Recipes (Netherite Upgrades, Bundles, Wools, Beds, Shulkers, Candles, etc.)
         List<CustomRecipeData> synthetics = getSyntheticDynamicRecipes(targetItem);
         for (CustomRecipeData syn : synthetics) {
             adder.accept(syn);
@@ -448,22 +453,36 @@ public class RecipeInspector {
         if (targetItem == null || targetItem == Items.AIR) return Collections.emptyList();
         Identifier id = Registries.ITEM.getId(targetItem);
         if (id == null) return Collections.emptyList();
+
         String path = id.getPath();
+        List<CustomRecipeData> list = new ArrayList<>();
+
+        // 1. Netherite Smithing Upgrades (Helmet, Chestplate, Leggings, Boots, Sword, Shovel, Pickaxe, Axe, Hoe)
+        if (path.startsWith("netherite_") && id.getNamespace().equals("minecraft")) {
+            String baseEquip = path.replace("netherite_", "diamond_");
+            Identifier baseId = Identifier.of("minecraft", baseEquip);
+            if (Registries.ITEM.containsId(baseId)) {
+                CustomRecipeData smithing = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SMITHING);
+                smithing.setSlotString(0, "minecraft:netherite_upgrade_smithing_template");
+                smithing.setSlotString(1, "minecraft:" + baseEquip);
+                smithing.setSlotString(2, "minecraft:netherite_ingot");
+                list.add(smithing);
+                return list;
+            }
+        }
 
         String[] colors = new String[]{
                 "white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray",
                 "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"
         };
 
-        List<CustomRecipeData> list = new ArrayList<>();
-
-        // 1. Colored Bundles (e.g. red_bundle -> bundle + red_dye, or other_bundle + red_dye)
+        // 2. Colored Bundles (e.g. red_bundle -> bundle + red_dye, or other_bundle + red_dye)
         if (path.endsWith("_bundle") && !path.equals("bundle")) {
             for (String color : colors) {
                 if (path.equals(color + "_bundle")) {
                     String dye = "minecraft:" + color + "_dye";
                     // Base undyed bundle + dye
-                    CustomRecipeData baseVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                    CustomRecipeData baseVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
                     baseVar.setSlotString(0, "minecraft:bundle");
                     baseVar.setSlotString(1, dye);
                     list.add(baseVar);
@@ -471,7 +490,7 @@ public class RecipeInspector {
                     // Re-dye from every other bundle color
                     for (String other : colors) {
                         if (!other.equals(color)) {
-                            CustomRecipeData otherVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            CustomRecipeData otherVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
                             otherVar.setSlotString(0, "minecraft:" + other + "_bundle");
                             otherVar.setSlotString(1, dye);
                             list.add(otherVar);
@@ -482,7 +501,7 @@ public class RecipeInspector {
             }
         }
 
-        // 2. Undyed Bundle (string + leather)
+        // 3. Undyed Bundle (string + leather)
         if (path.equals("bundle") && id.getNamespace().equals("minecraft")) {
             CustomRecipeData data = new CustomRecipeData("bundle", "minecraft:bundle", 1, RecipeTypeEnum.SHAPED_CRAFTING);
             data.setSlotString(1, "minecraft:string");
@@ -491,7 +510,7 @@ public class RecipeInspector {
             return list;
         }
 
-        // 3. Colored Wool (dye from every other wool color)
+        // 4. Colored Wool (dye from every other wool color)
         if (path.endsWith("_wool")) {
             for (String color : colors) {
                 if (path.equals(color + "_wool")) {
@@ -506,7 +525,7 @@ public class RecipeInspector {
                     }
                     for (String other : colors) {
                         if (!other.equals(color)) {
-                            CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
                             data.setSlotString(0, "minecraft:" + other + "_wool");
                             data.setSlotString(1, dye);
                             list.add(data);
@@ -517,7 +536,7 @@ public class RecipeInspector {
             }
         }
 
-        // 4. Colored Beds (bed + dye, or 3 wool + 3 planks)
+        // 5. Colored Beds (bed + dye, or 3 wool + 3 planks)
         if (path.endsWith("_bed")) {
             for (String color : colors) {
                 if (path.equals(color + "_bed")) {
@@ -525,7 +544,7 @@ public class RecipeInspector {
                     // Dye from any other bed
                     for (String other : colors) {
                         if (!other.equals(color)) {
-                            CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
                             data.setSlotString(0, "minecraft:" + other + "_bed");
                             data.setSlotString(1, dye);
                             list.add(data);
@@ -545,19 +564,19 @@ public class RecipeInspector {
             }
         }
 
-        // 5. Colored Candles (candle + dye, or other_candle + dye)
+        // 6. Colored Candles (candle + dye, or other_candle + dye)
         if (path.endsWith("_candle") && !path.equals("candle")) {
             for (String color : colors) {
                 if (path.equals(color + "_candle")) {
                     String dye = "minecraft:" + color + "_dye";
-                    CustomRecipeData baseVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                    CustomRecipeData baseVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
                     baseVar.setSlotString(0, "minecraft:candle");
                     baseVar.setSlotString(1, dye);
                     list.add(baseVar);
 
                     for (String other : colors) {
                         if (!other.equals(color)) {
-                            CustomRecipeData otherVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            CustomRecipeData otherVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
                             otherVar.setSlotString(0, "minecraft:" + other + "_candle");
                             otherVar.setSlotString(1, dye);
                             list.add(otherVar);
@@ -568,19 +587,19 @@ public class RecipeInspector {
             }
         }
 
-        // 6. Colored Shulker Boxes (shulker_box + dye, or other_shulker_box + dye)
+        // 7. Colored Shulker Boxes (shulker_box + dye, or other_shulker_box + dye)
         if (path.endsWith("_shulker_box") && !path.equals("shulker_box")) {
             for (String color : colors) {
                 if (path.equals(color + "_shulker_box")) {
                     String dye = "minecraft:" + color + "_dye";
-                    CustomRecipeData baseVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                    CustomRecipeData baseVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
                     baseVar.setSlotString(0, "minecraft:shulker_box");
                     baseVar.setSlotString(1, dye);
                     list.add(baseVar);
 
                     for (String other : colors) {
                         if (!other.equals(color)) {
-                            CustomRecipeData otherVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                            CustomRecipeData otherVar = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
                             otherVar.setSlotString(0, "minecraft:" + other + "_shulker_box");
                             otherVar.setSlotString(1, dye);
                             list.add(otherVar);
@@ -591,7 +610,7 @@ public class RecipeInspector {
             }
         }
 
-        // 7. Colored Carpets (2 wool, or 8 carpets + dye)
+        // 8. Colored Carpets (2 wool, or 8 carpets + dye)
         if (path.endsWith("_carpet")) {
             for (String color : colors) {
                 if (path.equals(color + "_carpet")) {
@@ -664,7 +683,7 @@ public class RecipeInspector {
             }
             return data;
         } else if (recipe instanceof ShapelessRecipe shapeless) {
-            data.type = RecipeTypeEnum.SHAPELESS_CRAFTING;
+            data.type = RecipeTypeEnum.SHAPED_CRAFTING;
             List<RecipeDisplay> displays = recipe.getDisplays();
             if (!displays.isEmpty() && displays.get(0) instanceof ShapelessCraftingRecipeDisplay disp) {
                 List<SlotDisplay> ings = disp.ingredients();
@@ -678,10 +697,26 @@ public class RecipeInspector {
             data.setSlotString(0, getSlotStringFromIngredient(singleStack.ingredient()));
             return data;
         } else if (recipe instanceof SmithingTransformRecipe smithing) {
-            data.type = RecipeTypeEnum.SHAPELESS_CRAFTING;
+            data.type = RecipeTypeEnum.SMITHING;
             smithing.template().ifPresent(ing -> data.setSlotString(0, getSlotStringFromIngredient(ing)));
             smithing.base().ifPresent(ing -> data.setSlotString(1, getSlotStringFromIngredient(ing)));
             smithing.addition().ifPresent(ing -> data.setSlotString(2, getSlotStringFromIngredient(ing)));
+            return data;
+        } else if (recipe instanceof BlastingRecipe blasting) {
+            data.type = RecipeTypeEnum.BLASTING;
+            data.setSlotString(0, getSlotStringFromIngredient(blasting.ingredient()));
+            return data;
+        } else if (recipe instanceof SmokingRecipe smoking) {
+            data.type = RecipeTypeEnum.SMOKING;
+            data.setSlotString(0, getSlotStringFromIngredient(smoking.ingredient()));
+            return data;
+        } else if (recipe instanceof CampfireCookingRecipe campfire) {
+            data.type = RecipeTypeEnum.CAMPFIRE_COOKING;
+            data.setSlotString(0, getSlotStringFromIngredient(campfire.ingredient()));
+            return data;
+        } else if (recipe instanceof SmeltingRecipe smelting) {
+            data.type = RecipeTypeEnum.SMELTING;
+            data.setSlotString(0, getSlotStringFromIngredient(smelting.ingredient()));
             return data;
         }
         return null;
@@ -715,7 +750,7 @@ public class RecipeInspector {
             }
             return data;
         } else if (display instanceof ShapelessCraftingRecipeDisplay shapeless) {
-            data.type = RecipeTypeEnum.SHAPELESS_CRAFTING;
+            data.type = RecipeTypeEnum.SHAPED_CRAFTING;
             List<SlotDisplay> ings = shapeless.ingredients();
             for (int i = 0; i < Math.min(9, ings.size()); i++) {
                 data.setSlotString(i, getSlotStringFromSlotDisplay(ings.get(i)));
@@ -732,7 +767,7 @@ public class RecipeInspector {
             data.setSlotString(0, getSlotStringFromSlotDisplay(stonecutter.input()));
             return data;
         } else if (display instanceof SmithingRecipeDisplay smithing) {
-            data.type = RecipeTypeEnum.SHAPELESS_CRAFTING;
+            data.type = RecipeTypeEnum.SMITHING;
             data.setSlotString(0, getSlotStringFromSlotDisplay(smithing.template()));
             data.setSlotString(1, getSlotStringFromSlotDisplay(smithing.base()));
             data.setSlotString(2, getSlotStringFromSlotDisplay(smithing.addition()));

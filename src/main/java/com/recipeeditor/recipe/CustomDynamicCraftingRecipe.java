@@ -13,7 +13,6 @@ import net.minecraft.recipe.book.RecipeBookCategories;
 import net.minecraft.recipe.book.RecipeBookCategory;
 import net.minecraft.recipe.display.RecipeDisplay;
 import net.minecraft.recipe.display.ShapedCraftingRecipeDisplay;
-import net.minecraft.recipe.display.ShapelessCraftingRecipeDisplay;
 import net.minecraft.recipe.display.SlotDisplay;
 import net.minecraft.recipe.input.CraftingRecipeInput;
 import net.minecraft.registry.RegistryWrapper;
@@ -68,10 +67,6 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
 
             if (recipeData.type == RecipeTypeEnum.SHAPED_CRAFTING) {
                 if (matchesShaped(input, recipeData)) {
-                    return recipeData;
-                }
-            } else if (recipeData.type == RecipeTypeEnum.SHAPELESS_CRAFTING) {
-                if (matchesShapeless(input, recipeData)) {
                     return recipeData;
                 }
             }
@@ -162,39 +157,6 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         return mirroredMatches;
     }
 
-    private boolean matchesShapeless(CraftingRecipeInput input, CustomRecipeData recipeData) {
-        List<ItemStack> inputItems = new ArrayList<>();
-        for (ItemStack stack : input.getStacks()) {
-            if (!stack.isEmpty()) {
-                inputItems.add(stack);
-            }
-        }
-
-        List<Ingredient> ingredients = recipeData.getShapelessIngredients();
-        if (inputItems.size() != ingredients.size() || ingredients.isEmpty()) {
-            return false;
-        }
-
-        // Sort ingredients by specificity (single item first, tags later) to prevent greedy mismatch
-        ingredients.sort(Comparator.comparingInt(ing -> ing.getMatchingItems().count() > 1 ? 1 : 0));
-
-        boolean[] matched = new boolean[ingredients.size()];
-        for (ItemStack stack : inputItems) {
-            boolean found = false;
-            for (int i = 0; i < ingredients.size(); i++) {
-                if (!matched[i] && ingredients.get(i).test(stack)) {
-                    matched[i] = true;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     @Override
     public boolean matches(CraftingRecipeInput input, World world) {
         return findMatchingRecipe(input) != null;
@@ -240,17 +202,6 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
                     }
                 }
                 displays.add(new ShapedCraftingRecipeDisplay(3, 3, ingredients, resultDisplay, craftingStation));
-            } else if (recipe.type == RecipeTypeEnum.SHAPELESS_CRAFTING) {
-                List<SlotDisplay> ingredients = new ArrayList<>();
-                for (int i = 0; i < 9; i++) {
-                    Item item = recipe.getItemAt(i);
-                    if (item != Items.AIR) {
-                        ingredients.add(new SlotDisplay.ItemSlotDisplay(item));
-                    }
-                }
-                if (!ingredients.isEmpty()) {
-                    displays.add(new ShapelessCraftingRecipeDisplay(ingredients, resultDisplay, craftingStation));
-                }
             }
         }
 

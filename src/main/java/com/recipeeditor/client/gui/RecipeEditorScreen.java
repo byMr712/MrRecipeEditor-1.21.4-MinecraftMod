@@ -10,6 +10,7 @@ import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.ConfirmScreen;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.item.Item;
@@ -75,6 +76,12 @@ public class RecipeEditorScreen extends Screen {
     private int catalogCols = 10;
     private int catalogRows = 5;
     private int itemsPerPage = 50;
+
+    // Workstations Pagination
+    private int workstationPage = 0;
+    private static final int WORKSTATIONS_PER_PAGE = 10;
+    private ButtonWidget prevWorkstationBtn;
+    private ButtonWidget nextWorkstationBtn;
 
     // Layout coordinates
     private int leftPaneX;
@@ -372,6 +379,8 @@ public class RecipeEditorScreen extends Screen {
         for (ButtonWidget btn : typeButtons) {
             btn.visible = visible;
         }
+        if (prevWorkstationBtn != null) prevWorkstationBtn.visible = visible && (RecipeTypeEnum.values().length > WORKSTATIONS_PER_PAGE);
+        if (nextWorkstationBtn != null) nextWorkstationBtn.visible = visible && (RecipeTypeEnum.values().length > WORKSTATIONS_PER_PAGE);
         if (prevVariantBtn != null) prevVariantBtn.visible = visible;
         if (variantField != null) variantField.setVisible(visible);
         if (nextVariantBtn != null) nextVariantBtn.visible = visible;
@@ -415,12 +424,16 @@ public class RecipeEditorScreen extends Screen {
         // Top toggle button: [Мои крафты: ВКЛЮЧЕНЫ / ВЫКЛЮЧЕНЫ] - Aligned with filter buttons at filterY
         updateToggleBtn(leftPaneX, filterY);
 
-        // Machine Type Buttons (2 Columns, 3 Rows below toggle button)
-        int typeBtnStartY = filterY + 22;
+        // Machine Type Buttons (2 Columns)
         rebuildTypeButtons();
 
+        int typeBtnStartY = filterY + 22;
+        int numVisibleTypes = Math.min(WORKSTATIONS_PER_PAGE, RecipeTypeEnum.values().length);
+        int numRows = (numVisibleTypes + 1) / 2;
+        int typeBtnsHeight = numRows * 18;
+
         // Variant Bar (Above Crafting Grid)
-        int variantBarY = typeBtnStartY + 58;
+        int variantBarY = typeBtnStartY + typeBtnsHeight + 4;
         prevVariantBtn = ButtonWidget.builder(Text.literal("◀"), btn -> changeVariant(-1))
                 .dimensions(leftPaneX + 4, variantBarY, 18, 16)
                 .build();
@@ -493,7 +506,7 @@ public class RecipeEditorScreen extends Screen {
         this.addDrawableChild(plusCountBtn);
 
         // Action Buttons
-        int actionBtnY = gridStartY + 96;
+        int actionBtnY = gridStartY + 92;
 
         saveCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.save_craft").formatted(Formatting.GREEN, Formatting.BOLD), btn -> saveCurrentCraft())
                 .dimensions(leftPaneX, actionBtnY, LEFT_PANE_WIDTH, 18)
@@ -501,12 +514,12 @@ public class RecipeEditorScreen extends Screen {
         this.addDrawableChild(saveCraftBtn);
 
         clearCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.clear_all").formatted(Formatting.RED), btn -> clearAllSlots())
-                .dimensions(leftPaneX, actionBtnY + 22, LEFT_PANE_WIDTH, 18)
+                .dimensions(leftPaneX, actionBtnY + 20, LEFT_PANE_WIDTH, 18)
                 .build();
         this.addDrawableChild(clearCraftBtn);
 
         deleteRecipeBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.delete_custom").formatted(Formatting.RED), btn -> deleteCurrentRecipe())
-                .dimensions(leftPaneX, actionBtnY + 44, LEFT_PANE_WIDTH, 18)
+                .dimensions(leftPaneX, actionBtnY + 40, LEFT_PANE_WIDTH, 18)
                 .build();
         this.addDrawableChild(deleteRecipeBtn);
 
@@ -633,28 +646,69 @@ public class RecipeEditorScreen extends Screen {
             this.remove(btn);
         }
         typeButtons.clear();
+        if (prevWorkstationBtn != null) {
+            this.remove(prevWorkstationBtn);
+            prevWorkstationBtn = null;
+        }
+        if (nextWorkstationBtn != null) {
+            this.remove(nextWorkstationBtn);
+            nextWorkstationBtn = null;
+        }
 
-        RecipeTypeEnum[] types = RecipeTypeEnum.values();
+        RecipeTypeEnum[] allTypes = RecipeTypeEnum.values();
+        int totalTypes = allTypes.length;
+        int maxPages = Math.max(1, (totalTypes + WORKSTATIONS_PER_PAGE - 1) / WORKSTATIONS_PER_PAGE);
+        workstationPage = Math.max(0, Math.min(maxPages - 1, workstationPage));
+
         int btnW = (LEFT_PANE_WIDTH - 4) / 2;
         int typeBtnStartY = contentY + 22;
 
-        for (int i = 0; i < types.length; i++) {
-            RecipeTypeEnum t = types[i];
+        int startIdx = workstationPage * WORKSTATIONS_PER_PAGE;
+        int endIdx = Math.min(totalTypes, startIdx + WORKSTATIONS_PER_PAGE);
+
+        for (int i = startIdx; i < endIdx; i++) {
+            RecipeTypeEnum t = allTypes[i];
             boolean isSelected = (selectedType == t);
             Text label = t.getDisplayName().copy().formatted(isSelected ? Formatting.YELLOW : Formatting.GRAY);
 
-            int row = i / 2;
-            int col = i % 2;
+            int localIdx = i - startIdx;
+            int row = localIdx / 2;
+            int col = localIdx % 2;
             int x = leftPaneX + col * (btnW + 4);
             int y = typeBtnStartY + row * 18;
 
             ButtonWidget btn = ButtonWidget.builder(label, b -> switchMachineType(t))
                     .dimensions(x, y, btnW, 16)
+                    .tooltip(Tooltip.of(t.getTooltip()))
                     .build();
 
             btn.visible = (targetItem != null);
             typeButtons.add(btn);
             this.addDrawableChild(btn);
+        }
+
+        // Add pager controls if more than 10 workstations exist
+        if (totalTypes > WORKSTATIONS_PER_PAGE) {
+            int pagerY = typeBtnStartY - 14;
+            prevWorkstationBtn = ButtonWidget.builder(Text.literal("◀"), b -> {
+                if (workstationPage > 0) {
+                    workstationPage--;
+                    rebuildTypeButtons();
+                }
+            }).dimensions(leftPaneX, pagerY, 16, 12).build();
+            prevWorkstationBtn.active = workstationPage > 0;
+            prevWorkstationBtn.visible = (targetItem != null);
+            this.addDrawableChild(prevWorkstationBtn);
+
+            nextWorkstationBtn = ButtonWidget.builder(Text.literal("▶"), b -> {
+                if (workstationPage < maxPages - 1) {
+                    workstationPage++;
+                    rebuildTypeButtons();
+                }
+            }).dimensions(leftPaneX + LEFT_PANE_WIDTH - 16, pagerY, 16, 12).build();
+            nextWorkstationBtn.active = workstationPage < maxPages - 1;
+            nextWorkstationBtn.visible = (targetItem != null);
+            this.addDrawableChild(nextWorkstationBtn);
         }
     }
 
@@ -857,16 +911,31 @@ public class RecipeEditorScreen extends Screen {
 
         int gridStartX = leftPaneX + 4;
         int typeBtnStartY = contentY + 22;
-        int variantBarY = typeBtnStartY + 58;
+        int numVisibleTypes = Math.min(WORKSTATIONS_PER_PAGE, RecipeTypeEnum.values().length);
+        int numRows = (numVisibleTypes + 1) / 2;
+        int typeBtnsHeight = numRows * 18;
+        int variantBarY = typeBtnStartY + typeBtnsHeight + 4;
         int gridStartY = variantBarY + 20;
 
-        if (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING || selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.STONECUTTING) {
+        if (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING ||
+            selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.STONECUTTING ||
+            selectedType == RecipeTypeEnum.CAMPFIRE_COOKING) {
             int inputX = gridStartX + SLOT_SIZE;
             int inputY = gridStartY + SLOT_SIZE;
             if (mouseX >= inputX && mouseX <= inputX + 22 && mouseY >= inputY && mouseY <= inputY + 22) {
                 return 0;
             }
+        } else if (selectedType == RecipeTypeEnum.SMITHING) {
+            // Smithing: 3 horizontal slots (0: Template, 1: Base, 2: Addition)
+            int slotY = gridStartY + SLOT_SIZE;
+            for (int i = 0; i < 3; i++) {
+                int slotX = gridStartX + i * SLOT_SIZE;
+                if (mouseX >= slotX && mouseX <= slotX + 22 && mouseY >= slotY && mouseY <= slotY + 22) {
+                    return i;
+                }
+            }
         } else {
+            // 3x3 Grid
             for (int row = 0; row < 3; row++) {
                 for (int col = 0; col < 3; col++) {
                     int slotIndex = row * 3 + col;
@@ -972,13 +1041,19 @@ public class RecipeEditorScreen extends Screen {
             // Draw total variants count beside variant selector buttons
             int variantTotal = Math.max(1, typeVariants.size());
             int typeBtnStartY = contentY + 22;
-            int variantBarY = typeBtnStartY + 58;
+            int numVisibleTypes = Math.min(WORKSTATIONS_PER_PAGE, RecipeTypeEnum.values().length);
+            int numRows = (numVisibleTypes + 1) / 2;
+            int typeBtnsHeight = numRows * 18;
+            int variantBarY = typeBtnStartY + typeBtnsHeight + 4;
             int gridStartX = leftPaneX + 4;
             int gridStartY = variantBarY + 20;
 
             context.drawTextWithShadow(this.textRenderer, Text.literal("/ " + variantTotal).formatted(Formatting.GRAY), leftPaneX + 74, variantBarY + 4, 0xFFAAAAAA);
 
-            if (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING || selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.STONECUTTING) {
+            if (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING ||
+                selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.STONECUTTING ||
+                selectedType == RecipeTypeEnum.CAMPFIRE_COOKING) {
+                // 1 Single Input Slot
                 int inputX = gridStartX + SLOT_SIZE;
                 int inputY = gridStartY + SLOT_SIZE;
                 boolean isSelected = (selectedSlot == 0);
@@ -994,6 +1069,27 @@ public class RecipeEditorScreen extends Screen {
                     }
                     if (mouseX >= inputX && mouseX <= inputX + 22 && mouseY >= inputY && mouseY <= inputY + 22 && item != Items.AIR) {
                         hoveredStack = new ItemStack(item);
+                    }
+                }
+            } else if (selectedType == RecipeTypeEnum.SMITHING) {
+                // Smithing Table: 3 Horizontal Slots (Template, Base, Addition)
+                int slotY = gridStartY + SLOT_SIZE;
+                for (int i = 0; i < 3; i++) {
+                    int slotX = gridStartX + i * SLOT_SIZE;
+                    boolean isSelected = (selectedSlot == i);
+                    boolean isDropTarget = (draggedItem != null && hoveredCraftingSlot == i);
+                    drawSlotBox(context, slotX, slotY, 22, 22, isSelected, isDropTarget);
+
+                    if (currentRecipe != null) {
+                        Item item = currentRecipe.getItemAt(i);
+                        if (item != Items.AIR) {
+                            ItemStack stack = new ItemStack(item);
+                            context.drawItem(stack, slotX + 3, slotY + 3);
+                            context.drawStackOverlay(this.textRenderer, stack, slotX + 3, slotY + 3);
+                        }
+                        if (mouseX >= slotX && mouseX <= slotX + 22 && mouseY >= slotY && mouseY <= slotY + 22 && item != Items.AIR) {
+                            hoveredStack = new ItemStack(item);
+                        }
                     }
                 }
             } else {
@@ -1047,8 +1143,20 @@ public class RecipeEditorScreen extends Screen {
 
             // Active variant description text below crafting grid
             Text variantText = Text.translatable("recipeeditor.gui.craft_variant", currentVariantIndex + 1, variantTotal).formatted(Formatting.GREEN);
-            context.drawTextWithShadow(this.textRenderer, variantText, leftPaneX, gridStartY + 80, 0xFF55FF55);
+            context.drawTextWithShadow(this.textRenderer, variantText, leftPaneX, gridStartY + 76, 0xFF55FF55);
         }
+
+        // --- DRAW HINTS IN A CLEAN VERTICAL COLUMN UNDER LEFT MENU BUTTONS ---
+        int actionBtnY = (targetItem != null)
+                ? (contentY + 22 + ((Math.min(WORKSTATIONS_PER_PAGE, RecipeTypeEnum.values().length) + 1) / 2 * 18) + 4 + 20 + 92)
+                : (contentY + 140);
+        int hintStartY = actionBtnY + 62;
+
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_1").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_2").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY + 11, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_3").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY + 22, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_4").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY + 33, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_5").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY + 44, 0xFF55FF55);
 
         // --- DRAW DYNAMIC CATALOG GRID ---
         int startIndex = catalogPage * itemsPerPage;
@@ -1079,12 +1187,8 @@ public class RecipeEditorScreen extends Screen {
         MutableText pageInfo = Text.translatable("recipeeditor.gui.items_total", catalogPage + 1, maxPage, filteredItems.size());
         context.drawCenteredTextWithShadow(this.textRenderer, pageInfo.formatted(Formatting.GRAY), rightPaneX + (searchWidth / 2), catalogGridY + (catalogRows * SLOT_SIZE) + 10, 0xFFAAAAAA);
 
-        // --- BOTTOM HINT & NOTIFICATIONS ---
-        int bottomY = this.height - 24;
-        Text hintText = Text.translatable("recipeeditor.gui.hint").formatted(Formatting.GREEN);
-        context.drawTextWithShadow(this.textRenderer, hintText, leftPaneX, bottomY + 6, 0xFF55FF55);
-
         // Notification overlay message (drawn to the left of Reset Defaults button)
+        int bottomY = this.height - 24;
         if (notificationText != null && System.currentTimeMillis() < notificationTimer) {
             Text resetText = Text.translatable("recipeeditor.gui.reset_defaults");
             Text exitText = Text.translatable("recipeeditor.gui.exit");
