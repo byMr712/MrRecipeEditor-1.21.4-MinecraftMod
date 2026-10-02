@@ -108,6 +108,8 @@ public class RecipeEditorScreen extends Screen {
         this.parent = parent;
         this.configCopy = RecipeEditorConfig.getInstance().copy();
 
+        RecipeInspector.invalidateCache();
+
         // Always start with a fresh, empty craft canvas
         this.currentRecipe = new CustomRecipeData("", "minecraft:air", 1, RecipeTypeEnum.SHAPED_CRAFTING);
 
@@ -134,6 +136,16 @@ public class RecipeEditorScreen extends Screen {
         }
 
         refreshFilteredItems();
+    }
+
+    private boolean hasAnyIngredients(CustomRecipeData recipe) {
+        if (recipe == null || recipe.patternSlots == null) return false;
+        for (String slot : recipe.patternSlots) {
+            if (slot != null && !slot.isEmpty() && !slot.equals("minecraft:air")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String getFriendlyModName(String namespace) {
@@ -203,7 +215,12 @@ public class RecipeEditorScreen extends Screen {
         if (configCopy.hasCustomRecipe(item)) {
             currentRecipe = configCopy.getRecipeFor(item);
         } else {
-            currentRecipe = new CustomRecipeData(id.getPath(), id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
+            if (currentRecipe != null && hasAnyIngredients(currentRecipe)) {
+                currentRecipe.setResultItem(item);
+                currentRecipe.id = id.getPath();
+            } else {
+                currentRecipe = new CustomRecipeData(id.getPath(), id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING);
+            }
         }
         if (resultCountField != null) {
             resultCountField.setText(String.valueOf(currentRecipe.resultCount));
@@ -903,7 +920,12 @@ public class RecipeEditorScreen extends Screen {
                         currentRecipe.setItemAt(targetSlot, draggedItem);
                         selectedSlot = targetSlot;
                     } else if (targetSlot == RESULT_SLOT) {
-                        selectTargetItem(draggedItem);
+                        currentRecipe.setResultItem(draggedItem);
+                        Identifier id = Registries.ITEM.getId(draggedItem);
+                        if (id != null) currentRecipe.id = id.getPath();
+                        if (resultCountField != null) {
+                            resultCountField.setText(String.valueOf(currentRecipe.resultCount));
+                        }
                         selectedSlot = RESULT_SLOT;
                     }
                 }
@@ -913,7 +935,12 @@ public class RecipeEditorScreen extends Screen {
                     if (selectedSlot >= 0 && selectedSlot < 9) {
                         currentRecipe.setItemAt(selectedSlot, draggedItem);
                     } else if (selectedSlot == RESULT_SLOT) {
-                        selectTargetItem(draggedItem);
+                        currentRecipe.setResultItem(draggedItem);
+                        Identifier id = Registries.ITEM.getId(draggedItem);
+                        if (id != null) currentRecipe.id = id.getPath();
+                        if (resultCountField != null) {
+                            resultCountField.setText(String.valueOf(currentRecipe.resultCount));
+                        }
                     }
                 }
             }

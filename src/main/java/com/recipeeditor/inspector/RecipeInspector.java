@@ -64,18 +64,24 @@ public class RecipeInspector {
             }
         }
 
-        // Offline / Main Menu Fallback: Load default vanilla recipes
-        try (net.minecraft.resource.LifecycledResourceManager resourceManager =
-                     new net.minecraft.resource.LifecycledResourceManagerImpl(
-                             net.minecraft.resource.ResourceType.SERVER_DATA,
-                             java.util.List.of(net.minecraft.resource.VanillaDataPackProvider.createDefaultPack()))) {
-            OfflineRecipeManager offlineManager = new OfflineRecipeManager(net.minecraft.registry.DynamicRegistryManager.of(Registries.REGISTRIES));
-            offlineManager.load(resourceManager);
-            for (RecipeEntry<?> entry : offlineManager.values()) {
-                indexRecipeEntry(entry);
+        // Offline / Main Menu Fallback: Load default vanilla + all mod data packs
+        try {
+            net.minecraft.resource.ResourcePackManager packManager = net.minecraft.resource.VanillaDataPackProvider.createClientManager();
+            packManager.scanPacks();
+            packManager.setEnabledProfiles(packManager.getIds());
+            java.util.List<net.minecraft.resource.ResourcePack> packs = packManager.createResourcePacks();
+
+            try (net.minecraft.resource.LifecycledResourceManager resourceManager =
+                         new net.minecraft.resource.LifecycledResourceManagerImpl(
+                                 net.minecraft.resource.ResourceType.SERVER_DATA, packs)) {
+                OfflineRecipeManager offlineManager = new OfflineRecipeManager(net.minecraft.registry.DynamicRegistryManager.of(Registries.REGISTRIES));
+                offlineManager.load(resourceManager);
+                for (RecipeEntry<?> entry : offlineManager.values()) {
+                    indexRecipeEntry(entry);
+                }
             }
         } catch (Exception e) {
-            com.recipeeditor.RecipeEditorMod.LOGGER.error("Failed to load offline vanilla recipes", e);
+            com.recipeeditor.RecipeEditorMod.LOGGER.error("Failed to load offline mod and vanilla recipes", e);
         }
 
         cacheInitialized = true;
@@ -104,6 +110,15 @@ public class RecipeInspector {
                         RECIPE_ENTRIES.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(entry);
                         RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
                     }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            if (recipe instanceof ShapedRecipe shaped) {
+                Item res = shaped.craft(net.minecraft.recipe.input.CraftingRecipeInput.EMPTY, net.minecraft.registry.DynamicRegistryManager.of(Registries.REGISTRIES)).getItem();
+                if (res != Items.AIR) {
+                    RECIPE_ENTRIES.computeIfAbsent(res, k -> new ArrayList<>()).add(entry);
                 }
             }
         } catch (Exception ignored) {}

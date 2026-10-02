@@ -19,7 +19,7 @@
   "recipeeditor.gui.search_placeholder": "Search item or ID...",
   "recipeeditor.gui.clear_slot": "Clear Slot",
   "recipeeditor.gui.fill_outer": "Fill Outer 8",
-  "recipeeditor.gui.clear_all": "Clear All",
+  "recipeeditor.gui.clear_all": "Clear Craft",
   "recipeeditor.gui.load_vanilla": "Load Vanilla Recipe",
   "recipeeditor.gui.delete_custom": "Delete Recipe",
   "recipeeditor.gui.export_datapack": "Export Datapack",

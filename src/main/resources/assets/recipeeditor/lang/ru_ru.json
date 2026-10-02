@@ -19,7 +19,7 @@
   "recipeeditor.gui.search_placeholder": "Поиск по имени или ID...",
   "recipeeditor.gui.clear_slot": "Очистить слот",
   "recipeeditor.gui.fill_outer": "Заполнить 8",
-  "recipeeditor.gui.clear_all": "Очистить все",
+  "recipeeditor.gui.clear_all": "Очистить крафт",
   "recipeeditor.gui.load_vanilla": "Загрузить стандартный",
   "recipeeditor.gui.delete_custom": "Удалить рецепт",
   "recipeeditor.gui.export_datapack": "Экспорт в датапак",
