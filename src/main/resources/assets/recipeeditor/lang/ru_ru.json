@@ -27,7 +27,6 @@
   "recipeeditor.gui.craft_saved": "Крафт успешно сохранен!",
   "recipeeditor.gui.craft_deleted": "Крафт удален!",
   "recipeeditor.gui.craft_empty_warn": "Нельзя сохранить пустой рецепт!",
-  "recipeeditor.gui.export_datapack": "Экспорт в датапак",
   "recipeeditor.gui.reset_defaults": "Очистить все крафты",
   "recipeeditor.gui.reset_confirm_title": "Очистить все крафты?",
   "recipeeditor.gui.reset_confirm_msg": "Это действие удалит все ваши настроенные крафты, вы уверены?",
@@ -35,7 +34,5 @@
   "recipeeditor.gui.selected_slot": "Выбран: Слот #%d",
   "recipeeditor.gui.selected_result": "Выбран: Результат крафта",
   "recipeeditor.gui.craft_variant": "Вариант крафта: %d / %d",
-  "recipeeditor.gui.items_total": "Стр. %d / %d (%d предм.)",
-  "recipeeditor.gui.datapack_exported": "Датапак успешно экспортирован!",
-  "recipeeditor.gui.datapack_export_fail": "Ошибка экспорта датапака."
+  "recipeeditor.gui.items_total": "Стр. %d / %d (%d предм.)"
 }

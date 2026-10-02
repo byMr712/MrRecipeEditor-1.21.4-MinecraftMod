@@ -63,6 +63,7 @@ public class RecipeEditorConfig {
         if (recipes == null) {
             recipes = new LinkedHashMap<>();
         }
+        Map<String, CustomRecipeData> rekeyed = new LinkedHashMap<>();
         for (CustomRecipeData recipe : recipes.values()) {
             if (recipe.patternSlots == null || recipe.patternSlots.length != 9) {
                 recipe.patternSlots = new String[9];
@@ -71,7 +72,9 @@ public class RecipeEditorConfig {
             if (recipe.resultCount < 1) recipe.resultCount = 1;
             if (recipe.resultCount > 1000) recipe.resultCount = 1000;
             if (recipe.type == null) recipe.type = RecipeTypeEnum.SHAPED_CRAFTING;
+            rekeyed.put(recipe.getKey(), recipe);
         }
+        this.recipes = rekeyed;
     }
 
     public void save() {
@@ -96,17 +99,35 @@ public class RecipeEditorConfig {
     }
 
     public boolean hasCustomRecipe(String itemId) {
-        return recipes != null && recipes.containsKey(itemId);
+        if (recipes == null || itemId == null) return false;
+        for (CustomRecipeData r : recipes.values()) {
+            if (r.enabled && itemId.equals(r.resultItemId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public List<CustomRecipeData> getRecipesFor(Item item) {
+        if (item == null || item == Items.AIR) return Collections.emptyList();
+        Identifier id = Registries.ITEM.getId(item);
+        if (id == null) return Collections.emptyList();
+        String targetId = id.toString();
+
+        List<CustomRecipeData> result = new ArrayList<>();
+        if (recipes != null) {
+            for (CustomRecipeData r : recipes.values()) {
+                if (targetId.equals(r.resultItemId)) {
+                    result.add(r.copy());
+                }
+            }
+        }
+        return result;
     }
 
     public CustomRecipeData getRecipeFor(Item item) {
-        if (item == null || item == Items.AIR) return null;
-        Identifier id = Registries.ITEM.getId(item);
-        return id != null ? getRecipeFor(id.toString()) : null;
-    }
-
-    public CustomRecipeData getRecipeFor(String itemId) {
-        return recipes != null ? recipes.get(itemId) : null;
+        List<CustomRecipeData> list = getRecipesFor(item);
+        return !list.isEmpty() ? list.get(0) : null;
     }
 
     public void addOrUpdateRecipe(CustomRecipeData recipe) {
@@ -114,14 +135,22 @@ public class RecipeEditorConfig {
             if (recipes == null) {
                 recipes = new LinkedHashMap<>();
             }
-            recipes.put(recipe.resultItemId, recipe);
+            recipes.put(recipe.getKey(), recipe);
         }
     }
 
-    public void removeRecipe(String itemId) {
-        if (recipes != null) {
-            recipes.remove(itemId);
+    public void removeRecipe(CustomRecipeData recipe) {
+        if (recipes != null && recipe != null) {
+            recipes.remove(recipe.getKey());
         }
+    }
+
+    public void removeRecipesFor(Item item) {
+        if (item == null || item == Items.AIR || recipes == null) return;
+        Identifier id = Registries.ITEM.getId(item);
+        if (id == null) return;
+        String targetId = id.toString();
+        recipes.values().removeIf(r -> targetId.equals(r.resultItemId));
     }
 
     public RecipeEditorConfig copy() {

@@ -26,6 +26,24 @@ public class CustomRecipeData {
 
     private transient RawShapedRecipe cachedRawRecipe = null;
     private transient int cachedHash = 0;
+    private transient Ingredient[] cachedIngredients = null;
+    private transient int cachedPatternHash = 0;
+
+    public String getKey() {
+        String res = resultItemId != null ? resultItemId : "minecraft:air";
+        String t = type != null ? type.name() : "SHAPED_CRAFTING";
+        return res + "#" + t + "#" + getPatternSignature();
+    }
+
+    public String getPatternSignature() {
+        if (patternSlots == null) return "empty";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 9; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(patternSlots[i] != null ? patternSlots[i] : "minecraft:air");
+        }
+        return sb.toString();
+    }
 
     public int getResultCountForType(RecipeTypeEnum t) {
         if (t == null) t = this.type != null ? this.type : RecipeTypeEnum.SHAPED_CRAFTING;
@@ -63,6 +81,8 @@ public class CustomRecipeData {
     public void invalidateCache() {
         cachedRawRecipe = null;
         cachedHash = 0;
+        cachedIngredients = null;
+        cachedPatternHash = 0;
     }
 
     public Item getResultItem() {
@@ -137,23 +157,44 @@ public class CustomRecipeData {
         }
     }
 
-    public Optional<Ingredient> createIngredientForSlot(int slot) {
+    public Ingredient getIngredientAt(int slot) {
+        if (slot < 0 || slot >= 9) return null;
+        int currentHash = Arrays.hashCode(patternSlots);
+        if (cachedIngredients == null || cachedPatternHash != currentHash) {
+            cachedIngredients = new Ingredient[9];
+            for (int i = 0; i < 9; i++) {
+                cachedIngredients[i] = computeIngredientForSlot(i);
+            }
+            cachedPatternHash = currentHash;
+        }
+        return cachedIngredients[slot];
+    }
+
+    public Ingredient computeIngredientForSlot(int slot) {
         String slotStr = getSlotString(slot);
         if (slotStr.equals("minecraft:air") || slotStr.isEmpty()) {
-            return Optional.empty();
+            return null;
         }
         if (slotStr.startsWith("#")) {
             Identifier tagId = Identifier.tryParse(slotStr.substring(1));
             if (tagId != null) {
                 TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, tagId);
-                return Optional.of(Ingredient.fromTag(Registries.ITEM.getOrThrow(tagKey)));
+                var entryList = Registries.ITEM.getOptional(tagKey);
+                if (entryList.isPresent() && entryList.get().size() > 0) {
+                    return Ingredient.fromTag(entryList.get());
+                }
             }
         }
         Item item = getItemAt(slot);
         if (item != Items.AIR) {
-            return Optional.of(Ingredient.ofItem(item));
+            return Ingredient.ofItem(item);
         }
-        return Optional.empty();
+        return null;
+    }
+
+    public Optional<Ingredient> createIngredientForSlot(int slot) {
+        Ingredient ing = getIngredientAt(slot);
+        return ing != null ? Optional.of(ing) : Optional.empty();
     }
 
     public RawShapedRecipe getRawRecipe() {
@@ -172,8 +213,10 @@ public class CustomRecipeData {
     public List<Ingredient> getShapelessIngredients() {
         List<Ingredient> list = new ArrayList<>();
         for (int i = 0; i < 9; i++) {
-            Optional<Ingredient> ing = createIngredientForSlot(i);
-            ing.ifPresent(list::add);
+            Ingredient ing = getIngredientAt(i);
+            if (ing != null) {
+                list.add(ing);
+            }
         }
         return list;
     }

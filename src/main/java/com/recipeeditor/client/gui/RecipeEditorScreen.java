@@ -3,7 +3,6 @@ package com.recipeeditor.client.gui;
 import com.recipeeditor.config.CustomRecipeData;
 import com.recipeeditor.config.RecipeEditorConfig;
 import com.recipeeditor.config.RecipeTypeEnum;
-import com.recipeeditor.exporter.DatapackExporter;
 import com.recipeeditor.inspector.RecipeInspector;
 import com.recipeeditor.inspector.RecipeStatus;
 import net.fabricmc.loader.api.FabricLoader;
@@ -231,8 +230,9 @@ public class RecipeEditorScreen extends Screen {
         currentVariants.clear();
         var world = this.client != null ? this.client.world : null;
 
-        if (configCopy.hasCustomRecipe(item)) {
-            currentVariants.add(configCopy.getRecipeFor(item).copy());
+        List<CustomRecipeData> customList = configCopy.getRecipesFor(item);
+        for (CustomRecipeData custom : customList) {
+            currentVariants.add(custom.copy());
         }
 
         List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(item, world);
@@ -271,8 +271,9 @@ public class RecipeEditorScreen extends Screen {
         currentVariants.clear();
         var world = this.client != null ? this.client.world : null;
 
-        if (configCopy.hasCustomRecipe(item)) {
-            currentVariants.add(configCopy.getRecipeFor(item).copy());
+        List<CustomRecipeData> customList = configCopy.getRecipesFor(item);
+        for (CustomRecipeData custom : customList) {
+            currentVariants.add(custom.copy());
         }
 
         List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(item, world);
@@ -563,22 +564,15 @@ public class RecipeEditorScreen extends Screen {
     }
 
     private void rebuildBottomButtons(int bottomY) {
-        Text exportText = Text.translatable("recipeeditor.gui.export_datapack");
         Text resetText = Text.translatable("recipeeditor.gui.reset_defaults");
         Text exitText = Text.translatable("recipeeditor.gui.exit");
 
         int wExit = Math.max(65, this.textRenderer.getWidth(exitText) + 20);
-        int wReset = Math.max(115, this.textRenderer.getWidth(resetText) + 16);
-        int wExport = Math.max(120, this.textRenderer.getWidth(exportText) + 16);
+        int wReset = Math.max(120, this.textRenderer.getWidth(resetText) + 16);
 
         int rightMargin = this.width - 12;
         int exitX = rightMargin - wExit;
         int resetX = exitX - 6 - wReset;
-        int exportX = resetX - 6 - wExport;
-
-        this.addDrawableChild(ButtonWidget.builder(exportText, btn -> exportDatapack())
-                .dimensions(exportX, bottomY, wExport, 20)
-                .build());
 
         this.addDrawableChild(ButtonWidget.builder(resetText, btn -> promptResetDefaults())
                 .dimensions(resetX, bottomY, wReset, 20)
@@ -823,9 +817,9 @@ public class RecipeEditorScreen extends Screen {
     private void deleteCurrentRecipe() {
         if (currentRecipe == null || currentRecipe.getResultItem() == Items.AIR) return;
 
-        configCopy.removeRecipe(currentRecipe.resultItemId);
+        configCopy.removeRecipe(currentRecipe);
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
-        actual.removeRecipe(currentRecipe.resultItemId);
+        actual.removeRecipe(currentRecipe);
         actual.save();
 
         currentRecipe = new CustomRecipeData("", "minecraft:air", 1, RecipeTypeEnum.SHAPED_CRAFTING);
@@ -843,20 +837,6 @@ public class RecipeEditorScreen extends Screen {
         rebuildTypeButtons();
         updateButtonStates();
         refreshFilteredItems();
-    }
-
-    private void exportDatapack() {
-        if (currentRecipe != null && currentRecipe.getResultItem() != Items.AIR) {
-            configCopy.addOrUpdateRecipe(currentRecipe.copy());
-        }
-        boolean success = DatapackExporter.exportToZip();
-        if (success) {
-            notificationText = Text.translatable("recipeeditor.gui.datapack_exported").formatted(Formatting.GREEN, Formatting.BOLD);
-        } else {
-            notificationText = Text.translatable("recipeeditor.gui.datapack_export_fail").formatted(Formatting.RED, Formatting.BOLD);
-        }
-        notificationTimer = System.currentTimeMillis() + 4000;
-        updateButtonStates();
     }
 
     private void resetDefaults() {
@@ -1102,19 +1082,17 @@ public class RecipeEditorScreen extends Screen {
         MutableText pageInfo = Text.translatable("recipeeditor.gui.items_total", catalogPage + 1, maxPage, filteredItems.size());
         context.drawCenteredTextWithShadow(this.textRenderer, pageInfo.formatted(Formatting.GRAY), rightPaneX + (searchWidth / 2), catalogGridY + (catalogRows * SLOT_SIZE) + 10, 0xFFAAAAAA);
 
-        // Notification overlay message (drawn to the left of Export Datapack button)
+        // Notification overlay message (drawn to the left of Reset Defaults button)
         if (notificationText != null && System.currentTimeMillis() < notificationTimer) {
-            Text exportText = Text.translatable("recipeeditor.gui.export_datapack");
             Text resetText = Text.translatable("recipeeditor.gui.reset_defaults");
             Text exitText = Text.translatable("recipeeditor.gui.exit");
 
             int wExit = Math.max(65, this.textRenderer.getWidth(exitText) + 20);
-            int wReset = Math.max(115, this.textRenderer.getWidth(resetText) + 16);
-            int wExport = Math.max(120, this.textRenderer.getWidth(exportText) + 16);
-            int exportX = (this.width - 12) - wExit - 6 - wReset - 6 - wExport;
+            int wReset = Math.max(120, this.textRenderer.getWidth(resetText) + 16);
+            int resetX = (this.width - 12) - wExit - 6 - wReset;
 
             int msgW = this.textRenderer.getWidth(notificationText);
-            int msgX = exportX - msgW - 10;
+            int msgX = resetX - msgW - 10;
             int msgY = this.height - 24 + 6;
             context.drawTextWithShadow(this.textRenderer, notificationText, Math.max(8, msgX), msgY, 0xFF55FF55);
         }

@@ -87,8 +87,8 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         for (int r = 0; r < 3; r++) {
             for (int c = 0; c < 3; c++) {
                 int slotIdx = r * 3 + c;
-                Optional<Ingredient> ing = recipeData.createIngredientForSlot(slotIdx);
-                if (ing.isPresent()) {
+                Ingredient ing = recipeData.getIngredientAt(slotIdx);
+                if (ing != null) {
                     if (r < minRow) minRow = r;
                     if (r > maxRow) maxRow = r;
                     if (c < minCol) minCol = c;
@@ -114,16 +114,16 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         for (int r = 0; r < patternH; r++) {
             for (int c = 0; c < patternW; c++) {
                 int slotIdx = (minRow + r) * 3 + (minCol + c);
-                Optional<Ingredient> expected = recipeData.createIngredientForSlot(slotIdx);
+                Ingredient expected = recipeData.getIngredientAt(slotIdx);
                 ItemStack actual = input.getStackInSlot(c, r);
 
-                if (expected.isEmpty()) {
+                if (expected == null) {
                     if (!actual.isEmpty()) {
                         normalMatches = false;
                         break;
                     }
                 } else {
-                    if (!expected.get().test(actual)) {
+                    if (!expected.test(actual)) {
                         normalMatches = false;
                         break;
                     }
@@ -141,16 +141,16 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         for (int r = 0; r < patternH; r++) {
             for (int c = 0; c < patternW; c++) {
                 int slotIdx = (minRow + r) * 3 + (maxCol - c);
-                Optional<Ingredient> expected = recipeData.createIngredientForSlot(slotIdx);
+                Ingredient expected = recipeData.getIngredientAt(slotIdx);
                 ItemStack actual = input.getStackInSlot(c, r);
 
-                if (expected.isEmpty()) {
+                if (expected == null) {
                     if (!actual.isEmpty()) {
                         mirroredMatches = false;
                         break;
                     }
                 } else {
-                    if (!expected.get().test(actual)) {
+                    if (!expected.test(actual)) {
                         mirroredMatches = false;
                         break;
                     }
@@ -174,6 +174,9 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         if (inputItems.size() != ingredients.size() || ingredients.isEmpty()) {
             return false;
         }
+
+        // Sort ingredients by specificity (single item first, tags later) to prevent greedy mismatch
+        ingredients.sort(Comparator.comparingInt(ing -> ing.getMatchingItems().count() > 1 ? 1 : 0));
 
         boolean[] matched = new boolean[ingredients.size()];
         for (ItemStack stack : inputItems) {
@@ -203,7 +206,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         if (matched != null) {
             Item resultItem = matched.getResultItem();
             if (resultItem != Items.AIR) {
-                return new ItemStack(resultItem, matched.resultCount);
+                return new ItemStack(resultItem, matched.getResultCountForType(matched.type));
             }
         }
         return ItemStack.EMPTY;
@@ -224,7 +227,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
             Item resultItem = recipe.getResultItem();
             if (resultItem == Items.AIR) continue;
 
-            SlotDisplay resultDisplay = new SlotDisplay.StackSlotDisplay(new ItemStack(resultItem, recipe.resultCount));
+            SlotDisplay resultDisplay = new SlotDisplay.StackSlotDisplay(new ItemStack(resultItem, recipe.getResultCountForType(recipe.type)));
 
             if (recipe.type == RecipeTypeEnum.SHAPED_CRAFTING) {
                 List<SlotDisplay> ingredients = new ArrayList<>(9);
