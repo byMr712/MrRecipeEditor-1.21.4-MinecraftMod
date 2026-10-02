@@ -41,6 +41,7 @@ public class RecipeInspector {
         RECIPE_DISPLAYS.clear();
         KNOWN_RECIPE_ITEMS.clear();
         DECOMPILED_CACHE.clear();
+        TagResolver.clearCache();
         cacheInitialized = false;
     }
 
@@ -49,6 +50,7 @@ public class RecipeInspector {
         RECIPE_DISPLAYS.clear();
         KNOWN_RECIPE_ITEMS.clear();
         DECOMPILED_CACHE.clear();
+        TagResolver.clearCache();
         MinecraftClient client = MinecraftClient.getInstance();
 
         // 1. Scan Fabric Mod & Vanilla JARs directly (clean, fast, 100% offline & online)
@@ -98,8 +100,18 @@ public class RecipeInspector {
                     try (Stream<Path> stream = Files.walk(dataDir.get())) {
                         stream.filter(p -> {
                             String s = p.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
-                            return s.endsWith(".json") && (s.contains("/recipe/") || s.contains("/recipes/"));
-                        }).forEach(RecipeInspector::parseModRecipeJson);
+                            return s.endsWith(".json") && (
+                                    s.contains("/recipe/") || s.contains("/recipes/") ||
+                                    s.contains("/tags/item/") || s.contains("/tags/items/")
+                            );
+                        }).forEach(p -> {
+                            String s = p.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
+                            if (s.contains("/tags/item/") || s.contains("/tags/items/")) {
+                                TagResolver.parseTagJson(p);
+                            } else {
+                                parseModRecipeJson(p);
+                            }
+                        });
                     }
                 }
             } catch (Exception ignored) {}
@@ -419,9 +431,7 @@ public class RecipeInspector {
         } else if (display instanceof SlotDisplay.WithRemainderSlotDisplay withRemainder) {
             return getItemFromSlotDisplay(withRemainder.input());
         } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
-            for (var entry : Registries.ITEM.iterateEntries(tagDisplay.tag())) {
-                return entry.value();
-            }
+            return TagResolver.resolveTag(tagDisplay.tag().id().toString());
         } else if (display instanceof SlotDisplay.CompositeSlotDisplay composite) {
             for (SlotDisplay child : composite.contents()) {
                 Item item = getItemFromSlotDisplay(child);

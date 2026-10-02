@@ -94,14 +94,7 @@ public class CustomRecipeData {
             return Items.AIR;
         }
         if (idStr.startsWith("#")) {
-            Identifier tagId = Identifier.tryParse(idStr.substring(1));
-            if (tagId != null) {
-                TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, tagId);
-                for (var entry : Registries.ITEM.iterateEntries(tagKey)) {
-                    return entry.value();
-                }
-            }
-            return Items.AIR;
+            return com.recipeeditor.inspector.TagResolver.resolveTag(idStr);
         }
         Identifier id = Identifier.tryParse(idStr);
         if (id == null || !Registries.ITEM.containsId(id)) {
