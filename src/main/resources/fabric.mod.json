@@ -1,24 +1,24 @@
 {
   "schemaVersion": 1,
-  "id": "totemcraft",
+  "id": "recipeeditor",
   "version": "${version}",
-  "name": "TotemCraft",
-  "description": "A configurable Fabric mod for Minecraft 1.21.4 that adds a crafting recipe for the Totem of Undying (8 golden apples around a ghast tear by default) with an in-game GUI config screen and ModMenu integration.",
+  "name": "Recipe Editor",
+  "description": "Universal In-Game Recipe Editor and Creator for Minecraft 1.21.4. Create, modify, and auto-detect recipes for any vanilla or modded items directly in-game with drag & drop support.",
   "authors": [
     "Mr712"
   ],
   "contact": {
-    "sources": "https://github.com/byMr712/TotemCraft-MinecraftMod"
+    "sources": "https://github.com/byMr712/RecipeEditor-1.21.4-MinecraftMod"
   },
   "license": "Apache-2.0",
-  "icon": "assets/totemcraft/icon.png",
+  "icon": "assets/recipeeditor/icon.png",
   "environment": "*",
   "entrypoints": {
     "main": [
-      "com.totemcraft.TotemCraftMod"
+      "com.recipeeditor.RecipeEditorMod"
     ],
     "modmenu": [
-      "com.totemcraft.integration.ModMenuIntegration"
+      "com.recipeeditor.integration.ModMenuIntegration"
     ]
   },
   "depends": {

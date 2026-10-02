@@ -1,12 +1,12 @@
-package com.totemcraft.integration;
+package com.recipeeditor.integration;
 
+import com.recipeeditor.client.gui.RecipeEditorScreen;
 import com.terraformersmc.modmenu.api.ConfigScreenFactory;
 import com.terraformersmc.modmenu.api.ModMenuApi;
-import com.totemcraft.client.gui.TotemCraftConfigScreen;
 
 public class ModMenuIntegration implements ModMenuApi {
     @Override
     public ConfigScreenFactory<?> getModConfigScreenFactory() {
-        return TotemCraftConfigScreen::new;
+        return RecipeEditorScreen::new;
     }
 }
