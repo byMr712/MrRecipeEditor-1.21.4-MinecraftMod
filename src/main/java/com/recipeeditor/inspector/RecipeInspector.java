@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.recipeeditor.RecipeEditorMod;
 import com.recipeeditor.config.CustomRecipeData;
 import com.recipeeditor.config.RecipeEditorConfig;
 import com.recipeeditor.config.RecipeTypeEnum;
@@ -52,7 +51,7 @@ public class RecipeInspector {
         DECOMPILED_CACHE.clear();
         MinecraftClient client = MinecraftClient.getInstance();
 
-        // 1. Scan Fabric Mod JARs directly (works 100% in Main Menu and in-game)
+        // 1. Scan Fabric Mod & Vanilla JARs directly (clean, fast, 100% offline & online)
         scanFabricModJars();
 
         // 2. Scan active Server Recipe Manager (if in singleplayer / integrated server)
@@ -88,20 +87,6 @@ public class RecipeInspector {
             }
         }
 
-        // 4. Offline / Main Menu Fallback for Vanilla data
-        try (net.minecraft.resource.LifecycledResourceManager resourceManager =
-                     new net.minecraft.resource.LifecycledResourceManagerImpl(
-                             net.minecraft.resource.ResourceType.SERVER_DATA,
-                             java.util.List.of(net.minecraft.resource.VanillaDataPackProvider.createDefaultPack()))) {
-            OfflineRecipeManager offlineManager = new OfflineRecipeManager(net.minecraft.registry.DynamicRegistryManager.of(Registries.REGISTRIES));
-            offlineManager.load(resourceManager);
-            for (RecipeEntry<?> entry : offlineManager.values()) {
-                indexRecipeEntry(entry);
-            }
-        } catch (Exception e) {
-            RecipeEditorMod.LOGGER.error("Failed to load offline vanilla recipes", e);
-        }
-
         cacheInitialized = true;
     }
 
@@ -111,10 +96,10 @@ public class RecipeInspector {
                 Optional<Path> dataDir = mod.findPath("data");
                 if (dataDir.isPresent()) {
                     try (Stream<Path> stream = Files.walk(dataDir.get())) {
-                        stream.filter(p -> p.toString().endsWith(".json") &&
-                                        (p.toString().contains("/recipe/") || p.toString().contains("/recipes/") ||
-                                         p.toString().contains("\\recipe\\") || p.toString().contains("\\recipes\\")))
-                              .forEach(RecipeInspector::parseModRecipeJson);
+                        stream.filter(p -> {
+                            String s = p.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
+                            return s.endsWith(".json") && (s.contains("/recipe/") || s.contains("/recipes/"));
+                        }).forEach(RecipeInspector::parseModRecipeJson);
                     }
                 }
             } catch (Exception ignored) {}
@@ -248,18 +233,6 @@ public class RecipeInspector {
         return "minecraft:air";
     }
 
-    private static class OfflineRecipeManager extends ServerRecipeManager {
-        public OfflineRecipeManager(net.minecraft.registry.RegistryWrapper.WrapperLookup registries) {
-            super(registries);
-        }
-
-        public void load(net.minecraft.resource.ResourceManager resourceManager) {
-            net.minecraft.recipe.PreparedRecipes prepared = this.prepare(resourceManager, net.minecraft.util.profiler.DummyProfiler.INSTANCE);
-            this.apply(prepared, resourceManager, net.minecraft.util.profiler.DummyProfiler.INSTANCE);
-            this.initialize(net.minecraft.resource.featuretoggle.FeatureFlags.VANILLA_FEATURES);
-        }
-    }
-
     private static void indexRecipeEntry(RecipeEntry<?> entry) {
         Recipe<?> recipe = entry.value();
         try {
@@ -272,16 +245,6 @@ public class RecipeInspector {
                         RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
                         KNOWN_RECIPE_ITEMS.add(resultItem);
                     }
-                }
-            }
-        } catch (Exception ignored) {}
-
-        try {
-            if (recipe instanceof ShapedRecipe shaped) {
-                Item res = shaped.craft(net.minecraft.recipe.input.CraftingRecipeInput.EMPTY, net.minecraft.registry.DynamicRegistryManager.of(Registries.REGISTRIES)).getItem();
-                if (res != Items.AIR) {
-                    RECIPE_ENTRIES.computeIfAbsent(res, k -> new ArrayList<>()).add(entry);
-                    KNOWN_RECIPE_ITEMS.add(res);
                 }
             }
         } catch (Exception ignored) {}
