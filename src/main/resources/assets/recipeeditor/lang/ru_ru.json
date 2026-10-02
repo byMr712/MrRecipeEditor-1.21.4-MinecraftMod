@@ -52,8 +52,13 @@
   "recipeeditor.gui.hint_5": "💡 Очищайте слот крафта мышкой (ПКМ)",
   "recipeeditor.gui.conflict_title": "Обнаружен конфликт крафтов",
   "recipeeditor.gui.conflict_desc": "Указанный вами крафт(ы) не могут быть сохранены, так как уже заняты другими предметами.",
+  "recipeeditor.gui.conflict_workstation": "Место крафта: %s",
+  "recipeeditor.gui.conflict_used_by": "❌ Уже используется предметом: %s",
+  "recipeeditor.gui.conflict_source": "📦 Источник: %s",
   "recipeeditor.gui.conflict_source_vanilla": "Ванильный Minecraft",
   "recipeeditor.gui.conflict_source_mod": "Мод «%s»",
   "recipeeditor.gui.conflict_source_custom": "Мои крафты",
-  "recipeeditor.gui.conflict_dismiss": "Понял"
+  "recipeeditor.gui.conflict_dismiss": "Понял",
+  "recipeeditor.gui.cooking_time": "Время: %d т.",
+  "recipeeditor.gui.experience": "Опыт: %.1f"
 }

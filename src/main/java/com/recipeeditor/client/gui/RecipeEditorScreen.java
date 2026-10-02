@@ -260,7 +260,13 @@ public class RecipeEditorScreen extends Screen {
         selectTargetItem(item);
     }
 
+    private final Map<String, CustomRecipeData> draftMap = new HashMap<>();
+
     private void refreshTypeVariants(RecipeTypeEnum type, boolean resetIndex) {
+        if (targetItem != null && currentRecipe != null) {
+            draftMap.put(targetItem + "#" + selectedType + "#" + currentVariantIndex, currentRecipe.copy());
+        }
+
         this.selectedType = type;
         this.typeVariants.clear();
 
@@ -272,7 +278,14 @@ public class RecipeEditorScreen extends Screen {
         var world = this.client != null ? this.client.world : null;
         Set<String> seenSignatures = new HashSet<>();
 
-        // 1. Custom recipes for targetItem and this machine type
+        // 1. Check draft map first
+        String draftKey = targetItem + "#" + type + "#0";
+        if (draftMap.containsKey(draftKey)) {
+            typeVariants.add(draftMap.get(draftKey).copy());
+            seenSignatures.add(draftMap.get(draftKey).getPatternSignature());
+        }
+
+        // 2. Custom recipes for targetItem and this machine type
         List<CustomRecipeData> customList = configCopy.getRecipesFor(targetItem, type);
         for (CustomRecipeData c : customList) {
             String sig = c.getPatternSignature();
@@ -281,7 +294,7 @@ public class RecipeEditorScreen extends Screen {
             }
         }
 
-        // 2. Scanned / Modded / Vanilla recipes for targetItem and this machine type
+        // 3. Scanned / Modded / Vanilla recipes for targetItem and this machine type
         List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(targetItem, world);
         for (CustomRecipeData s : scanned) {
             if (s.type == type) {
@@ -292,7 +305,7 @@ public class RecipeEditorScreen extends Screen {
             }
         }
 
-        // 3. Fallback: If no recipes exist for this machine type, create a blank empty craft
+        // 4. Fallback: If no recipes exist for this machine type, create a blank empty craft
         if (typeVariants.isEmpty()) {
             Identifier id = Registries.ITEM.getId(targetItem);
             CustomRecipeData blank = new CustomRecipeData(
@@ -801,15 +814,18 @@ public class RecipeEditorScreen extends Screen {
     }
 
     private void clearSelectedSlot() {
+        if (selectedSlot == RESULT_SLOT) {
+            this.targetItem = null;
+            this.currentRecipe = null;
+            this.typeVariants.clear();
+            this.currentVariantIndex = 0;
+            setEditorWidgetsVisible(false);
+            updateButtonStates();
+            return;
+        }
         if (currentRecipe == null) return;
         if (selectedSlot >= 0 && selectedSlot < 9) {
             currentRecipe.setItemAt(selectedSlot, Items.AIR);
-        } else if (selectedSlot == RESULT_SLOT) {
-            currentRecipe.setResultItem(Items.AIR);
-            currentRecipe.resultItemId = "minecraft:air";
-            if (resultCountField != null) {
-                resultCountField.setText("1");
-            }
         }
         updateButtonStates();
     }
@@ -1315,7 +1331,13 @@ public class RecipeEditorScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (button == 0 && draggedItem != null) {
             int targetSlot = getCraftingSlotAt(mouseX, mouseY);
-            if (targetSlot != -1) {
+            if (targetItem == null) {
+                selectTargetItem(draggedItem);
+                if (targetSlot >= 0 && targetSlot < 9 && currentRecipe != null) {
+                    currentRecipe.setItemAt(targetSlot, draggedItem);
+                    selectedSlot = targetSlot;
+                }
+            } else if (targetSlot != -1) {
                 if (currentRecipe != null) {
                     if (targetSlot >= 0 && targetSlot < 9) {
                         currentRecipe.setItemAt(targetSlot, draggedItem);

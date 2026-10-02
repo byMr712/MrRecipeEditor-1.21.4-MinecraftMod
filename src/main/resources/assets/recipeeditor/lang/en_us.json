@@ -52,8 +52,13 @@
   "recipeeditor.gui.hint_5": "💡 Clear crafting slot with mouse (RMB)",
   "recipeeditor.gui.conflict_title": "Recipe Conflict Detected",
   "recipeeditor.gui.conflict_desc": "The recipe(s) you specified cannot be saved because they are already used by other items.",
+  "recipeeditor.gui.conflict_workstation": "Crafting location: %s",
+  "recipeeditor.gui.conflict_used_by": "❌ Already used by item: %s",
+  "recipeeditor.gui.conflict_source": "📦 Source: %s",
   "recipeeditor.gui.conflict_source_vanilla": "Vanilla Minecraft",
   "recipeeditor.gui.conflict_source_mod": "Mod: %s",
   "recipeeditor.gui.conflict_source_custom": "My Crafts",
-  "recipeeditor.gui.conflict_dismiss": "Understood"
+  "recipeeditor.gui.conflict_dismiss": "Understood",
+  "recipeeditor.gui.cooking_time": "Time: %d t.",
+  "recipeeditor.gui.experience": "Exp: %.1f"
 }

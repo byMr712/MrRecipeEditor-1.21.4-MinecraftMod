@@ -29,12 +29,12 @@ import java.util.stream.Stream;
 
 public class RecipeInspector {
     private static final Gson GSON = new Gson();
-    private static final Map<Item, List<RecipeEntry<?>>> RECIPE_ENTRIES = new HashMap<>();
-    private static final Map<Item, List<RecipeDisplay>> RECIPE_DISPLAYS = new HashMap<>();
-    private static final Set<Item> KNOWN_RECIPE_ITEMS = new HashSet<>();
-    private static final Map<Item, CustomRecipeData> DECOMPILED_CACHE = new HashMap<>();
-    private static final Map<Item, List<CustomRecipeData>> DECOMPILED_VARIANTS = new HashMap<>();
-    private static boolean cacheInitialized = false;
+    private static final Map<Item, List<RecipeEntry<?>>> RECIPE_ENTRIES = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<Item, List<RecipeDisplay>> RECIPE_DISPLAYS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Set<Item> KNOWN_RECIPE_ITEMS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final Map<Item, CustomRecipeData> DECOMPILED_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<Item, List<CustomRecipeData>> DECOMPILED_VARIANTS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static volatile boolean cacheInitialized = false;
 
     public static void invalidateCache() {
         RECIPE_ENTRIES.clear();
@@ -419,6 +419,7 @@ public class RecipeInspector {
                 List<CustomRecipeData> nextLevel = new ArrayList<>();
                 for (CustomRecipeData parent : currentLevel) {
                     for (Item item : tagItems) {
+                        if (nextLevel.size() >= 32) break;
                         Identifier itemId = Registries.ITEM.getId(item);
                         if (itemId != null) {
                             CustomRecipeData variant = parent.copy();
@@ -430,8 +431,10 @@ public class RecipeInspector {
                             nextLevel.add(variant);
                         }
                     }
+                    if (nextLevel.size() >= 32) break;
                 }
                 currentLevel = nextLevel;
+                if (currentLevel.size() >= 32) break;
             }
         }
 

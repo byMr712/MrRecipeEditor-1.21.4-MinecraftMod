@@ -105,7 +105,7 @@ public class RecipeConflictScreen extends Screen {
             int entryStartY = currentY;
 
             // Header: "Место крафта: [Название станка]"
-            Text wsText = Text.literal("Место крафта: " + wsType.getDisplayName().getString()).formatted(Formatting.GOLD, Formatting.BOLD);
+            Text wsText = Text.translatable("recipeeditor.gui.conflict_workstation", wsType.getDisplayName().getString()).formatted(Formatting.GOLD, Formatting.BOLD);
             context.drawTextWithShadow(this.textRenderer, wsText, listX + 4, entryStartY, 0xFFFFAA00);
 
             int gridY = entryStartY + 12;
@@ -194,10 +194,10 @@ public class RecipeConflictScreen extends Screen {
             // Conflicting Info Details Text
             int textY = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? (gridY + 60) : (gridY + 22);
 
-            Text usedByText = Text.literal("❌ Уже используется предметом: " + info.getConflictingItemName().getString()).formatted(Formatting.RED);
+            Text usedByText = Text.translatable("recipeeditor.gui.conflict_used_by", info.getConflictingItemName().getString()).formatted(Formatting.RED);
             context.drawTextWithShadow(this.textRenderer, usedByText, listX + 4, textY, 0xFFFF5555);
 
-            Text sourceText = Text.literal("📦 Источник: " + info.sourceName).formatted(Formatting.YELLOW);
+            Text sourceText = Text.translatable("recipeeditor.gui.conflict_source", info.sourceName).formatted(Formatting.YELLOW);
             context.drawTextWithShadow(this.textRenderer, sourceText, listX + 4, textY + 11, 0xFFFFAA00);
 
             int entryHeight = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? 96 : 58;

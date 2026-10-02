@@ -35,7 +35,8 @@ public class RecipeEditorConfig {
     }
 
     public static RecipeEditorConfig load() {
-        File configFile = getConfigPath().toFile();
+        Path configPath = getConfigPath();
+        File configFile = configPath.toFile();
         if (configFile.exists()) {
             try (FileReader reader = new FileReader(configFile)) {
                 RecipeEditorConfig config = GSON.fromJson(reader, RecipeEditorConfig.class);
@@ -45,7 +46,11 @@ public class RecipeEditorConfig {
                     return config;
                 }
             } catch (Exception e) {
-                RecipeEditorMod.LOGGER.error("Failed to load RecipeEditor config, using clean state", e);
+                RecipeEditorMod.LOGGER.error("Failed to load RecipeEditor config, backing up corrupted file", e);
+                try {
+                    Path backupPath = configPath.resolveSibling("recipeeditor.json.bak");
+                    java.nio.file.Files.copy(configPath, backupPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } catch (Exception ignored) {}
             }
         }
 
@@ -79,18 +84,26 @@ public class RecipeEditorConfig {
         this.recipes = rekeyed;
     }
 
-    public void save() {
+    public synchronized void save() {
         try {
-            File configFile = getConfigPath().toFile();
-            File parent = configFile.getParentFile();
+            Path configPath = getConfigPath();
+            Path tmpPath = configPath.resolveSibling("recipeeditor.json.tmp");
+            File parent = configPath.toFile().getParentFile();
             if (parent != null && !parent.exists()) {
                 parent.mkdirs();
             }
-            try (FileWriter writer = new FileWriter(configFile)) {
+
+            try (FileWriter writer = new FileWriter(tmpPath.toFile())) {
                 GSON.toJson(this, writer);
             }
+
+            try {
+                java.nio.file.Files.move(tmpPath, configPath, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                java.nio.file.Files.move(tmpPath, configPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
-            RecipeEditorMod.LOGGER.error("Failed to save RecipeEditor config", e);
+            RecipeEditorMod.LOGGER.error("Failed to save RecipeEditor config atomically", e);
         }
     }
 
