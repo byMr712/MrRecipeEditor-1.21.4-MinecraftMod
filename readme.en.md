@@ -1,8 +1,6 @@
-# TotemCraft
-
 > **Language:** [Русский](readme.md) · English
 
-A lightweight, fully configurable Minecraft mod for the **Fabric 1.21.4** mod loader that introduces a balanced crafting recipe for the **Totem of Undying** with an authentic in-game **Mod Menu** GUI configuration screen, Recipe Book & Recipe Viewer (JEI, REI, EMI, JEB) auto-fill support, and a dedicated custom advancement.
+# Recipe Editor (Minecraft 1.21.4 Fabric)
 
 ![Java 21](https://img.shields.io/badge/Java-21-blue.svg)
 ![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-blue.svg)
@@ -10,172 +8,124 @@ A lightweight, fully configurable Minecraft mod for the **Fabric 1.21.4** mod lo
 ![ModMenu](https://img.shields.io/badge/ModMenu-Supported-blue.svg)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 
-## Screenshots
+Universal in-game recipe editor and creation studio for **Minecraft 1.21.4 (Fabric)**.
 
-| Totem Crafting | ModMenu Configuration |
+---
+
+## About
+
+**Recipe Editor** provides a comprehensive in-game graphical user interface to inspect, decompile, create, and customize crafting recipes for any item (vanilla or modded). The mod supports 7 workstation types, Drag & Drop controls, item tags, automatic recipe conflict prevention, and client-server network synchronization on dedicated servers.
+
+---
+
+## Gallery
+
+| Recipe Editor | Configuration Menu |
 |:---:|:---:|
-| ![Totem Crafting](/images/totemcraft.png) | ![ModMenu Configuration](/images/totemcraft_modmenu.png) |
+| ![Recipe Editor](/images/totemcraft.png) | ![Configuration Menu](/images/totemcraft_modmenu.png) |
+
+---
 
 ## Features
 
-- **Balanced Default Recipe:** 8 Golden Apples surrounding a Ghast Tear in the center.
-- **In-Game Minecraft GUI Configurator:** Customize the recipe layout directly in-game in authentic vanilla style.
-- **Responsive & Dynamic Catalog Size:** The item picker automatically calculates the optimal columns and rows based on your screen resolution and GUI Scale.
-- **Mod Filtering Tabs (Mod Tabs):** Quickly switch between "All", "Minecraft" (Vanilla), and individual tabs for every detected mod.
-- **Mouse Wheel Scrolling:** Scroll through catalog pages effortlessly using the mouse scroll wheel or navigation buttons.
-- **Support for Items from Any Mod:** Built-in item picker catalog with live search enables assigning any item from any installed mod to any crafting grid slot or recipe output.
-- **Seamless Recipe Book & Recipe Viewer Integration:** The recipe fully appears in the Recipe Book, JEI, REI, EMI, JEB and supports instant recipe ingredient transfer into crafting tables with a single click.
-- **Custom Advancement:** Players unlock the *«Handmade Totem — I will never die!»* advancement upon crafting their first totem.
-- **Optional Mod Menu Integration:** If [Mod Menu](https://modrinth.com/mod/modmenu) is present, the settings button seamlessly appears in the mod list. If Mod Menu is absent, the mod operates normally without issues.
-- **Live Recipe Updates without Restart:** Recipe adjustments take effect instantly in-game without needing to restart the client, world, or server.
-- **Vanilla Client Friendly:** Server-side installation supports unmodded vanilla clients out of the box.
-- **Full Localization:** Fully localized in Russian (`ru_ru`) and English (`en_us`).
+- **7 Workstation Types Supported:**
+  - **Crafting Table** — 3x3 grid for shaped crafting recipes.
+  - **Furnace** — item smelting with configurable time and experience yield.
+  - **Blast Furnace** — high-speed smelting for ores and equipment.
+  - **Smoker** — accelerated cooking for food items.
+  - **Stonecutter** — block cutting with dynamic recipe button list generation in the UI.
+  - **Smithing Table** — equipment transformation with 3 slots (template, base, addition).
+  - **Campfire** — campfire food cooking.
+- **Mouse Controls & Drag & Drop:**
+  - Drag items from catalog into crafting slots (LMB).
+  - Quick decompilation of an item's existing recipe from the catalog (RMB).
+  - Clear selected slot with RMB or `Del` / `Backspace` key.
+- **First-Class Tag Support (`#tag`):**
+  - Full support for vanilla and modded tags (e.g., `#minecraft:planks`, `#c:iron_ores`, `#minecraft:sand`).
+  - Dynamic matching validation using `Ingredient.test()`.
+- **Recipe Conflict Protection:**
+  - Automatic collision checks against vanilla and modded recipes upon saving.
+  - Informative blocking modal with visual recipe preview.
+- **Multi-Variant Recipes:**
+  - Create multiple alternative recipe variants for the same item.
+- **Network Synchronization (Dedicated Server & LAN):**
+  - Network protocol based on Fabric Networking API (`UpdateRecipeC2SPacket` / `SyncRecipesS2CPacket`).
+  - Operator permission checks (level 2) on servers and live broadcast updates to all connected players.
+- **Item Catalog & Filtering:**
+  - Filter modes: "All", "Uncraftable", "Craftable", "Custom".
+  - Horizontally scrollable Mod Tabs for instant filtering by specific mods.
+  - Full-text search by localized names and raw item IDs.
+  - Responsive grid layout adapting to screen size and GUI scale.
+- **Recipe Viewer Integration:**
+  - Compatible with JEI, REI, EMI, and the vanilla Recipe Book.
 
-## Default Crafting Recipe
+---
 
-By default, crafting takes place in a standard 3x3 crafting grid: **8 Golden Apples** placed around **1 Ghast Tear** in the center.
+## Controls
 
-### 3x3 Crafting Grid Layout
+| Action | Description |
+|---|---|
+| **LMB on item** | Select item or drag it into a crafting slot |
+| **RMB on catalog item** | Load and decompile the item's recipe into the editor |
+| **RMB on crafting slot** | Clear the clicked slot |
+| **`Del` / `Backspace` Key** | Clear active slot (or reset target item if result slot is selected) |
+| **Mouse Scroll Wheel** | Scroll through catalog pages and mod tabs |
+| **`◀` / `▶` Arrow Buttons** | Switch workstation pages and recipe variants |
 
-```
-+---------------------+---------------------+---------------------+
-| [Golden Apple] | [Golden Apple] | [Golden Apple] |
-+---------------------+---------------------+---------------------+
-| [Golden Apple] | [Ghast Tear] | [Golden Apple] | ===> [Totem of Undying] (x1)
-+---------------------+---------------------+---------------------+
-| [Golden Apple] | [Golden Apple] | [Golden Apple] |
-+---------------------+---------------------+---------------------+
-```
+---
 
-### Ingredients Table
+## Configuration
 
-| Slot | Item | Identifier (ID) | Quantity |
-|:---:|---|---|:---:|
-| 1-3, 4, 6, 7-9 | **Golden Apple** | `minecraft:golden_apple` | 8 |
-| 5 (Center) | **Ghast Tear** | `minecraft:ghast_tear` | 1 |
-| **Output** | **Totem of Undying** | `minecraft:totem_of_undying` | 1 |
-
-## Advancement
-
-The mod adds a custom advancement to the "Adventure" tab:
-
-| Icon | Title | Description | Requirement |
-|---|---|---|---|
-| | **Handmade Totem** | *I will never die!* | Craft a Totem of Undying using the mod's recipe (manually or via an auto-crafter). |
-
-## In-Game Configuration Screen (GUI)
-
-With [Mod Menu](https://modrinth.com/mod/modmenu) installed, navigate to **Main Menu Mods TotemCraft Settings**:
-
-- **Interactive 3x3 Crafting Grid:** Click any slot in the grid to select it (highlighted with a gold border).
-- **Result Slot & Output Count:** Select the result slot to change the produced item and adjust output amount with `+` / `-` buttons (1 to 64).
-- **Mod Tabs:** Switch between "All", "Minecraft", and third-party mod tabs for instant category filtering.
-- **Full-Text Item Search:** Search for items in English, Russian, or by raw ID (e.g. `apple`, `diamond`, `botania:mana_pearl`).
-- **Responsive Item Catalog:** Automatically adapts slot capacity to your screen size and supports mouse scroll navigation. Click any item in the catalog to assign it to the active slot.
-- **Quick Action Buttons:**
- - `Clear Slot` — clears the active slot (sets to empty / Air).
- - `Fill 8` — fills all 8 outer slots with the item in the active slot.
- - `Clear All` — empties the entire 3x3 grid.
- - `Recipe: ENABLED / DISABLED` — toggle recipe on/off in real-time.
- - `Reset Defaults` — restores 8 golden apples + ghast tear layout.
-
-## Configuration File
-
-Configuration is saved in `config/totemcraft.json`:
+Configuration file is saved at: `config/recipeeditor.json`.
 
 ```json
 {
- "enabled": true,
- "patternSlots": [
- "minecraft:golden_apple",
- "minecraft:golden_apple",
- "minecraft:golden_apple",
- "minecraft:golden_apple",
- "minecraft:ghast_tear",
- "minecraft:golden_apple",
- "minecraft:golden_apple",
- "minecraft:golden_apple",
- "minecraft:golden_apple"
- ],
- "resultItemId": "minecraft:totem_of_undying",
- "resultCount": 1
+  "modEnabled": true,
+  "recipes": {
+    "minecraft:totem_of_undying#SHAPED_CRAFTING#minecraft:golden_apple,...": {
+      "id": "totem_of_undying_shaped",
+      "resultItemId": "minecraft:totem_of_undying",
+      "resultCount": 1,
+      "type": "SHAPED_CRAFTING",
+      "patternSlots": [
+        "minecraft:golden_apple", "minecraft:golden_apple", "minecraft:golden_apple",
+        "minecraft:golden_apple", "minecraft:ghast_tear",   "minecraft:golden_apple",
+        "minecraft:golden_apple", "minecraft:golden_apple", "minecraft:golden_apple"
+      ],
+      "experience": 0.1,
+      "cookingTime": 200,
+      "enabled": true,
+      "overrideExisting": false
+    }
+  }
 }
 ```
 
+---
+
 ## Installation
 
-### For Singleplayer / Client
-1. Download the latest release from [GitHub Releases](https://github.com/byMr712/TotemCraft-MinecraftMod/releases).
+1. Download the latest release from [GitHub Releases](https://github.com/byMr712/RecipeEditor-MinecraftMod/releases).
 2. Requires:
    - [Fabric API](https://modrinth.com/mod/fabric-api)
-   - [Mod Menu](https://modrinth.com/mod/modmenu) (optional)
-3. Place the `.jar` file into your `mods/` directory.
+   - [Mod Menu](https://modrinth.com/mod/modmenu)
+3. Place the `.jar` file into your `mods` folder.
 4. Launch the game.
 
-### For Dedicated Server
-1. Place `Fabric API` and the mod `.jar` file into the `mods/` directory on the server.
-2. Restart the server.
+---
 
-## Project Structure
+## Building
 
-```
-TotemCraft-MinecraftMod/
-├── gradle/wrapper/ # Gradle Wrapper binaries and config
-├── src/
-│ └── main/
-│ ├── java/
-│ │ └── com/totemcraft/
-│ │ ├── TotemCraftMod.java # Mod entry point & registry
-│ │ ├── client/gui/
-│ │ │ └── TotemCraftConfigScreen.java # Responsive Minecraft GUI screen
-│ │ ├── config/
-│ │ │ └── TotemCraftConfig.java # JSON configuration manager
-│ │ ├── integration/
-│ │ │ └── ModMenuIntegration.java # Mod Menu API integration
-│ │ └── recipe/
-│ │ └── TotemCraftCustomRecipe.java # Dynamic crafting recipe logic
-│ └── resources/
-│ ├── assets/totemcraft/
-│ │ ├── icon.png # Mod icon
-│ │ └── lang/
-│ │ ├── en_us.json # English localization
-│ │ └── ru_ru.json # Russian localization
-│ ├── data/totemcraft/
-│ │ ├── advancement/
-│ │ │ ├── craft_totem.json # Totem crafting advancement
-│ │ │ └── recipes/
-│ │ │ └── totem_of_undying.json # Recipe unlocking trigger
-│ │ └── recipe/
-│ │ └── totem_of_undying.json # Recipe declaration
-│ └── fabric.mod.json # Fabric mod metadata
-├── .gitattributes # Git line endings normalization
-├── .gitignore # Git ignored files configuration
-├── build.gradle # Fabric Loom build configuration
-├── gradle.properties # Dependencies & version properties
-├── gradlew / gradlew.bat # Gradle Wrapper executable scripts
-├── LICENSE # Apache-2.0 License
-├── readme.md # Documentation (Russian)
-├── readme.en.md # Documentation (English)
-└── settings.gradle # Gradle settings
-```
+1. Requires Java 21 and Fabric Loader for Minecraft 1.21.4.
+2. To build the project, run:
+   ```bash
+   ./gradlew build
+   ```
+3. The built file will be located at `build/libs/RecipeEditor-1.21.4-byMr712.jar`.
 
-## Building from Source
+---
 
-1. Clone the repository:
- ```bash
- git clone https://github.com/byMr712/TotemCraft-MinecraftMod.git
- cd TotemCraft-MinecraftMod
- ```
+## Credits & License
 
-2. Run Gradle build:
- - **Linux / macOS:** `./gradlew clean build`
- - **Windows:** `.\gradlew.bat clean build`
-
-3. The compiled jar will be at:
- ```
- build/libs/TotemCraft-1.0.0.jar
- ```
-
-## License
-
-This project is licensed under the [Apache License 2.0](LICENSE).
+- Developer: [Mr712](https://github.com/byMr712).
+- Distributed under the [Apache License 2.0](LICENSE).
