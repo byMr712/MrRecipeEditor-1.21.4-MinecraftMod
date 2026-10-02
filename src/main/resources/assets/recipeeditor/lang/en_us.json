@@ -22,8 +22,6 @@
   "recipeeditor.gui.save_craft": "Save Craft",
   "recipeeditor.gui.clear_all": "Clear Craft Window",
   "recipeeditor.gui.delete_custom": "Delete this Craft",
-  "recipeeditor.gui.craft_new": "Create as New Craft",
-  "recipeeditor.gui.craft_override": "Override Existing Craft",
   "recipeeditor.gui.craft_saved": "Craft saved successfully!",
   "recipeeditor.gui.craft_deleted": "Craft deleted!",
   "recipeeditor.gui.craft_empty_warn": "Cannot save an empty recipe!",
@@ -34,5 +32,7 @@
   "recipeeditor.gui.selected_slot": "Selected: Slot #%d",
   "recipeeditor.gui.selected_result": "Selected: Result Slot",
   "recipeeditor.gui.craft_variant": "Craft Variant: %d / %d",
-  "recipeeditor.gui.items_total": "Page %d / %d (%d items)"
+  "recipeeditor.gui.items_total": "Page %d / %d (%d items)",
+  "recipeeditor.gui.select_item_hint": "Select an item in catalog (RMB)",
+  "recipeeditor.gui.hint": "💡 RMB — Select/Load craft | LMB — Drag to grid | Del — Clear slot"
 }

@@ -316,7 +316,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        boolean hasEntry = RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item);
+        boolean hasEntry = RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || getSyntheticDynamicRecipe(item) != null;
         if (hasEntry) {
             return RecipeStatus.VANILLA_OR_MODDED;
         }
@@ -328,7 +328,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        return RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item);
+        return RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || getSyntheticDynamicRecipe(item) != null;
     }
 
     public static List<CustomRecipeData> getAllRecipeVariants(Item targetItem, World world) {
@@ -372,7 +372,73 @@ public class RecipeInspector {
             }
         }
 
+        // 4. Dynamic Vanilla Special Recipes (Colored Bundles, Colored Shulkers, Colored Candles)
+        if (variants.isEmpty()) {
+            CustomRecipeData synthetic = getSyntheticDynamicRecipe(targetItem);
+            if (synthetic != null && seenSignatures.add(getRecipeSignature(synthetic))) {
+                variants.add(synthetic);
+            }
+        }
+
         return variants;
+    }
+
+    public static CustomRecipeData getSyntheticDynamicRecipe(Item targetItem) {
+        if (targetItem == null || targetItem == Items.AIR) return null;
+        Identifier id = Registries.ITEM.getId(targetItem);
+        if (id == null) return null;
+        String path = id.getPath();
+
+        String[] colors = new String[]{
+                "white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray",
+                "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"
+        };
+
+        // Colored Bundles (e.g. red_bundle -> bundle + red_dye)
+        if (path.endsWith("_bundle") && !path.equals("bundle")) {
+            for (String color : colors) {
+                if (path.equals(color + "_bundle")) {
+                    CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                    data.setSlotString(0, "minecraft:bundle");
+                    data.setSlotString(1, "minecraft:" + color + "_dye");
+                    return data;
+                }
+            }
+        }
+
+        // Undyed Bundle (string + leather)
+        if (path.equals("bundle") && id.getNamespace().equals("minecraft")) {
+            CustomRecipeData data = new CustomRecipeData("bundle", "minecraft:bundle", 1, RecipeTypeEnum.SHAPED_CRAFTING);
+            data.setSlotString(1, "minecraft:string");
+            data.setSlotString(4, "minecraft:leather");
+            return data;
+        }
+
+        // Colored Shulker Boxes (shulker_box + color_dye)
+        if (path.endsWith("_shulker_box") && !path.equals("shulker_box")) {
+            for (String color : colors) {
+                if (path.equals(color + "_shulker_box")) {
+                    CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                    data.setSlotString(0, "minecraft:shulker_box");
+                    data.setSlotString(1, "minecraft:" + color + "_dye");
+                    return data;
+                }
+            }
+        }
+
+        // Colored Candles (candle + color_dye)
+        if (path.endsWith("_candle") && !path.equals("candle")) {
+            for (String color : colors) {
+                if (path.equals(color + "_candle")) {
+                    CustomRecipeData data = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SHAPELESS_CRAFTING);
+                    data.setSlotString(0, "minecraft:candle");
+                    data.setSlotString(1, "minecraft:" + color + "_dye");
+                    return data;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static String getRecipeSignature(CustomRecipeData d) {

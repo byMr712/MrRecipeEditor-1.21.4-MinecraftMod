@@ -11,7 +11,6 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.ConfirmScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.CheckboxWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -29,8 +28,13 @@ public class RecipeEditorScreen extends Screen {
     private final Screen parent;
     private final RecipeEditorConfig configCopy;
 
-    // Currently edited recipe (starts clean and empty)
-    private CustomRecipeData currentRecipe;
+    // Target Item & Scoped Variants
+    private Item targetItem = null;
+    private RecipeTypeEnum selectedType = RecipeTypeEnum.SHAPED_CRAFTING;
+    private final List<CustomRecipeData> typeVariants = new ArrayList<>();
+    private int currentVariantIndex = 0;
+    private CustomRecipeData currentRecipe = null;
+
     private static final int RESULT_SLOT = 9;
     private int selectedSlot = 0; // 0..8 - crafting grid, 9 - result
 
@@ -84,6 +88,8 @@ public class RecipeEditorScreen extends Screen {
     // Widgets
     private TextFieldWidget searchField;
     private TextFieldWidget resultCountField;
+    private ButtonWidget minusCountBtn;
+    private ButtonWidget plusCountBtn;
     private ButtonWidget prevPageBtn;
     private ButtonWidget nextPageBtn;
     private ButtonWidget toggleEnabledBtn;
@@ -95,12 +101,8 @@ public class RecipeEditorScreen extends Screen {
     private ButtonWidget saveCraftBtn;
     private ButtonWidget clearCraftBtn;
     private ButtonWidget deleteRecipeBtn;
-    private CheckboxWidget createNewCraftBox;
-    private CheckboxWidget overrideExistingBox;
 
     // Variant Controls
-    private final List<CustomRecipeData> currentVariants = new ArrayList<>();
-    private int currentVariantIndex = 0;
     private ButtonWidget prevVariantBtn;
     private ButtonWidget nextVariantBtn;
     private TextFieldWidget variantField;
@@ -123,9 +125,10 @@ public class RecipeEditorScreen extends Screen {
 
         RecipeInspector.invalidateCache();
 
-        // Always start with a fresh, empty craft canvas
-        this.currentRecipe = new CustomRecipeData("", "minecraft:air", 1, RecipeTypeEnum.SHAPED_CRAFTING);
-        this.currentVariants.add(this.currentRecipe);
+        // Target item starts null (user must select/RMB an item to edit)
+        this.targetItem = null;
+        this.currentRecipe = null;
+        this.typeVariants.clear();
         this.currentVariantIndex = 0;
 
         // Gather all registered items
@@ -224,82 +227,98 @@ public class RecipeEditorScreen extends Screen {
 
     public void selectTargetItem(Item item) {
         if (item == null || item == Items.AIR) return;
-        Identifier id = Registries.ITEM.getId(item);
-        if (id == null) return;
-
-        currentVariants.clear();
+        this.targetItem = item;
         var world = this.client != null ? this.client.world : null;
 
+        // Pick best default machine type
         List<CustomRecipeData> customList = configCopy.getRecipesFor(item);
-        for (CustomRecipeData custom : customList) {
-            currentVariants.add(custom.copy());
-        }
-
-        List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(item, world);
-        for (CustomRecipeData d : scanned) {
-            currentVariants.add(d);
-        }
-
-        if (currentVariants.isEmpty()) {
-            if (currentRecipe != null && hasAnyIngredients(currentRecipe)) {
-                CustomRecipeData c = currentRecipe.copy();
-                c.setResultItem(item);
-                c.id = id.getPath();
-                currentVariants.add(c);
+        if (!customList.isEmpty()) {
+            selectedType = customList.get(0).type;
+        } else {
+            List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(item, world);
+            if (!scanned.isEmpty()) {
+                selectedType = scanned.get(0).type;
             } else {
-                currentVariants.add(new CustomRecipeData(id.getPath(), id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING));
+                selectedType = RecipeTypeEnum.SHAPED_CRAFTING;
             }
         }
 
-        currentVariantIndex = 0;
-        currentRecipe = currentVariants.get(0);
-
-        if (resultCountField != null) {
-            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(currentRecipe.type)));
-        }
-        updateVariantButtons();
-        updateCheckboxStates();
+        refreshTypeVariants(selectedType, true);
+        setEditorWidgetsVisible(true);
         rebuildTypeButtons();
         updateButtonStates();
     }
 
     public void loadRecipeForTarget(Item item) {
-        if (item == null || item == Items.AIR) return;
-        Identifier id = Registries.ITEM.getId(item);
-        if (id == null) return;
+        selectTargetItem(item);
+    }
 
-        currentVariants.clear();
+    private void refreshTypeVariants(RecipeTypeEnum type, boolean resetIndex) {
+        this.selectedType = type;
+        this.typeVariants.clear();
+
+        if (targetItem == null || targetItem == Items.AIR) {
+            this.currentRecipe = null;
+            return;
+        }
+
         var world = this.client != null ? this.client.world : null;
+        Set<String> seenSignatures = new HashSet<>();
 
-        List<CustomRecipeData> customList = configCopy.getRecipesFor(item);
-        for (CustomRecipeData custom : customList) {
-            currentVariants.add(custom.copy());
+        // 1. Custom recipes for targetItem and this machine type
+        List<CustomRecipeData> customList = configCopy.getRecipesFor(targetItem, type);
+        for (CustomRecipeData c : customList) {
+            String sig = c.getPatternSignature();
+            if (seenSignatures.add(sig)) {
+                typeVariants.add(c.copy());
+            }
         }
 
-        List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(item, world);
-        for (CustomRecipeData d : scanned) {
-            currentVariants.add(d);
+        // 2. Scanned / Modded / Vanilla recipes for targetItem and this machine type
+        List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(targetItem, world);
+        for (CustomRecipeData s : scanned) {
+            if (s.type == type) {
+                String sig = s.getPatternSignature();
+                if (seenSignatures.add(sig)) {
+                    typeVariants.add(s.copy());
+                }
+            }
         }
 
-        if (currentVariants.isEmpty()) {
-            currentVariants.add(new CustomRecipeData(id.getPath(), id.toString(), 1, RecipeTypeEnum.SHAPED_CRAFTING));
+        // 3. Fallback: If no recipes exist for this machine type, create a blank empty craft
+        if (typeVariants.isEmpty()) {
+            Identifier id = Registries.ITEM.getId(targetItem);
+            CustomRecipeData blank = new CustomRecipeData(
+                    id != null ? id.getPath() : "craft",
+                    id != null ? id.toString() : "minecraft:air",
+                    1,
+                    type
+            );
+            typeVariants.add(blank);
         }
 
-        currentVariantIndex = 0;
-        currentRecipe = currentVariants.get(0);
+        if (resetIndex || currentVariantIndex >= typeVariants.size() || currentVariantIndex < 0) {
+            currentVariantIndex = 0;
+        }
+
+        currentRecipe = typeVariants.get(currentVariantIndex);
 
         if (resultCountField != null) {
-            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(currentRecipe.type)));
+            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
         }
         updateVariantButtons();
-        updateCheckboxStates();
-        rebuildTypeButtons();
         updateButtonStates();
     }
 
+    private void switchMachineType(RecipeTypeEnum newType) {
+        if (targetItem == null) return;
+        refreshTypeVariants(newType, true);
+        rebuildTypeButtons();
+    }
+
     private void changeVariant(int delta) {
-        if (currentVariants.isEmpty()) {
-            if (currentRecipe != null) currentVariants.add(currentRecipe);
+        if (typeVariants.isEmpty()) {
+            if (currentRecipe != null) typeVariants.add(currentRecipe);
             else return;
         }
 
@@ -308,23 +327,27 @@ public class RecipeEditorScreen extends Screen {
                 currentVariantIndex--;
             }
         } else if (delta > 0) {
-            if (currentVariantIndex < currentVariants.size() - 1) {
+            if (currentVariantIndex < typeVariants.size() - 1) {
                 currentVariantIndex++;
             } else {
-                // Add new variant copy
-                CustomRecipeData newVar = currentRecipe != null ? currentRecipe.copy() : new CustomRecipeData("", "minecraft:air", 1, RecipeTypeEnum.SHAPED_CRAFTING);
-                currentVariants.add(newVar);
-                currentVariantIndex = currentVariants.size() - 1;
+                // Add a new empty variant for the current machine type
+                Identifier id = Registries.ITEM.getId(targetItem);
+                CustomRecipeData newVar = new CustomRecipeData(
+                        id != null ? id.getPath() : "craft",
+                        id != null ? id.toString() : "minecraft:air",
+                        1,
+                        selectedType
+                );
+                typeVariants.add(newVar);
+                currentVariantIndex = typeVariants.size() - 1;
             }
         }
 
-        currentRecipe = currentVariants.get(currentVariantIndex);
+        currentRecipe = typeVariants.get(currentVariantIndex);
         if (resultCountField != null) {
-            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(currentRecipe.type)));
+            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
         }
         updateVariantButtons();
-        updateCheckboxStates();
-        rebuildTypeButtons();
         updateButtonStates();
     }
 
@@ -333,7 +356,7 @@ public class RecipeEditorScreen extends Screen {
             prevVariantBtn.active = currentVariantIndex > 0;
         }
         if (nextVariantBtn != null) {
-            boolean isLast = currentVariantIndex >= currentVariants.size() - 1;
+            boolean isLast = currentVariantIndex >= typeVariants.size() - 1;
             nextVariantBtn.setMessage(Text.literal(isLast ? "+" : "▶"));
         }
         if (variantField != null) {
@@ -343,21 +366,24 @@ public class RecipeEditorScreen extends Screen {
         }
     }
 
-    private void updateCheckboxStates() {
-        boolean isOverride = currentRecipe != null && currentRecipe.overrideExisting;
-        if (createNewCraftBox != null && createNewCraftBox.isChecked() == isOverride) {
-            createNewCraftBox.onPress();
+    private void setEditorWidgetsVisible(boolean visible) {
+        for (ButtonWidget btn : typeButtons) {
+            btn.visible = visible;
         }
-        if (overrideExistingBox != null && overrideExistingBox.isChecked() != isOverride) {
-            overrideExistingBox.onPress();
-        }
+        if (prevVariantBtn != null) prevVariantBtn.visible = visible;
+        if (variantField != null) variantField.setVisible(visible);
+        if (nextVariantBtn != null) nextVariantBtn.visible = visible;
+        if (resultCountField != null) resultCountField.setVisible(visible);
+        if (minusCountBtn != null) minusCountBtn.visible = visible;
+        if (plusCountBtn != null) plusCountBtn.visible = visible;
+        if (saveCraftBtn != null) saveCraftBtn.visible = visible;
+        if (clearCraftBtn != null) clearCraftBtn.visible = visible;
+        if (deleteRecipeBtn != null) deleteRecipeBtn.visible = visible;
     }
 
     @Override
     protected void init() {
-        int topY = 16;
-
-        contentY = topY + 24;
+        contentY = 36;
         int bottomY = this.height - 24;
 
         // Calculate dynamic dimensions
@@ -383,14 +409,16 @@ public class RecipeEditorScreen extends Screen {
 
         visibleTabs = Math.max(2, (searchWidth - 44) / 58);
 
-        // Top toggle button: Recipe Enabled / Disabled
-        updateToggleBtn(leftPaneX, topY);
+        // --- LEFT PANE (Controls Aligned horizontally with Right Pane Tabs) ---
+        // Top toggle button: [Мои крафты: ВКЛЮЧЕНЫ / ВЫКЛЮЧЕНЫ] - Aligned with filter buttons at filterY
+        updateToggleBtn(leftPaneX, filterY);
 
-        // --- LEFT PANE (Recipe Type Selector & Actions) ---
+        // Machine Type Buttons (2 Columns, 3 Rows below toggle button)
+        int typeBtnStartY = filterY + 22;
         rebuildTypeButtons();
 
         // Variant Bar (Above Crafting Grid)
-        int variantBarY = contentY + 54;
+        int variantBarY = typeBtnStartY + 58;
         prevVariantBtn = ButtonWidget.builder(Text.literal("◀"), btn -> changeVariant(-1))
                 .dimensions(leftPaneX + 4, variantBarY, 18, 16)
                 .build();
@@ -404,15 +432,13 @@ public class RecipeEditorScreen extends Screen {
             try {
                 if (!text.trim().isEmpty()) {
                     int val = Integer.parseInt(text.trim());
-                    if (val >= 1 && val <= currentVariants.size()) {
+                    if (val >= 1 && val <= typeVariants.size()) {
                         currentVariantIndex = val - 1;
-                        currentRecipe = currentVariants.get(currentVariantIndex);
+                        currentRecipe = typeVariants.get(currentVariantIndex);
                         if (resultCountField != null) {
-                            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(currentRecipe.type)));
+                            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
                         }
                         updateVariantButtons();
-                        updateCheckboxStates();
-                        rebuildTypeButtons();
                         updateButtonStates();
                     }
                 }
@@ -420,13 +446,14 @@ public class RecipeEditorScreen extends Screen {
         });
         this.addDrawableChild(variantField);
 
-        nextVariantBtn = ButtonWidget.builder(Text.literal(currentVariantIndex >= currentVariants.size() - 1 ? "+" : "▶"), btn -> changeVariant(1))
+        nextVariantBtn = ButtonWidget.builder(Text.literal(currentVariantIndex >= typeVariants.size() - 1 ? "+" : "▶"), btn -> changeVariant(1))
                 .dimensions(leftPaneX + 52, variantBarY, 18, 16)
                 .build();
         this.addDrawableChild(nextVariantBtn);
 
+        // Crafting Grid & Result Slot Layout
         int gridStartX = leftPaneX + 4;
-        int gridStartY = contentY + 74;
+        int gridStartY = variantBarY + 20;
         int arrowX = gridStartX + 3 * SLOT_SIZE + 10;
         int resultX = arrowX + 24;
         int resultY = gridStartY + SLOT_SIZE - 3;
@@ -436,12 +463,13 @@ public class RecipeEditorScreen extends Screen {
         int countStartX = (resultX + 14) - (countControlsWidth / 2);
         int countY = resultY + 32;
 
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("-"), btn -> adjustResultCount(-1))
+        minusCountBtn = ButtonWidget.builder(Text.literal("-"), btn -> adjustResultCount(-1))
                 .dimensions(countStartX, countY, 14, 16)
-                .build());
+                .build();
+        this.addDrawableChild(minusCountBtn);
 
         resultCountField = new TextFieldWidget(this.textRenderer, countStartX + 16, countY, 28, 16, Text.literal("Count"));
-        resultCountField.setText(String.valueOf(currentRecipe != null ? currentRecipe.getResultCountForType(currentRecipe.type) : 1));
+        resultCountField.setText(String.valueOf(currentRecipe != null ? currentRecipe.getResultCountForType(selectedType) : 1));
         resultCountField.setMaxLength(4);
         resultCountField.setChangedListener(text -> {
             try {
@@ -450,62 +478,20 @@ public class RecipeEditorScreen extends Screen {
                     if (val > 1000) val = 1000;
                     if (val < 1) val = 1;
                     if (currentRecipe != null) {
-                        currentRecipe.setResultCountForType(currentRecipe.type, val);
+                        currentRecipe.setResultCountForType(selectedType, val);
                     }
                 }
             } catch (NumberFormatException ignored) {}
         });
         this.addDrawableChild(resultCountField);
 
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("+"), btn -> adjustResultCount(1))
+        plusCountBtn = ButtonWidget.builder(Text.literal("+"), btn -> adjustResultCount(1))
                 .dimensions(countStartX + 46, countY, 14, 16)
-                .build());
-
-        // Dependent Radio Checkboxes (Create New vs Override Existing) - Placed ABOVE action buttons
-        int checkY = contentY + 164;
-        boolean isOverride = currentRecipe != null && currentRecipe.overrideExisting;
-
-        createNewCraftBox = CheckboxWidget.builder(Text.translatable("recipeeditor.gui.craft_new"), this.textRenderer)
-                .pos(leftPaneX, checkY)
-                .maxWidth(LEFT_PANE_WIDTH)
-                .checked(!isOverride)
-                .callback((box, checked) -> {
-                    if (checked) {
-                        if (overrideExistingBox != null && overrideExistingBox.isChecked()) {
-                            overrideExistingBox.onPress();
-                        }
-                        if (currentRecipe != null) currentRecipe.overrideExisting = false;
-                    } else {
-                        if (overrideExistingBox != null && !overrideExistingBox.isChecked()) {
-                            overrideExistingBox.onPress();
-                        }
-                    }
-                })
                 .build();
+        this.addDrawableChild(plusCountBtn);
 
-        overrideExistingBox = CheckboxWidget.builder(Text.translatable("recipeeditor.gui.craft_override"), this.textRenderer)
-                .pos(leftPaneX, checkY + 18)
-                .maxWidth(LEFT_PANE_WIDTH)
-                .checked(isOverride)
-                .callback((box, checked) -> {
-                    if (checked) {
-                        if (createNewCraftBox != null && createNewCraftBox.isChecked()) {
-                            createNewCraftBox.onPress();
-                        }
-                        if (currentRecipe != null) currentRecipe.overrideExisting = true;
-                    } else {
-                        if (createNewCraftBox != null && !createNewCraftBox.isChecked()) {
-                            createNewCraftBox.onPress();
-                        }
-                    }
-                })
-                .build();
-
-        this.addDrawableChild(createNewCraftBox);
-        this.addDrawableChild(overrideExistingBox);
-
-        // Action Buttons with gap below checkboxes
-        int actionBtnY = checkY + 42;
+        // Action Buttons
+        int actionBtnY = gridStartY + 84;
 
         saveCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.save_craft").formatted(Formatting.GREEN, Formatting.BOLD), btn -> saveCurrentCraft())
                 .dimensions(leftPaneX, actionBtnY, LEFT_PANE_WIDTH, 18)
@@ -522,6 +508,8 @@ public class RecipeEditorScreen extends Screen {
                 .build();
         this.addDrawableChild(deleteRecipeBtn);
 
+        // Set initial visibility based on targetItem selection
+        setEditorWidgetsVisible(targetItem != null);
         updateVariantButtons();
 
         // --- RIGHT PANE (Filters, Tabs, Search, Dynamic Catalog) ---
@@ -557,7 +545,7 @@ public class RecipeEditorScreen extends Screen {
         this.addDrawableChild(nextPageBtn);
         updatePaginationButtons();
 
-        // --- BOTTOM PANE (Controls moved to bottom-right corner) ---
+        // --- BOTTOM PANE (Controls in bottom-right corner) ---
         rebuildBottomButtons(bottomY);
 
         updateButtonStates();
@@ -598,15 +586,14 @@ public class RecipeEditorScreen extends Screen {
     }
 
     private void updateButtonStates() {
-        Item item = currentRecipe != null ? currentRecipe.getResultItem() : Items.AIR;
         if (deleteRecipeBtn != null) {
-            deleteRecipeBtn.active = configCopy.hasCustomRecipe(item);
+            deleteRecipeBtn.active = targetItem != null && configCopy.hasCustomRecipe(targetItem);
         }
         if (saveCraftBtn != null) {
-            saveCraftBtn.active = item != Items.AIR;
+            saveCraftBtn.active = targetItem != null && currentRecipe != null && hasAnyIngredients(currentRecipe);
         }
         if (clearCraftBtn != null) {
-            clearCraftBtn.active = hasAnyIngredients(currentRecipe);
+            clearCraftBtn.active = currentRecipe != null && hasAnyIngredients(currentRecipe);
         }
     }
 
@@ -647,29 +634,23 @@ public class RecipeEditorScreen extends Screen {
 
         RecipeTypeEnum[] types = RecipeTypeEnum.values();
         int btnW = (LEFT_PANE_WIDTH - 4) / 2;
+        int typeBtnStartY = contentY + 22;
 
         for (int i = 0; i < types.length; i++) {
             RecipeTypeEnum t = types[i];
-            boolean isSelected = currentRecipe != null && currentRecipe.type == t;
+            boolean isSelected = (selectedType == t);
             Text label = t.getDisplayName().copy().formatted(isSelected ? Formatting.YELLOW : Formatting.GRAY);
 
             int row = i / 2;
             int col = i % 2;
             int x = leftPaneX + col * (btnW + 4);
-            int y = contentY + row * 18;
+            int y = typeBtnStartY + row * 18;
 
-            ButtonWidget btn = ButtonWidget.builder(label, b -> {
-                if (currentRecipe != null) {
-                    currentRecipe.type = t;
-                    currentRecipe.resultCount = currentRecipe.getResultCountForType(t);
-                    currentRecipe.invalidateCache();
-                    if (resultCountField != null) {
-                        resultCountField.setText(String.valueOf(currentRecipe.resultCount));
-                    }
-                    rebuildTypeButtons();
-                }
-            }).dimensions(x, y, btnW, 16).build();
+            ButtonWidget btn = ButtonWidget.builder(label, b -> switchMachineType(t))
+                    .dimensions(x, y, btnW, 16)
+                    .build();
 
+            btn.visible = (targetItem != null);
             typeButtons.add(btn);
             this.addDrawableChild(btn);
         }
@@ -756,9 +737,9 @@ public class RecipeEditorScreen extends Screen {
 
     private void adjustResultCount(int delta) {
         if (currentRecipe != null) {
-            int currentCount = currentRecipe.getResultCountForType(currentRecipe.type);
+            int currentCount = currentRecipe.getResultCountForType(selectedType);
             int newCount = Math.max(1, Math.min(1000, currentCount + delta));
-            currentRecipe.setResultCountForType(currentRecipe.type, newCount);
+            currentRecipe.setResultCountForType(selectedType, newCount);
             if (resultCountField != null) {
                 resultCountField.setText(String.valueOf(newCount));
             }
@@ -788,7 +769,7 @@ public class RecipeEditorScreen extends Screen {
     }
 
     private void saveCurrentCraft() {
-        if (currentRecipe == null || currentRecipe.getResultItem() == Items.AIR) return;
+        if (targetItem == null || currentRecipe == null || targetItem == Items.AIR) return;
 
         if (!hasAnyIngredients(currentRecipe)) {
             notificationText = Text.translatable("recipeeditor.gui.craft_empty_warn").formatted(Formatting.RED, Formatting.BOLD);
@@ -796,10 +777,22 @@ public class RecipeEditorScreen extends Screen {
             return;
         }
 
-        if (currentRecipe.getResultCountForType(currentRecipe.type) <= 0) {
-            currentRecipe.setResultCountForType(currentRecipe.type, 1);
+        currentRecipe.setResultItem(targetItem);
+        currentRecipe.type = selectedType;
+        if (currentRecipe.getResultCountForType(selectedType) <= 0) {
+            currentRecipe.setResultCountForType(selectedType, 1);
         }
 
+        // Deduplicate exact pattern variants inside current type list
+        String currentSig = currentRecipe.getPatternSignature();
+        for (int i = typeVariants.size() - 1; i >= 0; i--) {
+            if (i != currentVariantIndex && currentSig.equals(typeVariants.get(i).getPatternSignature())) {
+                typeVariants.remove(i);
+                if (currentVariantIndex > i) currentVariantIndex--;
+            }
+        }
+
+        // Save into config
         configCopy.addOrUpdateRecipe(currentRecipe.copy());
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
         actual.recipes.clear();
@@ -810,31 +803,23 @@ public class RecipeEditorScreen extends Screen {
 
         notificationText = Text.translatable("recipeeditor.gui.craft_saved").formatted(Formatting.GREEN, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
+        updateVariantButtons();
         updateButtonStates();
         refreshFilteredItems();
     }
 
     private void deleteCurrentRecipe() {
-        if (currentRecipe == null || currentRecipe.getResultItem() == Items.AIR) return;
+        if (targetItem == null || currentRecipe == null) return;
 
         configCopy.removeRecipe(currentRecipe);
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
         actual.removeRecipe(currentRecipe);
         actual.save();
 
-        currentRecipe = new CustomRecipeData("", "minecraft:air", 1, RecipeTypeEnum.SHAPED_CRAFTING);
-        currentVariants.clear();
-        currentVariants.add(currentRecipe);
-        currentVariantIndex = 0;
-
-        if (resultCountField != null) {
-            resultCountField.setText("1");
-        }
         notificationText = Text.translatable("recipeeditor.gui.craft_deleted").formatted(Formatting.RED, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
-        updateVariantButtons();
-        updateCheckboxStates();
-        rebuildTypeButtons();
+
+        refreshTypeVariants(selectedType, true);
         updateButtonStates();
         refreshFilteredItems();
     }
@@ -845,17 +830,12 @@ public class RecipeEditorScreen extends Screen {
         actual.initDefaults();
         actual.save();
 
-        currentRecipe = new CustomRecipeData("", "minecraft:air", 1, RecipeTypeEnum.SHAPED_CRAFTING);
-        currentVariants.clear();
-        currentVariants.add(currentRecipe);
-        currentVariantIndex = 0;
+        this.targetItem = null;
+        this.currentRecipe = null;
+        this.typeVariants.clear();
+        this.currentVariantIndex = 0;
 
-        if (resultCountField != null) {
-            resultCountField.setText("1");
-        }
-        updateVariantButtons();
-        updateCheckboxStates();
-        rebuildTypeButtons();
+        setEditorWidgetsVisible(false);
         updateButtonStates();
         refreshFilteredItems();
     }
@@ -868,10 +848,14 @@ public class RecipeEditorScreen extends Screen {
     }
 
     private int getCraftingSlotAt(double mouseX, double mouseY) {
-        int gridStartX = leftPaneX + 4;
-        int gridStartY = contentY + 74;
+        if (targetItem == null) return -1;
 
-        if (currentRecipe != null && (currentRecipe.type == RecipeTypeEnum.SMELTING || currentRecipe.type == RecipeTypeEnum.BLASTING || currentRecipe.type == RecipeTypeEnum.SMOKING || currentRecipe.type == RecipeTypeEnum.STONECUTTING)) {
+        int gridStartX = leftPaneX + 4;
+        int typeBtnStartY = contentY + 22;
+        int variantBarY = typeBtnStartY + 58;
+        int gridStartY = variantBarY + 20;
+
+        if (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING || selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.STONECUTTING) {
             int inputX = gridStartX + SLOT_SIZE;
             int inputY = gridStartY + SLOT_SIZE;
             if (mouseX >= inputX && mouseX <= inputX + 22 && mouseY >= inputY && mouseY <= inputY + 22) {
@@ -974,84 +958,92 @@ public class RecipeEditorScreen extends Screen {
         ItemStack hoveredStack = ItemStack.EMPTY;
         int hoveredCraftingSlot = getCraftingSlotAt(mouseX, mouseY);
 
-        // --- DRAW CRAFTING GRID ---
-        int gridStartX = leftPaneX + 4;
-        int gridStartY = contentY + 74;
-
-        // Draw total variants count beside variant selector buttons
-        int variantTotal = Math.max(1, currentVariants.size());
-        context.drawTextWithShadow(this.textRenderer, Text.literal("/ " + variantTotal).formatted(Formatting.GRAY), leftPaneX + 74, contentY + 58, 0xFFAAAAAA);
-
-        if (currentRecipe != null && (currentRecipe.type == RecipeTypeEnum.SMELTING || currentRecipe.type == RecipeTypeEnum.BLASTING || currentRecipe.type == RecipeTypeEnum.SMOKING || currentRecipe.type == RecipeTypeEnum.STONECUTTING)) {
-            int inputX = gridStartX + SLOT_SIZE;
-            int inputY = gridStartY + SLOT_SIZE;
-            boolean isSelected = (selectedSlot == 0);
-            boolean isDropTarget = (draggedItem != null && hoveredCraftingSlot == 0);
-            drawSlotBox(context, inputX, inputY, 22, 22, isSelected, isDropTarget);
-
-            Item item = currentRecipe.getItemAt(0);
-            if (item != Items.AIR) {
-                ItemStack stack = new ItemStack(item);
-                context.drawItem(stack, inputX + 3, inputY + 3);
-                context.drawStackOverlay(this.textRenderer, stack, inputX + 3, inputY + 3);
-            }
-            if (mouseX >= inputX && mouseX <= inputX + 22 && mouseY >= inputY && mouseY <= inputY + 22 && item != Items.AIR) {
-                hoveredStack = new ItemStack(item);
-            }
+        // --- LEFT PANE RENDERING ---
+        if (targetItem == null) {
+            // Placeholder when no item is selected yet
+            Text placeholder = Text.translatable("recipeeditor.gui.select_item_hint").formatted(Formatting.GRAY);
+            context.drawCenteredTextWithShadow(this.textRenderer, placeholder, leftPaneX + (LEFT_PANE_WIDTH / 2), contentY + 100, 0xFFAAAAAA);
         } else {
-            // 3x3 Grid
-            for (int row = 0; row < 3; row++) {
-                for (int col = 0; col < 3; col++) {
-                    int slotIndex = row * 3 + col;
-                    int x = gridStartX + col * SLOT_SIZE;
-                    int y = gridStartY + row * SLOT_SIZE;
+            // Draw total variants count beside variant selector buttons
+            int variantTotal = Math.max(1, typeVariants.size());
+            int typeBtnStartY = contentY + 22;
+            int variantBarY = typeBtnStartY + 58;
+            int gridStartX = leftPaneX + 4;
+            int gridStartY = variantBarY + 20;
 
-                    boolean isSelected = (selectedSlot == slotIndex);
-                    boolean isDropTarget = (draggedItem != null && hoveredCraftingSlot == slotIndex);
-                    drawSlotBox(context, x, y, 22, 22, isSelected, isDropTarget);
+            context.drawTextWithShadow(this.textRenderer, Text.literal("/ " + variantTotal).formatted(Formatting.GRAY), leftPaneX + 74, variantBarY + 4, 0xFFAAAAAA);
 
-                    if (currentRecipe != null) {
-                        Item item = currentRecipe.getItemAt(slotIndex);
-                        if (item != Items.AIR) {
-                            ItemStack stack = new ItemStack(item);
-                            context.drawItem(stack, x + 3, y + 3);
-                            context.drawStackOverlay(this.textRenderer, stack, x + 3, y + 3);
-                        }
-                        if (mouseX >= x && mouseX <= x + 22 && mouseY >= y && mouseY <= y + 22 && item != Items.AIR) {
-                            hoveredStack = new ItemStack(item);
+            if (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING || selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.STONECUTTING) {
+                int inputX = gridStartX + SLOT_SIZE;
+                int inputY = gridStartY + SLOT_SIZE;
+                boolean isSelected = (selectedSlot == 0);
+                boolean isDropTarget = (draggedItem != null && hoveredCraftingSlot == 0);
+                drawSlotBox(context, inputX, inputY, 22, 22, isSelected, isDropTarget);
+
+                if (currentRecipe != null) {
+                    Item item = currentRecipe.getItemAt(0);
+                    if (item != Items.AIR) {
+                        ItemStack stack = new ItemStack(item);
+                        context.drawItem(stack, inputX + 3, inputY + 3);
+                        context.drawStackOverlay(this.textRenderer, stack, inputX + 3, inputY + 3);
+                    }
+                    if (mouseX >= inputX && mouseX <= inputX + 22 && mouseY >= inputY && mouseY <= inputY + 22 && item != Items.AIR) {
+                        hoveredStack = new ItemStack(item);
+                    }
+                }
+            } else {
+                // 3x3 Grid
+                for (int row = 0; row < 3; row++) {
+                    for (int col = 0; col < 3; col++) {
+                        int slotIndex = row * 3 + col;
+                        int x = gridStartX + col * SLOT_SIZE;
+                        int y = gridStartY + row * SLOT_SIZE;
+
+                        boolean isSelected = (selectedSlot == slotIndex);
+                        boolean isDropTarget = (draggedItem != null && hoveredCraftingSlot == slotIndex);
+                        drawSlotBox(context, x, y, 22, 22, isSelected, isDropTarget);
+
+                        if (currentRecipe != null) {
+                            Item item = currentRecipe.getItemAt(slotIndex);
+                            if (item != Items.AIR) {
+                                ItemStack stack = new ItemStack(item);
+                                context.drawItem(stack, x + 3, y + 3);
+                                context.drawStackOverlay(this.textRenderer, stack, x + 3, y + 3);
+                            }
+                            if (mouseX >= x && mouseX <= x + 22 && mouseY >= y && mouseY <= y + 22 && item != Items.AIR) {
+                                hoveredStack = new ItemStack(item);
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Draw Arrow
-        int arrowX = gridStartX + 3 * SLOT_SIZE + 10;
-        int arrowY = gridStartY + SLOT_SIZE + 2;
-        context.drawTextWithShadow(this.textRenderer, Text.literal("➡").formatted(Formatting.GOLD, Formatting.BOLD), arrowX, arrowY, 0xFFFFAA00);
+            // Draw Arrow
+            int arrowX = gridStartX + 3 * SLOT_SIZE + 10;
+            int arrowY = gridStartY + SLOT_SIZE + 2;
+            context.drawTextWithShadow(this.textRenderer, Text.literal("➡").formatted(Formatting.GOLD, Formatting.BOLD), arrowX, arrowY, 0xFFFFAA00);
 
-        // Draw Result Slot
-        int resultX = arrowX + 24;
-        int resultY = gridStartY + SLOT_SIZE - 3;
-        boolean isResultSelected = (selectedSlot == RESULT_SLOT);
-        boolean isResultDropTarget = (draggedItem != null && hoveredCraftingSlot == RESULT_SLOT);
-        drawSlotBox(context, resultX, resultY, 28, 28, isResultSelected, isResultDropTarget);
+            // Draw Result Slot
+            int resultX = arrowX + 24;
+            int resultY = gridStartY + SLOT_SIZE - 3;
+            boolean isResultSelected = (selectedSlot == RESULT_SLOT);
+            boolean isResultDropTarget = (draggedItem != null && hoveredCraftingSlot == RESULT_SLOT);
+            drawSlotBox(context, resultX, resultY, 28, 28, isResultSelected, isResultDropTarget);
 
-        if (currentRecipe != null) {
-            Item resItem = currentRecipe.getResultItem();
-            if (resItem != Items.AIR) {
-                ItemStack resStack = new ItemStack(resItem, currentRecipe.getResultCountForType(currentRecipe.type));
+            if (targetItem != null && targetItem != Items.AIR) {
+                int count = currentRecipe != null ? currentRecipe.getResultCountForType(selectedType) : 1;
+                ItemStack resStack = new ItemStack(targetItem, count);
                 context.drawItem(resStack, resultX + 6, resultY + 6);
                 context.drawStackOverlay(this.textRenderer, resStack, resultX + 6, resultY + 6);
                 if (mouseX >= resultX && mouseX <= resultX + 28 && mouseY >= resultY && mouseY <= resultY + 28) {
                     hoveredStack = resStack;
                 }
             }
-        }
 
-        // Active variant description text below crafting grid
-        Text variantText = Text.translatable("recipeeditor.gui.craft_variant", currentVariantIndex + 1, variantTotal).formatted(Formatting.GREEN);
-        context.drawTextWithShadow(this.textRenderer, variantText, leftPaneX, contentY + 150, 0xFF55FF55);
+            // Active variant description text below crafting grid
+            Text variantText = Text.translatable("recipeeditor.gui.craft_variant", currentVariantIndex + 1, variantTotal).formatted(Formatting.GREEN);
+            context.drawTextWithShadow(this.textRenderer, variantText, leftPaneX, gridStartY + 68, 0xFF55FF55);
+        }
 
         // --- DRAW DYNAMIC CATALOG GRID ---
         int startIndex = catalogPage * itemsPerPage;
@@ -1082,6 +1074,11 @@ public class RecipeEditorScreen extends Screen {
         MutableText pageInfo = Text.translatable("recipeeditor.gui.items_total", catalogPage + 1, maxPage, filteredItems.size());
         context.drawCenteredTextWithShadow(this.textRenderer, pageInfo.formatted(Formatting.GRAY), rightPaneX + (searchWidth / 2), catalogGridY + (catalogRows * SLOT_SIZE) + 10, 0xFFAAAAAA);
 
+        // --- BOTTOM HINT & NOTIFICATIONS ---
+        int bottomY = this.height - 24;
+        Text hintText = Text.translatable("recipeeditor.gui.hint").formatted(Formatting.GREEN);
+        context.drawTextWithShadow(this.textRenderer, hintText, leftPaneX, bottomY + 6, 0xFF55FF55);
+
         // Notification overlay message (drawn to the left of Reset Defaults button)
         if (notificationText != null && System.currentTimeMillis() < notificationTimer) {
             Text resetText = Text.translatable("recipeeditor.gui.reset_defaults");
@@ -1093,14 +1090,13 @@ public class RecipeEditorScreen extends Screen {
 
             int msgW = this.textRenderer.getWidth(notificationText);
             int msgX = resetX - msgW - 10;
-            int msgY = this.height - 24 + 6;
-            context.drawTextWithShadow(this.textRenderer, notificationText, Math.max(8, msgX), msgY, 0xFF55FF55);
+            context.drawTextWithShadow(this.textRenderer, notificationText, Math.max(8, msgX), bottomY + 6, 0xFF55FF55);
         }
 
         // Render dragged item or hover tooltip safely
         if (draggedItem != null && draggedItem != Items.AIR) {
             ItemStack dragStack = (dragSourceSlot == RESULT_SLOT && currentRecipe != null)
-                    ? new ItemStack(draggedItem, currentRecipe.getResultCountForType(currentRecipe.type))
+                    ? new ItemStack(draggedItem, currentRecipe.getResultCountForType(selectedType))
                     : new ItemStack(draggedItem);
             context.drawItem(dragStack, mouseX - 8, mouseY - 8);
             context.drawStackOverlay(this.textRenderer, dragStack, mouseX - 8, mouseY - 8);
@@ -1205,12 +1201,7 @@ public class RecipeEditorScreen extends Screen {
                         currentRecipe.setItemAt(targetSlot, draggedItem);
                         selectedSlot = targetSlot;
                     } else if (targetSlot == RESULT_SLOT) {
-                        currentRecipe.setResultItem(draggedItem);
-                        Identifier id = Registries.ITEM.getId(draggedItem);
-                        if (id != null) currentRecipe.id = id.getPath();
-                        if (resultCountField != null) {
-                            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(currentRecipe.type)));
-                        }
+                        selectTargetItem(draggedItem);
                         selectedSlot = RESULT_SLOT;
                     }
                 }
@@ -1220,12 +1211,7 @@ public class RecipeEditorScreen extends Screen {
                     if (selectedSlot >= 0 && selectedSlot < 9) {
                         currentRecipe.setItemAt(selectedSlot, draggedItem);
                     } else if (selectedSlot == RESULT_SLOT) {
-                        currentRecipe.setResultItem(draggedItem);
-                        Identifier id = Registries.ITEM.getId(draggedItem);
-                        if (id != null) currentRecipe.id = id.getPath();
-                        if (resultCountField != null) {
-                            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(currentRecipe.type)));
-                        }
+                        selectTargetItem(draggedItem);
                     }
                 }
             }
@@ -1247,7 +1233,7 @@ public class RecipeEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if ((searchField != null && searchField.isFocused()) || (resultCountField != null && resultCountField.isFocused())) {
+        if ((searchField != null && searchField.isFocused()) || (resultCountField != null && resultCountField.isFocused()) || (variantField != null && variantField.isFocused())) {
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
 

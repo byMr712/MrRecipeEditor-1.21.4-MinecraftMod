@@ -22,8 +22,6 @@
   "recipeeditor.gui.save_craft": "Сохранить крафт",
   "recipeeditor.gui.clear_all": "Очистить окно крафта",
   "recipeeditor.gui.delete_custom": "Удалить этот крафт",
-  "recipeeditor.gui.craft_new": "Создать как новый крафт",
-  "recipeeditor.gui.craft_override": "Заменить существующий крафт",
   "recipeeditor.gui.craft_saved": "Крафт успешно сохранен!",
   "recipeeditor.gui.craft_deleted": "Крафт удален!",
   "recipeeditor.gui.craft_empty_warn": "Нельзя сохранить пустой рецепт!",
@@ -34,5 +32,7 @@
   "recipeeditor.gui.selected_slot": "Выбран: Слот #%d",
   "recipeeditor.gui.selected_result": "Выбран: Результат крафта",
   "recipeeditor.gui.craft_variant": "Вариант крафта: %d / %d",
-  "recipeeditor.gui.items_total": "Стр. %d / %d (%d предм.)"
+  "recipeeditor.gui.items_total": "Стр. %d / %d (%d предм.)",
+  "recipeeditor.gui.select_item_hint": "Выберите предмет в каталоге (ПКМ)",
+  "recipeeditor.gui.hint": "💡 ПКМ — выбрать/загрузить крафт | ЛКМ — перетащить | Del — очистить"
 }

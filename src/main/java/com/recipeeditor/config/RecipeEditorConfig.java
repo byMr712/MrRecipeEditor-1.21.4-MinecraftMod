@@ -125,6 +125,18 @@ public class RecipeEditorConfig {
         return result;
     }
 
+    public List<CustomRecipeData> getRecipesFor(Item item, RecipeTypeEnum type) {
+        List<CustomRecipeData> all = getRecipesFor(item);
+        if (type == null) return all;
+        List<CustomRecipeData> filtered = new ArrayList<>();
+        for (CustomRecipeData r : all) {
+            if (r.type == type) {
+                filtered.add(r);
+            }
+        }
+        return filtered;
+    }
+
     public CustomRecipeData getRecipeFor(Item item) {
         List<CustomRecipeData> list = getRecipesFor(item);
         return !list.isEmpty() ? list.get(0) : null;
