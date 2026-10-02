@@ -24,15 +24,12 @@ import java.util.*;
 public class CustomDynamicCraftingRecipe extends ShapedRecipe {
 
     public CustomDynamicCraftingRecipe(CraftingRecipeCategory category) {
-        super("recipeeditor", category, createDefaultRaw(), new ItemStack(Items.TOTEM_OF_UNDYING), true);
+        super("recipeeditor", category, createDefaultRaw(), new ItemStack(Items.DIRT), true);
     }
 
     private static RawShapedRecipe createDefaultRaw() {
-        Map<Character, Ingredient> key = Map.of(
-                'A', Ingredient.ofItem(Items.GOLDEN_APPLE),
-                'G', Ingredient.ofItem(Items.GHAST_TEAR)
-        );
-        return RawShapedRecipe.create(key, "AAA", "AGA", "AAA");
+        Map<Character, Ingredient> key = Map.of('A', Ingredient.ofItem(Items.DIRT));
+        return RawShapedRecipe.create(key, "A");
     }
 
     @Override
@@ -62,13 +59,15 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
 
     private CustomRecipeData findMatchingRecipe(CraftingRecipeInput input) {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
-        if (config.recipes == null) return null;
+        if (config == null || config.recipes == null || config.recipes.isEmpty() || input.isEmpty()) {
+            return null;
+        }
 
         for (CustomRecipeData recipeData : config.recipes.values()) {
             if (!recipeData.enabled) continue;
 
             if (recipeData.type == RecipeTypeEnum.SHAPED_CRAFTING) {
-                if (recipeData.getRawRecipe().matches(input)) {
+                if (matchesShaped(input, recipeData)) {
                     return recipeData;
                 }
             } else if (recipeData.type == RecipeTypeEnum.SHAPELESS_CRAFTING) {
@@ -80,17 +79,99 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         return null;
     }
 
+    private boolean matchesShaped(CraftingRecipeInput input, CustomRecipeData recipeData) {
+        if (input.isEmpty()) return false;
+
+        // 1. Determine bounding box of non-empty slots in recipe
+        int minRow = 3, maxRow = -1, minCol = 3, maxCol = -1;
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                int slotIdx = r * 3 + c;
+                Optional<Ingredient> ing = recipeData.createIngredientForSlot(slotIdx);
+                if (ing.isPresent()) {
+                    if (r < minRow) minRow = r;
+                    if (r > maxRow) maxRow = r;
+                    if (c < minCol) minCol = c;
+                    if (c > maxCol) maxCol = c;
+                }
+            }
+        }
+
+        if (maxRow == -1) {
+            // Recipe is completely empty
+            return false;
+        }
+
+        int patternW = maxCol - minCol + 1;
+        int patternH = maxRow - minRow + 1;
+
+        if (input.getWidth() != patternW || input.getHeight() != patternH) {
+            return false;
+        }
+
+        // Check normal orientation
+        boolean normalMatches = true;
+        for (int r = 0; r < patternH; r++) {
+            for (int c = 0; c < patternW; c++) {
+                int slotIdx = (minRow + r) * 3 + (minCol + c);
+                Optional<Ingredient> expected = recipeData.createIngredientForSlot(slotIdx);
+                ItemStack actual = input.getStackInSlot(c, r);
+
+                if (expected.isEmpty()) {
+                    if (!actual.isEmpty()) {
+                        normalMatches = false;
+                        break;
+                    }
+                } else {
+                    if (!expected.get().test(actual)) {
+                        normalMatches = false;
+                        break;
+                    }
+                }
+            }
+            if (!normalMatches) break;
+        }
+
+        if (normalMatches) {
+            return true;
+        }
+
+        // Check mirrored orientation (flipped horizontally)
+        boolean mirroredMatches = true;
+        for (int r = 0; r < patternH; r++) {
+            for (int c = 0; c < patternW; c++) {
+                int slotIdx = (minRow + r) * 3 + (maxCol - c);
+                Optional<Ingredient> expected = recipeData.createIngredientForSlot(slotIdx);
+                ItemStack actual = input.getStackInSlot(c, r);
+
+                if (expected.isEmpty()) {
+                    if (!actual.isEmpty()) {
+                        mirroredMatches = false;
+                        break;
+                    }
+                } else {
+                    if (!expected.get().test(actual)) {
+                        mirroredMatches = false;
+                        break;
+                    }
+                }
+            }
+            if (!mirroredMatches) break;
+        }
+
+        return mirroredMatches;
+    }
+
     private boolean matchesShapeless(CraftingRecipeInput input, CustomRecipeData recipeData) {
         List<ItemStack> inputItems = new ArrayList<>();
-        for (int i = 0; i < input.size(); i++) {
-            ItemStack stack = input.getStackInSlot(i);
+        for (ItemStack stack : input.getStacks()) {
             if (!stack.isEmpty()) {
                 inputItems.add(stack);
             }
         }
 
         List<Ingredient> ingredients = recipeData.getShapelessIngredients();
-        if (inputItems.size() != ingredients.size()) {
+        if (inputItems.size() != ingredients.size() || ingredients.isEmpty()) {
             return false;
         }
 
@@ -120,7 +201,10 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
     public ItemStack craft(CraftingRecipeInput input, RegistryWrapper.WrapperLookup registries) {
         CustomRecipeData matched = findMatchingRecipe(input);
         if (matched != null) {
-            return new ItemStack(matched.getResultItem(), matched.resultCount);
+            Item resultItem = matched.getResultItem();
+            if (resultItem != Items.AIR) {
+                return new ItemStack(resultItem, matched.resultCount);
+            }
         }
         return ItemStack.EMPTY;
     }
@@ -128,7 +212,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
     @Override
     public List<RecipeDisplay> getDisplays() {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
-        if (config.recipes == null) {
+        if (config == null || config.recipes == null || config.recipes.isEmpty()) {
             return Collections.emptyList();
         }
 
