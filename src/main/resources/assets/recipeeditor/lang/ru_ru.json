@@ -49,5 +49,11 @@
   "recipeeditor.gui.hint_2": "💡 ЛКМ — перетащить предмет в выбранный слот крафта",
   "recipeeditor.gui.hint_3": "💡 Del  — очистить выбранный слот",
   "recipeeditor.gui.hint_4": "💡 Перетаскивайте предметы мышкой (ЛКМ)",
-  "recipeeditor.gui.hint_5": "💡 Очищайте слот крафта мышкой (ПКМ)"
+  "recipeeditor.gui.hint_5": "💡 Очищайте слот крафта мышкой (ПКМ)",
+  "recipeeditor.gui.conflict_title": "Обнаружен конфликт крафтов",
+  "recipeeditor.gui.conflict_desc": "Указанный вами крафт(ы) не могут быть сохранены, так как уже заняты другими предметами.",
+  "recipeeditor.gui.conflict_source_vanilla": "Ванильный Minecraft",
+  "recipeeditor.gui.conflict_source_mod": "Мод «%s»",
+  "recipeeditor.gui.conflict_source_custom": "Мои крафты",
+  "recipeeditor.gui.conflict_dismiss": "Понял"
 }

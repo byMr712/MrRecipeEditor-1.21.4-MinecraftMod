@@ -821,4 +821,123 @@ public class RecipeInspector {
         }
         return "minecraft:air";
     }
+
+    public static List<RecipeConflictInfo> findConflicts(CustomRecipeData candidate, Item currentTargetItem, World world, RecipeEditorConfig config) {
+        if (candidate == null || currentTargetItem == null || currentTargetItem == Items.AIR) {
+            return Collections.emptyList();
+        }
+
+        boolean hasIngredients = false;
+        if (candidate.patternSlots != null) {
+            for (String s : candidate.patternSlots) {
+                if (s != null && !s.isEmpty() && !s.equals("minecraft:air")) {
+                    hasIngredients = true;
+                    break;
+                }
+            }
+        }
+        if (!hasIngredients) return Collections.emptyList();
+
+        List<RecipeConflictInfo> conflicts = new ArrayList<>();
+        Set<Item> seenConflictingItems = new HashSet<>();
+
+        // 1. Check saved custom recipes for OTHER items
+        if (config != null && config.recipes != null) {
+            for (CustomRecipeData saved : config.recipes.values()) {
+                if (!saved.enabled || saved.type != candidate.type) continue;
+                Item savedItem = saved.getResultItem();
+                if (savedItem != Items.AIR && savedItem != currentTargetItem) {
+                    if (isPatternMatching(saved, candidate)) {
+                        if (seenConflictingItems.add(savedItem)) {
+                            String source = net.minecraft.text.Text.translatable("recipeeditor.gui.conflict_source_custom").getString();
+                            conflicts.add(new RecipeConflictInfo(candidate, savedItem, source, candidate.type));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Check scanned Vanilla and Mod recipes
+        if (!cacheInitialized) {
+            initializeCache(world);
+        }
+
+        for (Item item : Registries.ITEM) {
+            if (item == Items.AIR || item == currentTargetItem || seenConflictingItems.contains(item)) continue;
+
+            List<CustomRecipeData> variants = getAllRecipeVariants(item, world);
+            for (CustomRecipeData v : variants) {
+                if (v.type == candidate.type && isPatternMatching(v, candidate)) {
+                    if (seenConflictingItems.add(item)) {
+                        Identifier id = Registries.ITEM.getId(item);
+                        String source;
+                        if (id != null && id.getNamespace().equals("minecraft")) {
+                            source = net.minecraft.text.Text.translatable("recipeeditor.gui.conflict_source_vanilla").getString();
+                        } else {
+                            String modName = getFriendlyModName(id != null ? id.getNamespace() : "");
+                            source = net.minecraft.text.Text.translatable("recipeeditor.gui.conflict_source_mod", modName).getString();
+                        }
+                        conflicts.add(new RecipeConflictInfo(candidate, item, source, candidate.type));
+                        break;
+                    }
+                }
+            }
+        }
+
+        return conflicts;
+    }
+
+    public static boolean isPatternMatching(CustomRecipeData a, CustomRecipeData b) {
+        if (a == null || b == null || a.type != b.type) return false;
+
+        if (a.type == RecipeTypeEnum.SMELTING || a.type == RecipeTypeEnum.BLASTING ||
+            a.type == RecipeTypeEnum.SMOKING || a.type == RecipeTypeEnum.STONECUTTING ||
+            a.type == RecipeTypeEnum.CAMPFIRE_COOKING) {
+            Item itemA = a.getItemAt(0);
+            Item itemB = b.getItemAt(0);
+            return itemA != Items.AIR && itemA == itemB;
+        }
+
+        if (a.type == RecipeTypeEnum.SMITHING) {
+            for (int i = 0; i < 3; i++) {
+                Item itemA = a.getItemAt(i);
+                Item itemB = b.getItemAt(i);
+                if (itemA != itemB) return false;
+            }
+            return true;
+        }
+
+        // Shaped Crafting 3x3: compare slots directly and with horizontal mirror flip
+        boolean directMatch = true;
+        for (int i = 0; i < 9; i++) {
+            if (a.getItemAt(i) != b.getItemAt(i)) {
+                directMatch = false;
+                break;
+            }
+        }
+        if (directMatch) return true;
+
+        boolean mirrorMatch = true;
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                if (a.getItemAt(r * 3 + c) != b.getItemAt(r * 3 + (2 - c))) {
+                    mirrorMatch = false;
+                    break;
+                }
+            }
+            if (!mirrorMatch) break;
+        }
+        return mirrorMatch;
+    }
+
+    public static String getFriendlyModName(String namespace) {
+        if (namespace == null || namespace.isEmpty() || namespace.equals("minecraft")) {
+            return "Minecraft";
+        }
+        Optional<ModContainer> container = FabricLoader.getInstance().getModContainer(namespace);
+        if (container.isPresent()) {
+            return container.get().getMetadata().getName();
+        }
+        return Character.toUpperCase(namespace.charAt(0)) + namespace.substring(1);
+    }
 }

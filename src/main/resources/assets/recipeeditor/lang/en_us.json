@@ -49,5 +49,11 @@
   "recipeeditor.gui.hint_2": "💡 LMB — Drag item to selected crafting slot",
   "recipeeditor.gui.hint_3": "💡 Del  — Clear selected slot",
   "recipeeditor.gui.hint_4": "💡 Drag & drop items with mouse (LMB)",
-  "recipeeditor.gui.hint_5": "💡 Clear crafting slot with mouse (RMB)"
+  "recipeeditor.gui.hint_5": "💡 Clear crafting slot with mouse (RMB)",
+  "recipeeditor.gui.conflict_title": "Recipe Conflict Detected",
+  "recipeeditor.gui.conflict_desc": "The recipe(s) you specified cannot be saved because they are already used by other items.",
+  "recipeeditor.gui.conflict_source_vanilla": "Vanilla Minecraft",
+  "recipeeditor.gui.conflict_source_mod": "Mod: %s",
+  "recipeeditor.gui.conflict_source_custom": "My Crafts",
+  "recipeeditor.gui.conflict_dismiss": "Understood"
 }

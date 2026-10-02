@@ -837,6 +837,21 @@ public class RecipeEditorScreen extends Screen {
             currentRecipe.setResultCountForType(selectedType, 1);
         }
 
+        // Check for conflicts with existing vanilla, mod, or custom recipes
+        List<com.recipeeditor.inspector.RecipeConflictInfo> conflicts = RecipeInspector.findConflicts(
+                currentRecipe,
+                targetItem,
+                this.client != null ? this.client.world : null,
+                configCopy
+        );
+
+        if (!conflicts.isEmpty()) {
+            if (this.client != null) {
+                this.client.setScreen(new RecipeConflictScreen(this, conflicts));
+            }
+            return;
+        }
+
         // Deduplicate exact pattern variants inside current type list
         String currentSig = currentRecipe.getPatternSignature();
         for (int i = typeVariants.size() - 1; i >= 0; i--) {
@@ -846,13 +861,10 @@ public class RecipeEditorScreen extends Screen {
             }
         }
 
-        // Save into config
+        // Save only this recipe into config
         configCopy.addOrUpdateRecipe(currentRecipe.copy());
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
-        actual.recipes.clear();
-        for (Map.Entry<String, CustomRecipeData> entry : configCopy.recipes.entrySet()) {
-            actual.recipes.put(entry.getKey(), entry.getValue().copy());
-        }
+        actual.addOrUpdateRecipe(currentRecipe.copy());
         actual.save();
 
         notificationText = Text.translatable("recipeeditor.gui.craft_saved").formatted(Formatting.GREEN, Formatting.BOLD);
