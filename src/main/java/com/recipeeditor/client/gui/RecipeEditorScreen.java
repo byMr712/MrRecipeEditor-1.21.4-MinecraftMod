@@ -628,12 +628,9 @@ public class RecipeEditorScreen extends Screen {
             Text label = Text.translatable(f.translationKey).formatted(color);
 
             ButtonWidget btn = ButtonWidget.builder(label, b -> {
-                selectedTabIdx = 0; // Automatically reset to All mods
-                tabScrollOffset = 0;
                 currentFilter = f;
                 refreshFilteredItems();
                 rebuildFilterButtons(startX, startY);
-                rebuildTabButtons(rightPaneX + 22, contentY + 18);
             }).dimensions(startX + i * (btnWidth + 2), startY, btnWidth, 15).build();
 
             filterButtons.add(btn);
@@ -750,9 +747,7 @@ public class RecipeEditorScreen extends Screen {
             final int chosenIdx = tabIndex;
             ButtonWidget btn = ButtonWidget.builder(tabText, b -> {
                 selectedTabIdx = chosenIdx;
-                currentFilter = CatalogFilter.ALL;
                 refreshFilteredItems();
-                rebuildFilterButtons(rightPaneX, contentY);
                 rebuildTabButtons(startX, startY);
             }).dimensions(startX + (i * (tabWidth + 2)), startY, tabWidth, 16).build();
 
