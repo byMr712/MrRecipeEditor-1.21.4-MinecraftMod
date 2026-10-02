@@ -41,10 +41,13 @@
   "recipeeditor.gui.selected_result": "Selected: Result Slot",
   "recipeeditor.gui.craft_variant": "Craft Variant: %d / %d",
   "recipeeditor.gui.items_total": "Page %d / %d (%d items)",
-  "recipeeditor.gui.select_item_hint": "Select an item in catalog using right mouse button (RMB)",
-  "recipeeditor.gui.hint_1": "💡 RMB — Load item craft from catalog",
+  "recipeeditor.gui.select_item_hint_1": "Select an item in catalog",
+  "recipeeditor.gui.select_item_hint_2": "using right mouse button",
+  "recipeeditor.gui.select_item_hint_3": "(RMB)",
+  "recipeeditor.gui.hint_1": "💡 RMB — Load item craft",
+  "recipeeditor.gui.hint_1_sub": "    from the catalog window",
   "recipeeditor.gui.hint_2": "💡 LMB — Drag item to selected crafting slot",
-  "recipeeditor.gui.hint_3": "💡 Del / Backspace — Clear selected slot",
-  "recipeeditor.gui.hint_4": "💡 Drag & drop from catalog to crafting slots is supported",
-  "recipeeditor.gui.hint_5": "💡 RMB on a crafting slot clears it immediately"
+  "recipeeditor.gui.hint_3": "💡 Del  — Clear selected slot",
+  "recipeeditor.gui.hint_4": "💡 Drag & drop items with mouse (LMB)",
+  "recipeeditor.gui.hint_5": "💡 Clear crafting slot with mouse (RMB)"
 }

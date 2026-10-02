@@ -1034,9 +1034,12 @@ public class RecipeEditorScreen extends Screen {
 
         // --- LEFT PANE RENDERING ---
         if (targetItem == null) {
-            // Placeholder when no item is selected yet
-            Text placeholder = Text.translatable("recipeeditor.gui.select_item_hint").formatted(Formatting.GRAY);
-            context.drawCenteredTextWithShadow(this.textRenderer, placeholder, leftPaneX + (LEFT_PANE_WIDTH / 2), contentY + 100, 0xFFAAAAAA);
+            // Placeholder when no item is selected yet (green, 3 lines, centered)
+            int pCenterX = leftPaneX + (LEFT_PANE_WIDTH / 2);
+            int pStartY = contentY + 90;
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.select_item_hint_1").formatted(Formatting.GREEN), pCenterX, pStartY, 0xFF55FF55);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.select_item_hint_2").formatted(Formatting.GREEN), pCenterX, pStartY + 12, 0xFF55FF55);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.select_item_hint_3").formatted(Formatting.GREEN), pCenterX, pStartY + 24, 0xFF55FF55);
         } else {
             // Draw total variants count beside variant selector buttons
             int variantTotal = Math.max(1, typeVariants.size());
@@ -1152,11 +1155,12 @@ public class RecipeEditorScreen extends Screen {
                 : (contentY + 140);
         int hintStartY = actionBtnY + 62;
 
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_1").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY, 0xFF55FF55);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_2").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY + 11, 0xFF55FF55);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_3").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY + 22, 0xFF55FF55);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_4").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY + 33, 0xFF55FF55);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_5").formatted(Formatting.DARK_GREEN), leftPaneX, hintStartY + 44, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_1").formatted(Formatting.GREEN), leftPaneX, hintStartY, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_1_sub").formatted(Formatting.GREEN), leftPaneX, hintStartY + 10, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_2").formatted(Formatting.GREEN), leftPaneX, hintStartY + 21, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_3").formatted(Formatting.GREEN), leftPaneX, hintStartY + 32, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_4").formatted(Formatting.GREEN), leftPaneX, hintStartY + 43, 0xFF55FF55);
+        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_5").formatted(Formatting.GREEN), leftPaneX, hintStartY + 54, 0xFF55FF55);
 
         // --- DRAW DYNAMIC CATALOG GRID ---
         int startIndex = catalogPage * itemsPerPage;

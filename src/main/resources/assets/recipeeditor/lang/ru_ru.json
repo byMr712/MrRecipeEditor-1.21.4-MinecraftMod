@@ -41,10 +41,13 @@
   "recipeeditor.gui.selected_result": "Выбран: Результат крафта",
   "recipeeditor.gui.craft_variant": "Вариант крафта: %d / %d",
   "recipeeditor.gui.items_total": "Стр. %d / %d (%d предм.)",
-  "recipeeditor.gui.select_item_hint": "Выберите предмет в каталоге, используя правую кнопку мыши (ПКМ)",
-  "recipeeditor.gui.hint_1": "💡 ПКМ — загрузить крафт предмета из окна предметов",
+  "recipeeditor.gui.select_item_hint_1": "Выберите предмет в каталоге",
+  "recipeeditor.gui.select_item_hint_2": "используя правую кнопку мыши",
+  "recipeeditor.gui.select_item_hint_3": "(ПКМ)",
+  "recipeeditor.gui.hint_1": "💡 ПКМ — загрузить крафт предмета",
+  "recipeeditor.gui.hint_1_sub": "    из окна предметов",
   "recipeeditor.gui.hint_2": "💡 ЛКМ — перетащить предмет в выбранный слот крафта",
-  "recipeeditor.gui.hint_3": "💡 Del / Backspace — очистить выбранный слот",
-  "recipeeditor.gui.hint_4": "💡 Есть поддержка перетаскивания предметов из окна в слот крафта",
-  "recipeeditor.gui.hint_5": "💡 Есть поддержка очищать слот крафта ПКМ"
+  "recipeeditor.gui.hint_3": "💡 Del  — очистить выбранный слот",
+  "recipeeditor.gui.hint_4": "💡 Перетаскивайте предметы мышкой (ЛКМ)",
+  "recipeeditor.gui.hint_5": "💡 Очищайте слот крафта мышкой (ПКМ)"
 }
