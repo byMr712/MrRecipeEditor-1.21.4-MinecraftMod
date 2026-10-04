@@ -22,7 +22,11 @@ public class CustomRecipeData {
     public int cookingTime = 200;
     public boolean enabled = true;
     public boolean overrideExisting = false;
+    public String overriddenId = null;
+    public String overriddenKey = null;
+    public boolean isShapeless = false;
     public Map<String, Integer> typeCounts = new HashMap<>();
+    public transient String originalKey = null;
 
     private transient RawShapedRecipe cachedRawRecipe = null;
     private transient int cachedHash = 0;
@@ -32,7 +36,7 @@ public class CustomRecipeData {
     public String getKey() {
         String res = resultItemId != null ? resultItemId : "minecraft:air";
         String t = type != null ? type.name() : "SHAPED_CRAFTING";
-        return res + "#" + t + "#" + getPatternSignature();
+        return res + "#" + t + (isShapeless ? "#SL#" : "#") + getPatternSignature();
     }
 
     public String getPatternSignature() {
@@ -78,7 +82,7 @@ public class CustomRecipeData {
         Arrays.fill(this.patternSlots, "minecraft:air");
     }
 
-    public void invalidateCache() {
+    public synchronized void invalidateCache() {
         cachedRawRecipe = null;
         cachedHash = 0;
         cachedIngredients = null;
@@ -157,15 +161,25 @@ public class CustomRecipeData {
         }
     }
 
-    public Ingredient getIngredientAt(int slot) {
+    public synchronized Ingredient getIngredientAt(int slot) {
         if (slot < 0 || slot >= 9) return null;
         int currentHash = Arrays.hashCode(patternSlots);
         if (cachedIngredients == null || cachedPatternHash != currentHash) {
-            cachedIngredients = new Ingredient[9];
+            Ingredient[] temp = new Ingredient[9];
             for (int i = 0; i < 9; i++) {
-                cachedIngredients[i] = computeIngredientForSlot(i);
+                temp[i] = computeIngredientForSlot(i);
             }
+            cachedIngredients = temp;
             cachedPatternHash = currentHash;
+        } else if (cachedIngredients[slot] == null) {
+            // If previously resolved to null for a tag before registry was ready, retry now
+            String slotStr = getSlotString(slot);
+            if (slotStr != null && slotStr.startsWith("#")) {
+                Ingredient retry = computeIngredientForSlot(slot);
+                if (retry != null) {
+                    cachedIngredients[slot] = retry;
+                }
+            }
         }
         return cachedIngredients[slot];
     }
@@ -200,11 +214,34 @@ public class CustomRecipeData {
     public RawShapedRecipe getRawRecipe() {
         int hash = Arrays.hashCode(patternSlots);
         if (cachedRawRecipe == null || cachedHash != hash) {
-            List<Optional<Ingredient>> ingredients = new ArrayList<>(9);
-            for (int i = 0; i < 9; i++) {
-                ingredients.add(createIngredientForSlot(i));
+            int minRow = 3, maxRow = -1, minCol = 3, maxCol = -1;
+            for (int r = 0; r < 3; r++) {
+                for (int c = 0; c < 3; c++) {
+                    int slot = r * 3 + c;
+                    String s = patternSlots != null ? patternSlots[slot] : null;
+                    if (s != null && !s.isEmpty() && !s.equals("minecraft:air")) {
+                        if (r < minRow) minRow = r;
+                        if (r > maxRow) maxRow = r;
+                        if (c < minCol) minCol = c;
+                        if (c > maxCol) maxCol = c;
+                    }
+                }
             }
-            cachedRawRecipe = new RawShapedRecipe(3, 3, ingredients, Optional.empty());
+
+            if (maxRow == -1) {
+                // Completely empty
+                cachedRawRecipe = new RawShapedRecipe(1, 1, List.of(Optional.empty()), Optional.empty());
+            } else {
+                int patternW = maxCol - minCol + 1;
+                int patternH = maxRow - minRow + 1;
+                List<Optional<Ingredient>> ingredients = new ArrayList<>(patternW * patternH);
+                for (int r = minRow; r <= maxRow; r++) {
+                    for (int c = minCol; c <= maxCol; c++) {
+                        ingredients.add(createIngredientForSlot(r * 3 + c));
+                    }
+                }
+                cachedRawRecipe = new RawShapedRecipe(patternW, patternH, ingredients, Optional.empty());
+            }
             cachedHash = hash;
         }
         return cachedRawRecipe;
@@ -221,10 +258,25 @@ public class CustomRecipeData {
         copy.cookingTime = this.cookingTime;
         copy.enabled = this.enabled;
         copy.overrideExisting = this.overrideExisting;
+        copy.overriddenId = this.overriddenId;
+        copy.overriddenKey = this.overriddenKey;
+        copy.isShapeless = this.isShapeless;
         if (this.typeCounts != null) {
             copy.typeCounts = new HashMap<>(this.typeCounts);
         }
+        copy.originalKey = this.originalKey;
         return copy;
+    }
+
+    public List<Ingredient> getNonEmptyIngredients() {
+        List<Ingredient> list = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            Ingredient ing = getIngredientAt(i);
+            if (ing != null) {
+                list.add(ing);
+            }
+        }
+        return list;
     }
 
     private static final com.google.gson.Gson GSON = new com.google.gson.Gson();
@@ -240,5 +292,32 @@ public class CustomRecipeData {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        CustomRecipeData that = (CustomRecipeData) o;
+        return enabled == that.enabled &&
+                resultCount == that.resultCount &&
+                isShapeless == that.isShapeless &&
+                overrideExisting == that.overrideExisting &&
+                Float.compare(that.experience, experience) == 0 &&
+                cookingTime == that.cookingTime &&
+                Objects.equals(id, that.id) &&
+                Objects.equals(resultItemId, that.resultItemId) &&
+                Objects.equals(overriddenId, that.overriddenId) &&
+                Objects.equals(overriddenKey, that.overriddenKey) &&
+                type == that.type &&
+                Arrays.equals(patternSlots, that.patternSlots) &&
+                Objects.equals(typeCounts, that.typeCounts);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Objects.hash(id, resultItemId, resultCount, type, experience, cookingTime, enabled, overrideExisting, overriddenId, overriddenKey, isShapeless, typeCounts);
+        result = 31 * result + Arrays.hashCode(patternSlots);
+        return result;
     }
 }

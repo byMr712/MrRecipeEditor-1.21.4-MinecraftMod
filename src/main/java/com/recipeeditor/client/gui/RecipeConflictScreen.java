@@ -20,9 +20,8 @@ public class RecipeConflictScreen extends Screen {
 
     private int scrollOffset = 0;
     private int maxScroll = 0;
-
-    private static final int DIALOG_WIDTH = 340;
-    private static final int DIALOG_HEIGHT = 230;
+    private int dialogWidth = 340;
+    private int dialogHeight = 230;
 
     public RecipeConflictScreen(Screen parent, List<RecipeConflictInfo> conflicts) {
         super(Text.translatable("recipeeditor.gui.conflict_title"));
@@ -32,14 +31,16 @@ public class RecipeConflictScreen extends Screen {
 
     @Override
     protected void init() {
-        int dialogX = (this.width - DIALOG_WIDTH) / 2;
-        int dialogY = (this.height - DIALOG_HEIGHT) / 2;
-        int btnWidth = 100;
-        int btnX = dialogX + (DIALOG_WIDTH - btnWidth) / 2;
-        int btnY = dialogY + DIALOG_HEIGHT - 26;
+        dialogWidth = Math.min(340, Math.max(260, this.width - 24));
+        dialogHeight = Math.min(230, Math.max(160, this.height - 24));
+        int dialogX = (this.width - dialogWidth) / 2;
+        int dialogY = (this.height - dialogHeight) / 2;
+        int btnWidth = Math.min(100, dialogWidth - 30);
+        int btnX = dialogX + (dialogWidth - btnWidth) / 2;
+        int btnY = dialogY + dialogHeight - 24;
 
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("recipeeditor.gui.conflict_dismiss"), btn -> this.close())
-                .dimensions(btnX, btnY, btnWidth, 20)
+                .dimensions(btnX, btnY, btnWidth, 18)
                 .build());
     }
 
@@ -69,12 +70,12 @@ public class RecipeConflictScreen extends Screen {
         // Semi-transparent background dim
         context.fill(0, 0, this.width, this.height, 0xAA000000);
 
-        int dialogX = (this.width - DIALOG_WIDTH) / 2;
-        int dialogY = (this.height - DIALOG_HEIGHT) / 2;
+        int dialogX = (this.width - dialogWidth) / 2;
+        int dialogY = (this.height - dialogHeight) / 2;
 
         // Dialog Box Background & Border
-        context.fill(dialogX, dialogY, dialogX + DIALOG_WIDTH, dialogY + DIALOG_HEIGHT, 0xF0151515);
-        context.drawBorder(dialogX, dialogY, DIALOG_WIDTH, DIALOG_HEIGHT, 0xFFFF3333);
+        context.fill(dialogX, dialogY, dialogX + dialogWidth, dialogY + dialogHeight, 0xF0151515);
+        context.drawBorder(dialogX, dialogY, dialogWidth, dialogHeight, 0xFFFF3333);
 
         // Red Bold Title
         Text title = Text.translatable("recipeeditor.gui.conflict_title").formatted(Formatting.RED, Formatting.BOLD);
@@ -87,8 +88,8 @@ public class RecipeConflictScreen extends Screen {
         // List Viewport
         int listX = dialogX + 12;
         int listY = dialogY + 36;
-        int listW = DIALOG_WIDTH - 24;
-        int listH = DIALOG_HEIGHT - 68;
+        int listW = dialogWidth - 24;
+        int listH = dialogHeight - 64;
 
         // Enable Scissor for clean clipping
         context.enableScissor(listX, listY, listX + listW, listY + listH);

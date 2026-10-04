@@ -20,6 +20,7 @@ import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,8 +75,15 @@ public class RecipeEditorMod implements ModInitializer {
         ServerPlayNetworking.registerGlobalReceiver(UpdateRecipeC2SPacket.ID, (payload, context) -> {
             context.server().execute(() -> {
                 ServerPlayerEntity player = context.player();
-                if (!context.server().isSingleplayer() && !player.hasPermissionLevel(2)) {
+                boolean isHost = context.server().isHost(player.getGameProfile());
+                if (!isHost && !player.hasPermissionLevel(2)) {
                     LOGGER.warn("Player {} attempted to edit recipes without permission", player.getName().getString());
+                    player.sendMessage(Text.literal("§cУ вас нет прав для изменения рецептов."), false);
+                    return;
+                }
+
+                if (payload.payload() != null && payload.payload().length() > 65536) {
+                    LOGGER.warn("Player {} sent oversized recipe payload ({} chars)", player.getName().getString(), payload.payload().length());
                     return;
                 }
 
@@ -85,7 +93,10 @@ public class RecipeEditorMod implements ModInitializer {
                 switch (payload.action()) {
                     case UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE -> {
                         CustomRecipeData data = CustomRecipeData.fromJson(payload.payload());
-                        if (data != null) {
+                        if (data != null && data.getResultItem() != net.minecraft.item.Items.AIR) {
+                            data.resultCount = Math.max(1, Math.min(1000, data.resultCount));
+                            data.cookingTime = Math.max(1, Math.min(72000, data.cookingTime));
+                            data.experience = Math.max(0.0f, Math.min(100.0f, data.experience));
                             config.addOrUpdateRecipe(data);
                             changed = true;
                         }
@@ -94,6 +105,9 @@ public class RecipeEditorMod implements ModInitializer {
                         CustomRecipeData data = CustomRecipeData.fromJson(payload.payload());
                         if (data != null) {
                             config.removeRecipe(data);
+                            changed = true;
+                        } else if (payload.payload() != null && !payload.payload().isEmpty()) {
+                            config.removeRecipeByKey(payload.payload());
                             changed = true;
                         }
                     }
@@ -105,6 +119,7 @@ public class RecipeEditorMod implements ModInitializer {
                         config.modEnabled = Boolean.parseBoolean(payload.payload());
                         changed = true;
                     }
+                    default -> LOGGER.warn("Received unknown recipe packet action: {}", payload.action());
                 }
 
                 if (changed) {

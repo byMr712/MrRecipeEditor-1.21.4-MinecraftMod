@@ -4,9 +4,11 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.recipeeditor.config.CustomRecipeData;
 import com.recipeeditor.config.RecipeEditorConfig;
 import com.recipeeditor.config.RecipeTypeEnum;
+import com.recipeeditor.recipe.CustomRecipeDispatcher;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.MinecraftClient;
@@ -21,42 +23,100 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.Identifier;
 import net.minecraft.world.World;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 public class RecipeInspector {
     private static final Gson GSON = new Gson();
-    private static final Map<Item, List<RecipeEntry<?>>> RECIPE_ENTRIES = new java.util.concurrent.ConcurrentHashMap<>();
-    private static final Map<Item, List<RecipeDisplay>> RECIPE_DISPLAYS = new java.util.concurrent.ConcurrentHashMap<>();
-    private static final Set<Item> KNOWN_RECIPE_ITEMS = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    private static final Map<Item, CustomRecipeData> DECOMPILED_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
-    private static final Map<Item, List<CustomRecipeData>> DECOMPILED_VARIANTS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<Item, List<RecipeEntry<?>>> RECIPE_ENTRIES = new ConcurrentHashMap<>();
+    private static final Map<Item, List<RecipeDisplay>> RECIPE_DISPLAYS = new ConcurrentHashMap<>();
+    private static final Set<Item> KNOWN_RECIPE_ITEMS = ConcurrentHashMap.newKeySet();
+    private static final Map<Item, CustomRecipeData> DECOMPILED_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Item, List<CustomRecipeData>> DECOMPILED_VARIANTS = new ConcurrentHashMap<>();
+    /** Multilingual item name index: translationKey -> Set of lowercase names from all scanned lang files */
+    private static final Map<String, Set<String>> ITEM_LANG_NAMES = new ConcurrentHashMap<>();
     private static volatile boolean cacheInitialized = false;
+    private static volatile boolean jarsScanned = false;
+    private static volatile boolean jarsScanning = false;
+    private static volatile boolean langIndexedViaRM = false;
+    private static java.util.concurrent.CompletableFuture<Void> scanFuture = null;
+
+
+    public static synchronized void startJarScanAsync() {
+        if (jarsScanned || jarsScanning) return;
+        jarsScanning = true;
+        scanFuture = java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                scanFabricModJars();
+                indexDiskAssetLanguages();
+                indexCurrentLanguage();
+                jarsScanned = true;
+            } catch (Exception ignored) {
+            } finally {
+                jarsScanning = false;
+            }
+        });
+    }
+
+    public static boolean isScanningJars() {
+        return jarsScanning;
+    }
+
+    /** Indexes all launcher disk assets and ResourceManager translation storages async. */
+    public static synchronized void startLangIndexViaRMAsync() {
+        if (langIndexedViaRM) return;
+        langIndexedViaRM = true;
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                indexDiskAssetLanguages();
+                indexResourceManagerLanguages();
+            } catch (Exception ignored) {}
+        });
+    }
+
+    public static void invalidateWorldCache() {
+        RECIPE_ENTRIES.clear();
+        RECIPE_DISPLAYS.clear();
+        DECOMPILED_CACHE.clear();
+        TagResolver.clearWorldCache();
+        cacheInitialized = false;
+    }
 
     public static void invalidateCache() {
+        invalidateWorldCache();
+    }
+
+    public static void clearAllCaches() {
         RECIPE_ENTRIES.clear();
         RECIPE_DISPLAYS.clear();
         KNOWN_RECIPE_ITEMS.clear();
         DECOMPILED_CACHE.clear();
         DECOMPILED_VARIANTS.clear();
+        ITEM_LANG_NAMES.clear();
         TagResolver.clearCache();
         cacheInitialized = false;
+        jarsScanned = false;
+        jarsScanning = false;
+        langIndexedViaRM = false;
+        scanFuture = null;
     }
 
     public static void initializeCache(World world) {
         RECIPE_ENTRIES.clear();
         RECIPE_DISPLAYS.clear();
-        KNOWN_RECIPE_ITEMS.clear();
         DECOMPILED_CACHE.clear();
-        DECOMPILED_VARIANTS.clear();
-        TagResolver.clearCache();
         MinecraftClient client = MinecraftClient.getInstance();
 
-        // 1. Scan Fabric Mod & Vanilla JARs directly (clean, fast, 100% offline & online)
-        scanFabricModJars();
+        // 1. Scan Fabric Mod & Vanilla JARs asynchronously if not already scanned or scanning
+        if (!jarsScanned && !jarsScanning) {
+            startJarScanAsync();
+        }
 
         // 2. Scan active Server Recipe Manager (if in singleplayer / integrated server)
         if (client != null) {
@@ -75,11 +135,14 @@ public class RecipeInspector {
                 if (recipeBook != null) {
                     for (RecipeResultCollection collection : recipeBook.getOrderedResults()) {
                         for (RecipeDisplayEntry entry : collection.getAllRecipes()) {
+                            if (entry.id().toString().contains("recipeeditor")) {
+                                continue;
+                            }
                             RecipeDisplay display = entry.display();
                             Set<Item> resultItems = getAllItemsFromSlotDisplay(display.result());
                             for (Item resultItem : resultItems) {
                                 if (resultItem != Items.AIR) {
-                                    RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
+                                    RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(display);
                                     KNOWN_RECIPE_ITEMS.add(resultItem);
                                 }
                             }
@@ -116,17 +179,225 @@ public class RecipeInspector {
                         });
                     }
                 }
+                // Scan lang files (assets/<ns>/lang/*.json) for multilingual item name index
+                Optional<Path> assetsDir = mod.findPath("assets");
+                if (assetsDir.isPresent()) {
+                    try (Stream<Path> stream = Files.walk(assetsDir.get())) {
+                        stream.filter(p -> {
+                            String s = p.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
+                            return s.endsWith(".json") && s.contains("/lang/");
+                        }).forEach(RecipeInspector::parseLangJson);
+                    }
+                }
             } catch (Exception ignored) {}
         }
     }
 
+    /**
+     * Parse a lang JSON file and index item translation keys → localized name (lowercase).
+     * This powers multilingual search: searching "stick" on RU client or "палка" on EN client.
+     */
+    private static void parseLangJson(Path path) {
+        try (InputStream is = Files.newInputStream(path)) {
+            net.minecraft.util.Language.load(is, (key, value) -> {
+                // Only index item.* and block.* keys that correspond to registered items
+                if (!key.startsWith("item.") && !key.startsWith("block.")) return;
+                ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+                        .add(value.toLowerCase(Locale.ROOT));
+            });
+        } catch (Exception ignored) {}
+    }
+
+    private static final String EN_LAYOUT = "qwertyuiop[]asdfghjkl;'zxcvbnm,.QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>`~";
+    private static final String RU_LAYOUT = "йцукенгшщзхъфывапролджэячсмитьбюЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮёЁ";
+    private static final Map<Character, Character> KEYBOARD_FLIP_MAP = new HashMap<>(140);
+
+    static {
+        for (int i = 0; i < Math.min(EN_LAYOUT.length(), RU_LAYOUT.length()); i++) {
+            char en = EN_LAYOUT.charAt(i);
+            char ru = RU_LAYOUT.charAt(i);
+            KEYBOARD_FLIP_MAP.put(en, ru);
+            KEYBOARD_FLIP_MAP.put(ru, en);
+        }
+    }
+
+    public static String flipKeyboardLayout(String text) {
+        if (text == null || text.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            Character flipped = KEYBOARD_FLIP_MAP.get(c);
+            sb.append(flipped != null ? flipped : c);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Returns true if the query matches any multilingual name for the given item.
+     */
+    public static boolean matchesMultilingual(Item item, String query) {
+        if (query.isEmpty()) return true;
+        Set<String> names = ITEM_LANG_NAMES.get(item.getTranslationKey());
+        if (names == null) return false;
+        String flipped = flipKeyboardLayout(query).toLowerCase(Locale.ROOT);
+        for (String name : names) {
+            if (name.contains(query)) return true;
+            if (!flipped.equals(query) && name.contains(flipped)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Indexes item names from the currently active Minecraft language ({@link net.minecraft.util.Language#getInstance()}).
+     * Called when the editor screen opens to make cross-language search work immediately.
+     */
+    public static void indexCurrentLanguage() {
+        net.minecraft.util.Language lang = net.minecraft.util.Language.getInstance();
+        if (lang == null) return;
+        for (Item item : Registries.ITEM) {
+            if (item == Items.AIR) continue;
+            String key = item.getTranslationKey();
+            String name = lang.get(key, null);
+            if (name != null && !name.equals(key)) {
+                ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+                        .add(name.toLowerCase(Locale.ROOT));
+            }
+        }
+    }
+
+    /**
+     * Scans launcher assets folder on disk (ATLauncher, Prism, Modrinth, CurseForge, Vanilla).
+     * Parses asset indexes (e.g. 19.json) to locate hash objects for ru_ru.json, uk_ua.json, etc.
+     * Guarantees vanilla translations load even when Minecraft is set to English!
+     */
+    public static void indexDiskAssetLanguages() {
+        try {
+            MinecraftClient client = MinecraftClient.getInstance();
+            List<Path> candidateDirs = new ArrayList<>();
+            if (client != null && client.runDirectory != null) {
+                Path run = client.runDirectory.toPath().toAbsolutePath();
+                candidateDirs.add(run.resolve("assets"));
+                if (run.getParent() != null) {
+                    candidateDirs.add(run.getParent().resolve("assets"));
+                    if (run.getParent().getParent() != null) {
+                        candidateDirs.add(run.getParent().getParent().resolve("assets"));
+                    }
+                }
+            }
+            String appData = System.getenv("APPDATA");
+            if (appData != null) {
+                candidateDirs.add(Path.of(appData, ".minecraft", "assets"));
+            }
+            String userHome = System.getProperty("user.home");
+            if (userHome != null) {
+                candidateDirs.add(Path.of(userHome, ".minecraft", "assets"));
+            }
+
+            for (Path assetDir : candidateDirs) {
+                Path indexesDir = assetDir.resolve("indexes");
+                Path objectsDir = assetDir.resolve("objects");
+                if (Files.isDirectory(indexesDir) && Files.isDirectory(objectsDir)) {
+                    try (Stream<Path> stream = Files.list(indexesDir)) {
+                        List<Path> indexFiles = stream.filter(p -> p.toString().endsWith(".json"))
+                                .sorted((a, b) -> Long.compare(b.toFile().length(), a.toFile().length()))
+                                .toList();
+                        for (Path indexFile : indexFiles) {
+                            if (parseAssetIndexForLanguages(indexFile, objectsDir)) {
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private static boolean parseAssetIndexForLanguages(Path indexFile, Path objectsDir) {
+        try (BufferedReader reader = Files.newBufferedReader(indexFile)) {
+            JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
+            JsonObject objects = root.has("objects") && root.get("objects").isJsonObject()
+                    ? root.getAsJsonObject("objects") : null;
+            if (objects == null) return false;
+
+            String[] targetLangs = {"ru_ru", "uk_ua", "be_by"};
+            boolean loadedAny = false;
+            for (String lang : targetLangs) {
+                String targetKey = "minecraft/lang/" + lang + ".json";
+                if (objects.has(targetKey) && objects.get(targetKey).isJsonObject()) {
+                    JsonObject entry = objects.getAsJsonObject(targetKey);
+                    if (entry.has("hash") && entry.get("hash").isJsonPrimitive()) {
+                        String hash = entry.get("hash").getAsString();
+                        if (hash != null && hash.length() >= 2) {
+                            Path objPath = objectsDir.resolve(hash.substring(0, 2)).resolve(hash);
+                            if (Files.isRegularFile(objPath)) {
+                                try (InputStream is = Files.newInputStream(objPath)) {
+                                    net.minecraft.util.Language.load(is, (key, value) -> {
+                                        if (!key.startsWith("item.") && !key.startsWith("block.")) return;
+                                        ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+                                                .add(value.toLowerCase(Locale.ROOT));
+                                    });
+                                    loadedAny = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return loadedAny;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Loads translations via Minecraft TranslationStorage when client ResourceManager is active.
+     */
+    public static void indexResourceManagerLanguages() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client == null) return;
+        net.minecraft.resource.ResourceManager rm = client.getResourceManager();
+        if (rm == null) return;
+        try {
+            net.minecraft.client.resource.language.TranslationStorage storage =
+                    net.minecraft.client.resource.language.TranslationStorage.load(rm, List.of("ru_ru"), false);
+            for (Item item : Registries.ITEM) {
+                if (item == Items.AIR) continue;
+                String key = item.getTranslationKey();
+                String name = storage.get(key, null);
+                if (name != null && !name.equals(key)) {
+                    ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+                            .add(name.toLowerCase(Locale.ROOT));
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+
     private static void parseModRecipeJson(Path path) {
+
         try (Reader reader = Files.newBufferedReader(path)) {
             JsonObject obj = GSON.fromJson(reader, JsonObject.class);
+
             if (obj == null) return;
 
             Item resultItem = Items.AIR;
             int count = 1;
+            String recipeIdStr = null;
+
+            String s = path.toString().replace('\\', '/');
+            int idx = s.indexOf("data/");
+            if (idx != -1) {
+                String sub = s.substring(idx + 5);
+                int slash = sub.indexOf('/');
+                if (slash != -1) {
+                    String namespace = sub.substring(0, slash);
+                    String rest = sub.substring(slash + 1);
+                    if (rest.startsWith("recipes/")) rest = rest.substring(8);
+                    else if (rest.startsWith("recipe/")) rest = rest.substring(7);
+                    if (rest.endsWith(".json")) rest = rest.substring(0, rest.length() - 5);
+                    recipeIdStr = namespace + ":" + rest;
+                }
+            }
 
             if (obj.has("result")) {
                 JsonElement resElem = obj.get("result");
@@ -156,9 +427,9 @@ public class RecipeInspector {
 
             if (resultItem != Items.AIR) {
                 KNOWN_RECIPE_ITEMS.add(resultItem);
-                CustomRecipeData decompiled = buildDecompiledRecipeFromJson(obj, resultItem, count);
+                CustomRecipeData decompiled = buildDecompiledRecipeFromJson(obj, resultItem, count, recipeIdStr);
                 if (decompiled != null) {
-                    DECOMPILED_VARIANTS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(decompiled);
+                    DECOMPILED_VARIANTS.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(decompiled);
                     if (!DECOMPILED_CACHE.containsKey(resultItem)) {
                         DECOMPILED_CACHE.put(resultItem, decompiled);
                     }
@@ -167,14 +438,15 @@ public class RecipeInspector {
         } catch (Exception ignored) {}
     }
 
-    private static CustomRecipeData buildDecompiledRecipeFromJson(JsonObject obj, Item resultItem, int count) {
+    private static CustomRecipeData buildDecompiledRecipeFromJson(JsonObject obj, Item resultItem, int count, String recipeIdStr) {
         Identifier resId = Registries.ITEM.getId(resultItem);
         CustomRecipeData data = new CustomRecipeData(
-                resId != null ? resId.getPath() : "recipe",
+                recipeIdStr != null ? recipeIdStr : (resId != null ? resId.getPath() : "recipe"),
                 resId != null ? resId.toString() : "minecraft:air",
                 count > 0 ? count : 1,
                 RecipeTypeEnum.SHAPED_CRAFTING
         );
+        data.overriddenId = recipeIdStr;
 
         String typeStr = obj.has("type") ? obj.get("type").getAsString().toLowerCase(Locale.ROOT) : "";
 
@@ -194,7 +466,6 @@ public class RecipeInspector {
                     }
                 }
             }
-            return data;
         } else if (typeStr.contains("smithing")) {
             data.type = RecipeTypeEnum.SMITHING;
             if (obj.has("template")) {
@@ -206,45 +477,48 @@ public class RecipeInspector {
             if (obj.has("addition")) {
                 data.setSlotString(2, parseIngredientElement(obj.get("addition")));
             }
-            return data;
         } else if (typeStr.contains("blasting")) {
             data.type = RecipeTypeEnum.BLASTING;
+            if (obj.has("cookingtime")) data.cookingTime = obj.get("cookingtime").getAsInt();
+            if (obj.has("experience")) data.experience = obj.get("experience").getAsFloat();
             if (obj.has("ingredient")) {
                 data.setSlotString(0, parseIngredientElement(obj.get("ingredient")));
             }
-            return data;
         } else if (typeStr.contains("smoking")) {
             data.type = RecipeTypeEnum.SMOKING;
+            if (obj.has("cookingtime")) data.cookingTime = obj.get("cookingtime").getAsInt();
+            if (obj.has("experience")) data.experience = obj.get("experience").getAsFloat();
             if (obj.has("ingredient")) {
                 data.setSlotString(0, parseIngredientElement(obj.get("ingredient")));
             }
-            return data;
         } else if (typeStr.contains("campfire")) {
             data.type = RecipeTypeEnum.CAMPFIRE_COOKING;
+            if (obj.has("cookingtime")) data.cookingTime = obj.get("cookingtime").getAsInt();
+            if (obj.has("experience")) data.experience = obj.get("experience").getAsFloat();
             if (obj.has("ingredient")) {
                 data.setSlotString(0, parseIngredientElement(obj.get("ingredient")));
             }
-            return data;
         } else if (typeStr.contains("smelt") || obj.has("cookingtime")) {
             data.type = RecipeTypeEnum.SMELTING;
+            if (obj.has("cookingtime")) data.cookingTime = obj.get("cookingtime").getAsInt();
+            if (obj.has("experience")) data.experience = obj.get("experience").getAsFloat();
             if (obj.has("ingredient")) {
                 data.setSlotString(0, parseIngredientElement(obj.get("ingredient")));
             }
-            return data;
         } else if (typeStr.contains("stonecutting")) {
             data.type = RecipeTypeEnum.STONECUTTING;
             if (obj.has("ingredient")) {
                 data.setSlotString(0, parseIngredientElement(obj.get("ingredient")));
             }
-            return data;
         } else if (obj.has("ingredients")) {
             data.type = RecipeTypeEnum.SHAPED_CRAFTING;
             JsonArray ings = obj.getAsJsonArray("ingredients");
             for (int i = 0; i < Math.min(9, ings.size()); i++) {
                 data.setSlotString(i, parseIngredientElement(ings.get(i)));
             }
-            return data;
         }
+        data.originalKey = data.getKey();
+        data.overriddenKey = data.getKey();
         return data;
     }
 
@@ -267,15 +541,18 @@ public class RecipeInspector {
     }
 
     private static void indexRecipeEntry(RecipeEntry<?> entry) {
+        if (entry == null || entry.id() == null) return;
+        if (entry.id().getValue().getNamespace().equals("recipeeditor")) return;
         Recipe<?> recipe = entry.value();
+        if (recipe != null && recipe.getClass().getName().startsWith("com.recipeeditor.")) return;
         try {
             List<RecipeDisplay> displays = recipe.getDisplays();
             for (RecipeDisplay display : displays) {
                 Set<Item> resultItems = getAllItemsFromSlotDisplay(display.result());
                 for (Item resultItem : resultItems) {
                     if (resultItem != Items.AIR) {
-                        RECIPE_ENTRIES.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(entry);
-                        RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new ArrayList<>()).add(display);
+                        RECIPE_ENTRIES.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(entry);
+                        RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(display);
                         KNOWN_RECIPE_ITEMS.add(resultItem);
                     }
                 }
@@ -388,6 +665,56 @@ public class RecipeInspector {
         return variants;
     }
 
+    public static List<CustomRecipeData> getAllRecipeVariantsOfType(Item targetItem, RecipeTypeEnum type, World world) {
+        if (targetItem == null || targetItem == Items.AIR || type == null) return Collections.emptyList();
+        if (!cacheInitialized) {
+            initializeCache(world);
+        }
+
+        List<CustomRecipeData> variants = new ArrayList<>();
+        Set<String> seenSignatures = new HashSet<>();
+
+        java.util.function.Consumer<CustomRecipeData> adder = d -> {
+            if (d == null || d.type != type) return;
+            List<CustomRecipeData> expanded = expandRecipeTags(d);
+            for (CustomRecipeData exp : expanded) {
+                if (exp.type == type && seenSignatures.add(getRecipeSignature(exp))) {
+                    variants.add(exp);
+                }
+            }
+        };
+
+        List<RecipeEntry<?>> entries = RECIPE_ENTRIES.get(targetItem);
+        if (entries != null) {
+            for (RecipeEntry<?> entry : entries) {
+                adder.accept(decompileFromEntry(entry, targetItem));
+            }
+        }
+
+        List<RecipeDisplay> displays = RECIPE_DISPLAYS.get(targetItem);
+        if (displays != null) {
+            for (RecipeDisplay disp : displays) {
+                adder.accept(decompileFromDisplay(disp, targetItem));
+            }
+        }
+
+        List<CustomRecipeData> fromJars = DECOMPILED_VARIANTS.get(targetItem);
+        if (fromJars != null) {
+            for (CustomRecipeData d : fromJars) {
+                adder.accept(d);
+            }
+        }
+
+        if (type == RecipeTypeEnum.SHAPED_CRAFTING || type == RecipeTypeEnum.SMITHING) {
+            List<CustomRecipeData> synthetics = getSyntheticDynamicRecipes(targetItem);
+            for (CustomRecipeData syn : synthetics) {
+                adder.accept(syn);
+            }
+        }
+
+        return variants;
+    }
+
     public static List<CustomRecipeData> expandRecipeTags(CustomRecipeData recipe) {
         if (recipe == null || recipe.patternSlots == null) return Collections.emptyList();
 
@@ -470,7 +797,7 @@ public class RecipeInspector {
                 smithing.setSlotString(1, "minecraft:" + baseEquip);
                 smithing.setSlotString(2, "minecraft:netherite_ingot");
                 list.add(smithing);
-                return list;
+                return finishSyntheticList(list);
             }
         }
 
@@ -633,17 +960,27 @@ public class RecipeInspector {
                             list.add(data);
                         }
                     }
-                    return list;
+                    return finishSyntheticList(list);
                 }
             }
         }
 
+        return finishSyntheticList(list);
+    }
+
+    private static List<CustomRecipeData> finishSyntheticList(List<CustomRecipeData> list) {
+        if (list != null) {
+            for (CustomRecipeData syn : list) {
+                if (syn.originalKey == null) syn.originalKey = syn.getKey();
+                if (syn.overriddenKey == null) syn.overriddenKey = syn.getKey();
+            }
+        }
         return list;
     }
 
     private static String getRecipeSignature(CustomRecipeData d) {
         if (d == null) return "";
-        return d.type + ":" + Arrays.toString(d.patternSlots);
+        return d.getKey();
     }
 
     public static CustomRecipeData decompileRecipe(Item targetItem, World world) {
@@ -655,16 +992,21 @@ public class RecipeInspector {
     }
 
     public static CustomRecipeData decompileFromEntry(RecipeEntry<?> entry, Item targetItem) {
-        if (entry == null || targetItem == null) return null;
+        if (entry == null || targetItem == null || entry.id() == null) return null;
+        if (entry.id().getValue().getNamespace().equals("recipeeditor")) return null;
+        if (entry.value() != null && entry.value().getClass().getName().startsWith("com.recipeeditor.")) return null;
         Identifier resId = Registries.ITEM.getId(targetItem);
+        String recipeIdStr = entry.id().getValue().toString();
         CustomRecipeData data = new CustomRecipeData(
-                resId != null ? resId.getPath() : "recipe",
+                recipeIdStr,
                 resId != null ? resId.toString() : "minecraft:air",
                 1,
                 RecipeTypeEnum.SHAPED_CRAFTING
         );
+        data.overriddenId = recipeIdStr;
 
         Recipe<?> recipe = entry.value();
+        CustomRecipeData result = null;
         if (recipe instanceof ShapedRecipe shaped) {
             data.type = RecipeTypeEnum.SHAPED_CRAFTING;
             int width = shaped.getWidth();
@@ -684,9 +1026,10 @@ public class RecipeInspector {
                     }
                 }
             }
-            return data;
+            result = data;
         } else if (recipe instanceof ShapelessRecipe shapeless) {
             data.type = RecipeTypeEnum.SHAPED_CRAFTING;
+            data.isShapeless = true;
             List<RecipeDisplay> displays = recipe.getDisplays();
             if (!displays.isEmpty() && displays.get(0) instanceof ShapelessCraftingRecipeDisplay disp) {
                 List<SlotDisplay> ings = disp.ingredients();
@@ -694,35 +1037,45 @@ public class RecipeInspector {
                     data.setSlotString(i, getSlotStringFromSlotDisplay(ings.get(i)));
                 }
             }
-            return data;
-        } else if (recipe instanceof SingleStackRecipe singleStack) {
-            data.type = RecipeTypeEnum.STONECUTTING;
-            data.setSlotString(0, getSlotStringFromIngredient(singleStack.ingredient()));
-            return data;
+            result = data;
         } else if (recipe instanceof SmithingTransformRecipe smithing) {
             data.type = RecipeTypeEnum.SMITHING;
             smithing.template().ifPresent(ing -> data.setSlotString(0, getSlotStringFromIngredient(ing)));
             smithing.base().ifPresent(ing -> data.setSlotString(1, getSlotStringFromIngredient(ing)));
             smithing.addition().ifPresent(ing -> data.setSlotString(2, getSlotStringFromIngredient(ing)));
-            return data;
+            result = data;
         } else if (recipe instanceof BlastingRecipe blasting) {
             data.type = RecipeTypeEnum.BLASTING;
             data.setSlotString(0, getSlotStringFromIngredient(blasting.ingredient()));
-            return data;
+            result = data;
         } else if (recipe instanceof SmokingRecipe smoking) {
             data.type = RecipeTypeEnum.SMOKING;
             data.setSlotString(0, getSlotStringFromIngredient(smoking.ingredient()));
-            return data;
+            result = data;
         } else if (recipe instanceof CampfireCookingRecipe campfire) {
             data.type = RecipeTypeEnum.CAMPFIRE_COOKING;
             data.setSlotString(0, getSlotStringFromIngredient(campfire.ingredient()));
-            return data;
+            result = data;
         } else if (recipe instanceof SmeltingRecipe smelting) {
             data.type = RecipeTypeEnum.SMELTING;
             data.setSlotString(0, getSlotStringFromIngredient(smelting.ingredient()));
-            return data;
+            result = data;
+        } else if (recipe instanceof StonecuttingRecipe stonecutting) {
+            data.type = RecipeTypeEnum.STONECUTTING;
+            data.setSlotString(0, getSlotStringFromIngredient(stonecutting.ingredient()));
+            result = data;
+        } else if (recipe instanceof SingleStackRecipe singleStack) {
+            RecipeTypeEnum mappedType = CustomRecipeDispatcher.getEnumForType(singleStack.getType());
+            data.type = mappedType != null ? mappedType : RecipeTypeEnum.STONECUTTING;
+            data.setSlotString(0, getSlotStringFromIngredient(singleStack.ingredient()));
+            result = data;
         }
-        return null;
+
+        if (result != null) {
+            result.originalKey = result.getKey();
+            result.overriddenKey = result.getKey();
+        }
+        return result;
     }
 
     public static CustomRecipeData decompileFromDisplay(RecipeDisplay display, Item targetItem) {
@@ -735,6 +1088,7 @@ public class RecipeInspector {
                 RecipeTypeEnum.SHAPED_CRAFTING
         );
 
+        CustomRecipeData result = null;
         if (display instanceof ShapedCraftingRecipeDisplay shaped) {
             data.type = RecipeTypeEnum.SHAPED_CRAFTING;
             int width = shaped.width();
@@ -751,32 +1105,38 @@ public class RecipeInspector {
                     }
                 }
             }
-            return data;
+            result = data;
         } else if (display instanceof ShapelessCraftingRecipeDisplay shapeless) {
             data.type = RecipeTypeEnum.SHAPED_CRAFTING;
+            data.isShapeless = true;
             List<SlotDisplay> ings = shapeless.ingredients();
             for (int i = 0; i < Math.min(9, ings.size()); i++) {
                 data.setSlotString(i, getSlotStringFromSlotDisplay(ings.get(i)));
             }
-            return data;
+            result = data;
         } else if (display instanceof FurnaceRecipeDisplay furnace) {
             data.type = RecipeTypeEnum.SMELTING;
             data.experience = furnace.experience();
             data.cookingTime = furnace.duration();
             data.setSlotString(0, getSlotStringFromSlotDisplay(furnace.ingredient()));
-            return data;
+            result = data;
         } else if (display instanceof StonecutterRecipeDisplay stonecutter) {
             data.type = RecipeTypeEnum.STONECUTTING;
             data.setSlotString(0, getSlotStringFromSlotDisplay(stonecutter.input()));
-            return data;
+            result = data;
         } else if (display instanceof SmithingRecipeDisplay smithing) {
             data.type = RecipeTypeEnum.SMITHING;
             data.setSlotString(0, getSlotStringFromSlotDisplay(smithing.template()));
             data.setSlotString(1, getSlotStringFromSlotDisplay(smithing.base()));
             data.setSlotString(2, getSlotStringFromSlotDisplay(smithing.addition()));
-            return data;
+            result = data;
         }
-        return null;
+
+        if (result != null) {
+            result.originalKey = result.getKey();
+            result.overriddenKey = result.getKey();
+        }
+        return result;
     }
 
     public static String getSlotStringFromIngredient(Ingredient ing) {
@@ -860,15 +1220,20 @@ public class RecipeInspector {
             }
         }
 
-        // 2. Check scanned Vanilla and Mod recipes
+        // 2. Check scanned Vanilla and Mod recipes (only for items known to have recipes!)
         if (!cacheInitialized) {
             initializeCache(world);
         }
 
-        for (Item item : Registries.ITEM) {
+        Set<Item> itemsToCheck = new HashSet<>(KNOWN_RECIPE_ITEMS);
+        itemsToCheck.addAll(RECIPE_ENTRIES.keySet());
+        itemsToCheck.addAll(RECIPE_DISPLAYS.keySet());
+        itemsToCheck.addAll(DECOMPILED_VARIANTS.keySet());
+
+        for (Item item : itemsToCheck) {
             if (item == Items.AIR || item == currentTargetItem || seenConflictingItems.contains(item)) continue;
 
-            List<CustomRecipeData> variants = getAllRecipeVariants(item, world);
+            List<CustomRecipeData> variants = getAllRecipeVariantsOfType(item, candidate.type, world);
             for (CustomRecipeData v : variants) {
                 if (v.type == candidate.type && isPatternMatching(v, candidate)) {
                     if (seenConflictingItems.add(item)) {
@@ -885,6 +1250,7 @@ public class RecipeInspector {
                     }
                 }
             }
+            if (conflicts.size() >= 10) break;
         }
 
         return conflicts;
@@ -896,34 +1262,85 @@ public class RecipeInspector {
         if (a.type == RecipeTypeEnum.SMELTING || a.type == RecipeTypeEnum.BLASTING ||
             a.type == RecipeTypeEnum.SMOKING || a.type == RecipeTypeEnum.STONECUTTING ||
             a.type == RecipeTypeEnum.CAMPFIRE_COOKING) {
-            Item itemA = a.getItemAt(0);
-            Item itemB = b.getItemAt(0);
-            return itemA != Items.AIR && itemA == itemB;
+            return matchesSlot(a, b, 0, 0);
         }
 
         if (a.type == RecipeTypeEnum.SMITHING) {
             for (int i = 0; i < 3; i++) {
-                Item itemA = a.getItemAt(i);
-                Item itemB = b.getItemAt(i);
-                if (itemA != itemB) return false;
+                if (!matchesSlot(a, b, i, i)) return false;
             }
             return true;
         }
 
-        // Shaped Crafting 3x3: compare slots directly and with horizontal mirror flip
-        boolean directMatch = true;
-        for (int i = 0; i < 9; i++) {
-            if (a.getItemAt(i) != b.getItemAt(i)) {
-                directMatch = false;
-                break;
+        // Shapeless Crafting: match multiset of non-empty slots
+        if (a.isShapeless || b.isShapeless) {
+            List<Integer> slotsA = new ArrayList<>();
+            List<Integer> slotsB = new ArrayList<>();
+            for (int i = 0; i < 9; i++) {
+                String sA = a.getSlotString(i);
+                if (sA != null && !sA.isEmpty() && !sA.equals("minecraft:air")) slotsA.add(i);
+                String sB = b.getSlotString(i);
+                if (sB != null && !sB.isEmpty() && !sB.equals("minecraft:air")) slotsB.add(i);
             }
+            if (slotsA.size() != slotsB.size()) return false;
+            boolean[] used = new boolean[slotsB.size()];
+            return matchShapelessSlots(a, b, slotsA, slotsB, 0, used);
+        }
+
+        // Shaped Crafting: compute normalized bounding boxes for translation/mirror invariance
+        int minRowA = 3, maxRowA = -1, minColA = 3, maxColA = -1;
+        int minRowB = 3, maxRowB = -1, minColB = 3, maxColB = -1;
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                int slot = r * 3 + c;
+                String sA = a.getSlotString(slot);
+                if (sA != null && !sA.isEmpty() && !sA.equals("minecraft:air")) {
+                    if (r < minRowA) minRowA = r;
+                    if (r > maxRowA) maxRowA = r;
+                    if (c < minColA) minColA = c;
+                    if (c > maxColA) maxColA = c;
+                }
+                String sB = b.getSlotString(slot);
+                if (sB != null && !sB.isEmpty() && !sB.equals("minecraft:air")) {
+                    if (r < minRowB) minRowB = r;
+                    if (r > maxRowB) maxRowB = r;
+                    if (c < minColB) minColB = c;
+                    if (c > maxColB) maxColB = c;
+                }
+            }
+        }
+
+        if (maxRowA == -1 || maxRowB == -1) return false;
+
+        int wA = maxColA - minColA + 1;
+        int hA = maxRowA - minRowA + 1;
+        int wB = maxColB - minColB + 1;
+        int hB = maxRowB - minRowB + 1;
+
+        if (wA != wB || hA != hB) return false;
+
+        // 1. Direct normalized match
+        boolean directMatch = true;
+        for (int r = 0; r < hA; r++) {
+            for (int c = 0; c < wA; c++) {
+                int slotA = (minRowA + r) * 3 + (minColA + c);
+                int slotB = (minRowB + r) * 3 + (minColB + c);
+                if (!matchesSlot(a, b, slotA, slotB)) {
+                    directMatch = false;
+                    break;
+                }
+            }
+            if (!directMatch) break;
         }
         if (directMatch) return true;
 
+        // 2. Horizontal mirrored normalized match
         boolean mirrorMatch = true;
-        for (int r = 0; r < 3; r++) {
-            for (int c = 0; c < 3; c++) {
-                if (a.getItemAt(r * 3 + c) != b.getItemAt(r * 3 + (2 - c))) {
+        for (int r = 0; r < hA; r++) {
+            for (int c = 0; c < wA; c++) {
+                int slotA = (minRowA + r) * 3 + (minColA + c);
+                int slotB = (minRowB + r) * 3 + (maxColB - c);
+                if (!matchesSlot(a, b, slotA, slotB)) {
                     mirrorMatch = false;
                     break;
                 }
@@ -931,6 +1348,56 @@ public class RecipeInspector {
             if (!mirrorMatch) break;
         }
         return mirrorMatch;
+    }
+
+    private static boolean matchShapelessSlots(CustomRecipeData a, CustomRecipeData b,
+                                               List<Integer> slotsA, List<Integer> slotsB,
+                                               int idxA, boolean[] usedB) {
+        if (idxA >= slotsA.size()) return true;
+        int slotA = slotsA.get(idxA);
+        for (int i = 0; i < slotsB.size(); i++) {
+            if (!usedB[i] && matchesSlot(a, b, slotA, slotsB.get(i))) {
+                usedB[i] = true;
+                if (matchShapelessSlots(a, b, slotsA, slotsB, idxA + 1, usedB)) return true;
+                usedB[i] = false;
+            }
+        }
+        return false;
+    }
+
+    private static boolean matchesSlot(CustomRecipeData a, CustomRecipeData b, int slotA, int slotB) {
+        String strA = a.getSlotString(slotA);
+        String strB = b.getSlotString(slotB);
+
+        boolean aEmpty = strA.isEmpty() || strA.equals("minecraft:air");
+        boolean bEmpty = strB.isEmpty() || strB.equals("minecraft:air");
+        if (aEmpty && bEmpty) return true;
+        if (aEmpty != bEmpty) return false;
+
+        if (strA.equals(strB)) return true;
+
+        Item itemA = a.getItemAt(slotA);
+        Item itemB = b.getItemAt(slotB);
+        if (itemA != Items.AIR && itemA == itemB) return true;
+
+        // If one or both is a tag, check if the other item is part of the tag
+        if (strA.startsWith("#") && itemB != Items.AIR) {
+            List<Item> tagItems = TagResolver.getAllItemsForTag(strA);
+            if (tagItems.contains(itemB)) return true;
+        }
+        if (strB.startsWith("#") && itemA != Items.AIR) {
+            List<Item> tagItems = TagResolver.getAllItemsForTag(strB);
+            if (tagItems.contains(itemA)) return true;
+        }
+        if (strA.startsWith("#") && strB.startsWith("#")) {
+            List<Item> itemsA = TagResolver.getAllItemsForTag(strA);
+            List<Item> itemsB = TagResolver.getAllItemsForTag(strB);
+            for (Item itm : itemsA) {
+                if (itemsB.contains(itm)) return true;
+            }
+        }
+
+        return false;
     }
 
     public static String getFriendlyModName(String namespace) {

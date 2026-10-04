@@ -137,8 +137,13 @@ public class TagResolver {
         STATIC_TAG_EXPANSIONS.put("minecraft:smelts_to_glass", List.of("minecraft:sand", "minecraft:red_sand"));
     }
 
+    public static void clearWorldCache() {
+        RESOLVE_CACHE.clear();
+    }
+
     public static void clearCache() {
         RESOLVE_CACHE.clear();
+        TAG_ITEMS.clear();
     }
 
     /**

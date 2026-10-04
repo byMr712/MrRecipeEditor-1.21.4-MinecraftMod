@@ -1,6 +1,6 @@
 > **Language:** [Русский](readme.md) · English
 
-# Recipe Editor (Minecraft 1.21.4 Fabric)
+# [MR] Recipe Editor (Minecraft 1.21.4 Fabric)
 
 ![Java 21](https://img.shields.io/badge/Java-21-blue.svg)
 ![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-blue.svg)
@@ -8,75 +8,57 @@
 ![ModMenu](https://img.shields.io/badge/ModMenu-Supported-blue.svg)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 
-Universal in-game recipe editor and creation studio for **Minecraft 1.21.4 (Fabric)**.
-
----
-
 ## About
 
-**Recipe Editor** provides a comprehensive in-game graphical user interface to inspect, decompile, create, and customize crafting recipes for any item (vanilla or modded). The mod supports 7 workstation types, Drag & Drop controls, item tags, automatic recipe conflict prevention, and client-server network synchronization on dedicated servers.
-
----
+**[MR] Recipe Editor** is a handy in-game recipe creator directly inside Minecraft! No more dealing with complex configuration files or datapacks: simply open the editor screen via **Mod Menu** (in your pause/mods menu), drag & drop any item with your mouse, and design your own crafting recipes for any item — from vanilla Minecraft or any installed mods.
 
 ## Gallery
 
-| Recipe Editor | Configuration Menu |
-|:---:|:---:|
-| ![Recipe Editor](/images/totemcraft.png) | ![Configuration Menu](/images/totemcraft_modmenu.png) |
+![Configuration Menu](/images/RecipeEditor_modmenu_en.png)
 
----
+## What can this mod do?
 
-## Features
+### Mod Integration
+- Modify recipes from any installed mods! Everything is neatly sorted into mod tabs.
+- All your custom recipes show up right away in JEI, REI, EMI, and the vanilla Minecraft Recipe Book!
 
-- **7 Workstation Types Supported:**
-  - **Crafting Table** — 3x3 grid for shaped crafting recipes.
-  - **Furnace** — item smelting with configurable time and experience yield.
-  - **Blast Furnace** — high-speed smelting for ores and equipment.
-  - **Smoker** — accelerated cooking for food items.
-  - **Stonecutter** — block cutting with dynamic recipe button list generation in the UI.
-  - **Smithing Table** — equipment transformation with 3 slots (template, base, addition).
-  - **Campfire** — campfire food cooking.
-- **Mouse Controls & Drag & Drop:**
-  - Drag items from catalog into crafting slots (LMB).
-  - Quick decompilation of an item's existing recipe from the catalog (RMB).
-  - Clear selected slot with RMB or `Del` / `Backspace` key.
-- **First-Class Tag Support (`#tag`):**
-  - Full support for vanilla and modded tags (e.g., `#minecraft:planks`, `#c:iron_ores`, `#minecraft:sand`).
-  - Dynamic matching validation using `Ingredient.test()`.
-- **Recipe Conflict Protection:**
-  - Automatic collision checks against vanilla and modded recipes upon saving.
-  - Informative blocking modal with visual recipe preview.
-- **Multi-Variant Recipes:**
-  - Create multiple alternative recipe variants for the same item.
-- **Network Synchronization (Dedicated Server & LAN):**
-  - Network protocol based on Fabric Networking API (`UpdateRecipeC2SPacket` / `SyncRecipesS2CPacket`).
-  - Operator permission checks (level 2) on servers and live broadcast updates to all connected players.
-- **Item Catalog & Filtering:**
-  - Filter modes: "All", "Uncraftable", "Craftable", "Custom".
-  - Horizontally scrollable Mod Tabs for instant filtering by specific mods.
-  - Full-text search by localized names and raw item IDs.
-  - Responsive grid layout adapting to screen size and GUI scale.
-- **Recipe Viewer Integration:**
-  - Compatible with JEI, REI, EMI, and the vanilla Recipe Book.
+### Supports 7 Workstations & Tables
+- **Crafting Table** — convenient 3x3 grid. Smaller recipes (2x2 or 1x2, like torches or sticks) can be crafted anywhere on the table grid.
+- **Furnace** — smelt ores and items with convenient cooking time adjustments (with live seconds tooltip) and experience reward.
+- **Blast Furnace** — fast smelting for ores, armor, and tools.
+- **Smoker** — fast cooking for food items.
+- **Stonecutter** — precise block cutting.
+- **Smithing Table** — upgrade gear with template, base, and material slots.
+- **Campfire** — simple food roasting without burning fuel.
 
----
+### Intuitive Controls & Features
+- **Mouse Drag & Drop:** Hold Left Mouse Button (LMB) on any item in the catalog to drag into crafting slots.
+- **Recipe Inspector:** Right Mouse Button (RMB) on any catalog item instantly loads its existing recipe.
+- **Override & Restore Original Recipes:** Modifying an existing recipe cleanly overrides the original craft in-game without creating duplicate variants. Deleting a custom recipe from "My Crafts" instantly restores the original vanilla or modded recipe in both the game and editor!
+- **Multiple Recipe Variants:** Create alternative ways to craft your favorite items using the `+` button and switch between them with arrows or by scrolling the mouse wheel directly over the crafting grid.
+- **Clear Slots:** Right-click a crafting slot or press the `Delete` key.
+- **Recipe Conflict Protection:** Alerts you if a crafting shape is already occupied by another item.
+- **Fast Search & Catalog:** Filter by All, Uncraftable, Craftable, or My Crafts with instant search in any language and mod tabs scrollable by mouse wheel.
+
+### Current Limitations
+- When loading and modifying existing recipes, item group (tag) support is preserved (e.g. any wood planks or wool). Creating a brand new recipe from scratch currently does not support assigning custom tags.
 
 ## Controls
 
 | Action | Description |
 |---|---|
+| **Open Editor Screen** | Open via **Mod Menu** in the Esc pause menu or main menu |
 | **LMB on item** | Select item or drag it into a crafting slot |
 | **RMB on catalog item** | Load and decompile the item's recipe into the editor |
 | **RMB on crafting slot** | Clear the clicked slot |
 | **`Del` / `Backspace` Key** | Clear active slot (or reset target item if result slot is selected) |
-| **Mouse Scroll Wheel** | Scroll through catalog pages and mod tabs |
+| **`I` Key** | Toggle hints on or off |
+| **Mouse Scroll Wheel** | Scroll catalog pages and mod tabs, or cycle recipe variants when hovering over the crafting grid |
 | **`◀` / `▶` Arrow Buttons** | Switch workstation pages and recipe variants |
-
----
 
 ## Configuration
 
-Configuration file is saved at: `config/recipeeditor.json`.
+Configuration file is saved at: `config/mrrecipeeditor.json`.
 
 ```json
 {
@@ -101,8 +83,6 @@ Configuration file is saved at: `config/recipeeditor.json`.
 }
 ```
 
----
-
 ## Installation
 
 1. Download the latest release from [GitHub Releases](https://github.com/byMr712/RecipeEditor-MinecraftMod/releases).
@@ -112,8 +92,6 @@ Configuration file is saved at: `config/recipeeditor.json`.
 3. Place the `.jar` file into your `mods` folder.
 4. Launch the game.
 
----
-
 ## Building
 
 1. Requires Java 21 and Fabric Loader for Minecraft 1.21.4.
@@ -121,9 +99,7 @@ Configuration file is saved at: `config/recipeeditor.json`.
    ```bash
    ./gradlew build
    ```
-3. The built file will be located at `build/libs/RecipeEditor-1.21.4-byMr712.jar`.
-
----
+3. The built file will be located at `build/libs/MrRecipeEditor-Fabric-1.21.4-byMr712-v1.jar`.
 
 ## Credits & License
 

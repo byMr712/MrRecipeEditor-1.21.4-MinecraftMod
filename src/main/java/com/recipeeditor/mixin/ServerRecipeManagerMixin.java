@@ -20,7 +20,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-@Mixin(ServerRecipeManager.class)
+@Mixin(value = ServerRecipeManager.class, priority = 500)
 public class ServerRecipeManagerMixin {
 
     @Inject(method = "getFirstMatch(Lnet/minecraft/recipe/RecipeType;Lnet/minecraft/recipe/input/RecipeInput;Lnet/minecraft/world/World;)Ljava/util/Optional;", at = @At("HEAD"), cancellable = true)
@@ -33,6 +33,19 @@ public class ServerRecipeManagerMixin {
         Optional<RecipeEntry<T>> custom = CustomRecipeDispatcher.getCustomMatch(type, input, world);
         if (custom.isPresent()) {
             cir.setReturnValue(custom);
+        }
+    }
+
+    @Inject(method = "getFirstMatch(Lnet/minecraft/recipe/RecipeType;Lnet/minecraft/recipe/input/RecipeInput;Lnet/minecraft/world/World;)Ljava/util/Optional;", at = @At("RETURN"), cancellable = true)
+    private <I extends RecipeInput, T extends Recipe<I>> void onGetFirstMatchReturn(
+            RecipeType<T> type,
+            I input,
+            World world,
+            CallbackInfoReturnable<Optional<RecipeEntry<T>>> cir
+    ) {
+        Optional<RecipeEntry<T>> res = cir.getReturnValue();
+        if (res != null && res.isPresent() && CustomRecipeDispatcher.isRecipeOverridden(res.get())) {
+            cir.setReturnValue(Optional.empty());
         }
     }
 
@@ -50,6 +63,20 @@ public class ServerRecipeManagerMixin {
         }
     }
 
+    @Inject(method = "getFirstMatch(Lnet/minecraft/recipe/RecipeType;Lnet/minecraft/recipe/input/RecipeInput;Lnet/minecraft/world/World;Lnet/minecraft/recipe/RecipeEntry;)Ljava/util/Optional;", at = @At("RETURN"), cancellable = true)
+    private <I extends RecipeInput, T extends Recipe<I>> void onGetFirstMatchWithLastReturn(
+            RecipeType<T> type,
+            I input,
+            World world,
+            RecipeEntry<T> last,
+            CallbackInfoReturnable<Optional<RecipeEntry<T>>> cir
+    ) {
+        Optional<RecipeEntry<T>> res = cir.getReturnValue();
+        if (res != null && res.isPresent() && CustomRecipeDispatcher.isRecipeOverridden(res.get())) {
+            cir.setReturnValue(Optional.empty());
+        }
+    }
+
     @Inject(method = "getFirstMatch(Lnet/minecraft/recipe/RecipeType;Lnet/minecraft/recipe/input/RecipeInput;Lnet/minecraft/world/World;Lnet/minecraft/registry/RegistryKey;)Ljava/util/Optional;", at = @At("HEAD"), cancellable = true)
     private <I extends RecipeInput, T extends Recipe<I>> void onGetFirstMatchWithKey(
             RecipeType<T> type,
@@ -61,6 +88,20 @@ public class ServerRecipeManagerMixin {
         Optional<RecipeEntry<T>> custom = CustomRecipeDispatcher.getCustomMatch(type, input, world);
         if (custom.isPresent()) {
             cir.setReturnValue(custom);
+        }
+    }
+
+    @Inject(method = "getFirstMatch(Lnet/minecraft/recipe/RecipeType;Lnet/minecraft/recipe/input/RecipeInput;Lnet/minecraft/world/World;Lnet/minecraft/registry/RegistryKey;)Ljava/util/Optional;", at = @At("RETURN"), cancellable = true)
+    private <I extends RecipeInput, T extends Recipe<I>> void onGetFirstMatchWithKeyReturn(
+            RecipeType<T> type,
+            I input,
+            World world,
+            RegistryKey<Recipe<?>> key,
+            CallbackInfoReturnable<Optional<RecipeEntry<T>>> cir
+    ) {
+        Optional<RecipeEntry<T>> res = cir.getReturnValue();
+        if (res != null && res.isPresent() && CustomRecipeDispatcher.isRecipeOverridden(res.get())) {
+            cir.setReturnValue(Optional.empty());
         }
     }
 

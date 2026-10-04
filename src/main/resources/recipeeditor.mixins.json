@@ -4,7 +4,9 @@
   "package": "com.recipeeditor.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "ServerRecipeManagerMixin"
+    "ServerRecipeManagerMixin",
+    "CampfireBlockMixin",
+    "AbstractFurnaceScreenHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

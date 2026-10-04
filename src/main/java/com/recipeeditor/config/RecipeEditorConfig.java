@@ -15,23 +15,39 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class RecipeEditorConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static RecipeEditorConfig INSTANCE;
+    private static volatile RecipeEditorConfig INSTANCE;
 
-    public boolean modEnabled = true;
-    public Map<String, CustomRecipeData> recipes = new LinkedHashMap<>();
+    public volatile boolean modEnabled = true;
+    public Map<String, CustomRecipeData> recipes = Collections.synchronizedMap(new LinkedHashMap<>());
+    private transient final Set<String> enabledResultIds = ConcurrentHashMap.newKeySet();
 
     public static RecipeEditorConfig getInstance() {
-        if (INSTANCE == null) {
-            INSTANCE = load();
+        RecipeEditorConfig instance = INSTANCE;
+        if (instance == null) {
+            synchronized (RecipeEditorConfig.class) {
+                instance = INSTANCE;
+                if (instance == null) {
+                    INSTANCE = instance = load();
+                }
+            }
         }
-        return INSTANCE;
+        return instance;
     }
 
     public static Path getConfigPath() {
-        return FabricLoader.getInstance().getConfigDir().resolve("recipeeditor.json");
+        Path configDir = FabricLoader.getInstance().getConfigDir();
+        Path newPath = configDir.resolve("mrrecipeeditor.json");
+        Path oldPath = configDir.resolve("recipeeditor.json");
+        if (!java.nio.file.Files.exists(newPath) && java.nio.file.Files.exists(oldPath)) {
+            try {
+                java.nio.file.Files.copy(oldPath, newPath);
+            } catch (Exception ignored) {}
+        }
+        return newPath;
     }
 
     public static RecipeEditorConfig load() {
@@ -66,22 +82,41 @@ public class RecipeEditorConfig {
         recipes.clear(); // Clean slate by default - no pre-added recipes
     }
 
+    public void rebuildEnabledCache() {
+        enabledResultIds.clear();
+        if (recipes != null) {
+            synchronized (recipes) {
+                for (CustomRecipeData r : recipes.values()) {
+                    if (r.enabled && r.resultItemId != null && !r.resultItemId.isEmpty()) {
+                        enabledResultIds.add(r.resultItemId);
+                    }
+                }
+            }
+        }
+    }
+
     public void validate() {
         if (recipes == null) {
-            recipes = new LinkedHashMap<>();
+            recipes = Collections.synchronizedMap(new LinkedHashMap<>());
         }
-        Map<String, CustomRecipeData> rekeyed = new LinkedHashMap<>();
-        for (CustomRecipeData recipe : recipes.values()) {
-            if (recipe.patternSlots == null || recipe.patternSlots.length != 9) {
-                recipe.patternSlots = new String[9];
-                Arrays.fill(recipe.patternSlots, "minecraft:air");
+        Map<String, CustomRecipeData> rekeyed = Collections.synchronizedMap(new LinkedHashMap<>());
+        synchronized (recipes) {
+            for (CustomRecipeData recipe : recipes.values()) {
+                if (recipe.patternSlots == null || recipe.patternSlots.length != 9) {
+                    recipe.patternSlots = new String[9];
+                    Arrays.fill(recipe.patternSlots, "minecraft:air");
+                }
+                if (recipe.resultCount < 1) recipe.resultCount = 1;
+                if (recipe.resultCount > 1000) recipe.resultCount = 1000;
+                if (recipe.type == null) recipe.type = RecipeTypeEnum.SHAPED_CRAFTING;
+                if (recipe.typeCounts == null) {
+                    recipe.typeCounts = new HashMap<>();
+                }
+                rekeyed.put(recipe.getKey(), recipe);
             }
-            if (recipe.resultCount < 1) recipe.resultCount = 1;
-            if (recipe.resultCount > 1000) recipe.resultCount = 1000;
-            if (recipe.type == null) recipe.type = RecipeTypeEnum.SHAPED_CRAFTING;
-            rekeyed.put(recipe.getKey(), recipe);
         }
         this.recipes = rekeyed;
+        rebuildEnabledCache();
     }
 
     public synchronized void save() {
@@ -102,9 +137,28 @@ public class RecipeEditorConfig {
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                 java.nio.file.Files.move(tmpPath, configPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
+            rebuildEnabledCache();
+            com.recipeeditor.recipe.CustomDynamicCraftingRecipe.invalidateDisplayCache();
+            com.recipeeditor.recipe.CustomRecipeDispatcher.clearSyntheticCache();
         } catch (IOException e) {
             RecipeEditorMod.LOGGER.error("Failed to save RecipeEditor config atomically", e);
         }
+    }
+
+    public void invalidateAllRecipeCaches() {
+        if (recipes != null) {
+            synchronized (recipes) {
+                for (CustomRecipeData r : recipes.values()) {
+                    r.invalidateCache();
+                }
+            }
+        }
+        com.recipeeditor.recipe.CustomDynamicCraftingRecipe.invalidateDisplayCache();
+        com.recipeeditor.recipe.CustomRecipeDispatcher.clearSyntheticCache();
+    }
+
+    public boolean hasAnyCustomRecipes() {
+        return recipes != null && !recipes.isEmpty();
     }
 
     public boolean hasCustomRecipe(Item item) {
@@ -114,13 +168,8 @@ public class RecipeEditorConfig {
     }
 
     public boolean hasCustomRecipe(String itemId) {
-        if (!modEnabled || recipes == null || itemId == null) return false;
-        for (CustomRecipeData r : recipes.values()) {
-            if (r.enabled && itemId.equals(r.resultItemId)) {
-                return true;
-            }
-        }
-        return false;
+        if (!modEnabled || itemId == null) return false;
+        return enabledResultIds.contains(itemId);
     }
 
     public List<CustomRecipeData> getRecipesFor(Item item) {
@@ -131,9 +180,11 @@ public class RecipeEditorConfig {
 
         List<CustomRecipeData> result = new ArrayList<>();
         if (recipes != null) {
-            for (CustomRecipeData r : recipes.values()) {
-                if (targetId.equals(r.resultItemId)) {
-                    result.add(r.copy());
+            synchronized (recipes) {
+                for (CustomRecipeData r : recipes.values()) {
+                    if (targetId.equals(r.resultItemId)) {
+                        result.add(r.copy());
+                    }
                 }
             }
         }
@@ -160,15 +211,28 @@ public class RecipeEditorConfig {
     public void addOrUpdateRecipe(CustomRecipeData recipe) {
         if (recipe != null && recipe.resultItemId != null && !recipe.resultItemId.isEmpty() && !recipe.resultItemId.equals("minecraft:air")) {
             if (recipes == null) {
-                recipes = new LinkedHashMap<>();
+                recipes = Collections.synchronizedMap(new LinkedHashMap<>());
             }
             recipes.put(recipe.getKey(), recipe);
+            if (recipe.enabled) {
+                enabledResultIds.add(recipe.resultItemId);
+            } else {
+                rebuildEnabledCache();
+            }
         }
     }
 
     public void removeRecipe(CustomRecipeData recipe) {
         if (recipes != null && recipe != null) {
             recipes.remove(recipe.getKey());
+            rebuildEnabledCache();
+        }
+    }
+
+    public void removeRecipeByKey(String key) {
+        if (recipes != null && key != null) {
+            recipes.remove(key);
+            rebuildEnabledCache();
         }
     }
 
@@ -177,17 +241,23 @@ public class RecipeEditorConfig {
         Identifier id = Registries.ITEM.getId(item);
         if (id == null) return;
         String targetId = id.toString();
-        recipes.values().removeIf(r -> targetId.equals(r.resultItemId));
+        synchronized (recipes) {
+            recipes.values().removeIf(r -> targetId.equals(r.resultItemId));
+        }
+        rebuildEnabledCache();
     }
 
     public RecipeEditorConfig copy() {
         RecipeEditorConfig copy = new RecipeEditorConfig();
         copy.modEnabled = this.modEnabled;
         if (this.recipes != null) {
-            for (Map.Entry<String, CustomRecipeData> entry : this.recipes.entrySet()) {
-                copy.recipes.put(entry.getKey(), entry.getValue().copy());
+            synchronized (this.recipes) {
+                for (Map.Entry<String, CustomRecipeData> entry : this.recipes.entrySet()) {
+                    copy.recipes.put(entry.getKey(), entry.getValue().copy());
+                }
             }
         }
+        copy.rebuildEnabledCache();
         return copy;
     }
 

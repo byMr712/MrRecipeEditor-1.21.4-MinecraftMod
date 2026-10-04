@@ -79,9 +79,14 @@ public class RecipeEditorScreen extends Screen {
 
     // Workstations Pagination
     private int workstationPage = 0;
-    private static final int WORKSTATIONS_PER_PAGE = 10;
+    private int workstationsPerPage = 10;
     private ButtonWidget prevWorkstationBtn;
     private ButtonWidget nextWorkstationBtn;
+
+    // Responsive scaling
+    private float uiScale = 1.0f;
+    private static final int BASE_WIDTH = 460;
+    private static final int BASE_HEIGHT = 380;
 
     // Layout coordinates
     private int leftPaneX;
@@ -90,11 +95,18 @@ public class RecipeEditorScreen extends Screen {
     private int catalogGridY;
     private int searchWidth;
     private static final int SLOT_SIZE = 24;
-    private static final int LEFT_PANE_WIDTH = 196;
+    private int leftPaneWidth = 196;
+    private int typeBtnStartY;
+    private int typeBtnsHeight;
+    private int variantBarY;
+    private int gridStartY;
+    private int actionBtnY;
 
     // Widgets
     private TextFieldWidget searchField;
     private TextFieldWidget resultCountField;
+    private TextFieldWidget cookingTimeField;
+    private TextFieldWidget experienceField;
     private ButtonWidget minusCountBtn;
     private ButtonWidget plusCountBtn;
     private ButtonWidget prevPageBtn;
@@ -105,9 +117,20 @@ public class RecipeEditorScreen extends Screen {
     private final List<ButtonWidget> tabButtons = new ArrayList<>();
     private final List<ButtonWidget> filterButtons = new ArrayList<>();
     private final List<ButtonWidget> typeButtons = new ArrayList<>();
+    private final List<RecipeTypeEnum> typeButtonEnums = new ArrayList<>();
     private ButtonWidget saveCraftBtn;
     private ButtonWidget clearCraftBtn;
+    private ButtonWidget deleteVariantBtn;
     private ButtonWidget deleteRecipeBtn;
+    private boolean showCustomDeleteButtons = false;
+    private final Map<RecipeTypeEnum, List<CustomRecipeData>> sessionVariantsByType = new HashMap<>();
+    private final Map<RecipeTypeEnum, Integer> sessionVariantIndexByType = new HashMap<>();
+    private int filterY;
+    private ButtonWidget createRecipeBtn;
+    private final Set<RecipeTypeEnum> activeCreatedTypes = new HashSet<>();
+    private ButtonWidget toggleHintsBtn;
+    private ButtonWidget resetDefaultsBtn;
+    private ButtonWidget exitBtn;
 
     // Variant Controls
     private ButtonWidget prevVariantBtn;
@@ -125,12 +148,15 @@ public class RecipeEditorScreen extends Screen {
     private Text notificationText = null;
     private long notificationTimer = 0;
 
+    // Toggleable hints (hidden by default on every screen open)
+    private boolean showHints = false;
+
     public RecipeEditorScreen(Screen parent) {
         super(Text.translatable("recipeeditor.config.title"));
         this.parent = parent;
         this.configCopy = RecipeEditorConfig.getInstance().copy();
 
-        RecipeInspector.invalidateCache();
+        RecipeInspector.invalidateWorldCache();
 
         // Target item starts null (user must select/RMB an item to edit)
         this.targetItem = null;
@@ -161,6 +187,8 @@ public class RecipeEditorScreen extends Screen {
         }
 
         refreshFilteredItems();
+        // Trigger async indexing of all lang files via ResourceManager (catches vanilla ru_ru etc.)
+        RecipeInspector.startLangIndexViaRMAsync();
     }
 
     private boolean hasAnyIngredients(CustomRecipeData recipe) {
@@ -216,11 +244,15 @@ public class RecipeEditorScreen extends Screen {
                 }
             }
 
-            // Search query filter (matches item name or raw id)
+            // Search query filter (matches item name, raw id, or any indexed multilingual name)
             if (!query.isEmpty()) {
                 String idStr = id.toString().toLowerCase(Locale.ROOT);
                 String nameStr = item.getName().getString().toLowerCase(Locale.ROOT);
-                if (!idStr.contains(query) && !nameStr.contains(query)) {
+                String flippedQuery = RecipeInspector.flipKeyboardLayout(query).toLowerCase(Locale.ROOT);
+                boolean matches = idStr.contains(query) || nameStr.contains(query)
+                        || (!flippedQuery.equals(query) && (idStr.contains(flippedQuery) || nameStr.contains(flippedQuery)))
+                        || RecipeInspector.matchesMultilingual(item, query);
+                if (!matches) {
                     continue;
                 }
             }
@@ -228,13 +260,27 @@ public class RecipeEditorScreen extends Screen {
             filteredItems.add(item);
         }
 
-        catalogPage = 0;
+        int maxPage = Math.max(0, (filteredItems.size() - 1) / Math.max(1, itemsPerPage));
+        if (catalogPage > maxPage) {
+            catalogPage = maxPage;
+        }
         updatePaginationButtons();
+    }
+
+    private void refreshFilteredItemsResetPage() {
+        catalogPage = 0;
+        refreshFilteredItems();
     }
 
     public void selectTargetItem(Item item) {
         if (item == null || item == Items.AIR) return;
+        this.sessionVariantsByType.clear();
+        this.sessionVariantIndexByType.clear();
+        this.showCustomDeleteButtons = false;
         this.targetItem = item;
+        this.activeCreatedTypes.clear();
+        this.currentRecipe = null;
+        this.currentVariantIndex = 0;
         var world = this.client != null ? this.client.world : null;
 
         // Pick best default machine type
@@ -251,81 +297,137 @@ public class RecipeEditorScreen extends Screen {
         }
 
         refreshTypeVariants(selectedType, true);
-        setEditorWidgetsVisible(true);
+        rebuildTypeButtons();
+        updateButtonStates();
+    }
+
+    private void startCreatingRecipeForTarget() {
+        if (targetItem == null || targetItem == Items.AIR) return;
+        this.showCustomDeleteButtons = false;
+        activeCreatedTypes.add(selectedType);
+        refreshTypeVariants(selectedType, true);
         rebuildTypeButtons();
         updateButtonStates();
     }
 
     public void loadRecipeForTarget(Item item) {
         selectTargetItem(item);
+        if (currentFilter == CatalogFilter.CUSTOM) {
+            this.showCustomDeleteButtons = true;
+            updateEditorWidgetsVisibility();
+            updateButtonStates();
+        }
     }
 
-    private final Map<String, CustomRecipeData> draftMap = new HashMap<>();
-
     private void refreshTypeVariants(RecipeTypeEnum type, boolean resetIndex) {
-        if (targetItem != null && currentRecipe != null) {
-            draftMap.put(targetItem + "#" + selectedType + "#" + currentVariantIndex, currentRecipe.copy());
-        }
-
         this.selectedType = type;
         this.typeVariants.clear();
 
         if (targetItem == null || targetItem == Items.AIR) {
             this.currentRecipe = null;
+            updateEditorWidgetsVisibility();
             return;
+        }
+
+        if (sessionVariantsByType.containsKey(type)) {
+            List<CustomRecipeData> saved = sessionVariantsByType.get(type);
+            if (saved != null && !saved.isEmpty()) {
+                for (CustomRecipeData s : saved) {
+                    typeVariants.add(s.copy());
+                }
+                currentVariantIndex = Math.min(typeVariants.size() - 1, Math.max(0, sessionVariantIndexByType.getOrDefault(type, 0)));
+                currentRecipe = typeVariants.get(currentVariantIndex);
+                updateEditorWidgetsVisibility();
+                updateVariantButtons();
+                updateButtonStates();
+                return;
+            }
         }
 
         var world = this.client != null ? this.client.world : null;
         Set<String> seenSignatures = new HashSet<>();
 
-        // 1. Check draft map first
-        String draftKey = targetItem + "#" + type + "#0";
-        if (draftMap.containsKey(draftKey)) {
-            typeVariants.add(draftMap.get(draftKey).copy());
-            seenSignatures.add(draftMap.get(draftKey).getPatternSignature());
-        }
-
-        // 2. Custom recipes for targetItem and this machine type
+        // 1. Collect overridden keys and IDs from active custom recipes for this targetItem and type
         List<CustomRecipeData> customList = configCopy.getRecipesFor(targetItem, type);
+        Set<String> overriddenKeys = new HashSet<>();
+        Set<String> overriddenIds = new HashSet<>();
         for (CustomRecipeData c : customList) {
-            String sig = c.getPatternSignature();
-            if (seenSignatures.add(sig)) {
-                typeVariants.add(c.copy());
+            if (c.overrideExisting) {
+                if (c.overriddenKey != null) overriddenKeys.add(c.overriddenKey);
+                if (c.overriddenId != null) overriddenIds.add(c.overriddenId);
             }
         }
 
-        // 3. Scanned / Modded / Vanilla recipes for targetItem and this machine type
-        List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(targetItem, world);
-        for (CustomRecipeData s : scanned) {
-            if (s.type == type) {
-                String sig = s.getPatternSignature();
-                if (seenSignatures.add(sig)) {
-                    typeVariants.add(s.copy());
+        // 2. Scanned / Modded / Vanilla recipes for targetItem and this machine type (only in All/Craftable filters)
+        if (currentFilter != CatalogFilter.CUSTOM) {
+            List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(targetItem, world);
+            for (CustomRecipeData s : scanned) {
+                if (s.type == type) {
+                    boolean isOverridden = overriddenKeys.contains(s.getKey())
+                            || (s.overriddenKey != null && overriddenKeys.contains(s.overriddenKey))
+                            || (s.overriddenId != null && overriddenIds.contains(s.overriddenId))
+                            || (s.id != null && overriddenIds.contains(s.id));
+                    if (isOverridden) {
+                        continue;
+                    }
+                    String sig = s.getPatternSignature();
+                    if (seenSignatures.add(sig)) {
+                        CustomRecipeData copy = s.copy();
+                        copy.overriddenId = s.overriddenId != null ? s.overriddenId : s.id;
+                        copy.overriddenKey = s.overriddenKey != null ? s.overriddenKey : s.getKey();
+                        copy.originalKey = s.getKey();
+                        typeVariants.add(copy);
+                    }
                 }
             }
         }
 
-        // 4. Fallback: If no recipes exist for this machine type, create a blank empty craft
+        // 3. Custom recipes for targetItem and this machine type (always appended at the END of variants)
+        for (CustomRecipeData c : customList) {
+            String sig = c.getPatternSignature();
+            if (seenSignatures.add(sig)) {
+                CustomRecipeData copy = c.copy();
+                copy.originalKey = c.getKey();
+                typeVariants.add(copy);
+            }
+        }
+
+        // 3. Fallback: If no recipes exist for this machine type, check if user created this type
         if (typeVariants.isEmpty()) {
-            Identifier id = Registries.ITEM.getId(targetItem);
-            CustomRecipeData blank = new CustomRecipeData(
-                    id != null ? id.getPath() : "craft",
-                    id != null ? id.toString() : "minecraft:air",
-                    1,
-                    type
-            );
-            typeVariants.add(blank);
+            if (activeCreatedTypes.contains(type)) {
+                Identifier id = Registries.ITEM.getId(targetItem);
+                CustomRecipeData blank = new CustomRecipeData(
+                        id != null ? id.getPath() : "craft",
+                        id != null ? id.toString() : "minecraft:air",
+                        1,
+                        type
+                );
+                typeVariants.add(blank);
+                currentVariantIndex = 0;
+                currentRecipe = blank;
+            } else {
+                currentVariantIndex = 0;
+                currentRecipe = null;
+            }
+        } else {
+            if (resetIndex || currentVariantIndex >= typeVariants.size() || currentVariantIndex < 0) {
+                currentVariantIndex = 0;
+            }
+            currentRecipe = typeVariants.get(currentVariantIndex);
         }
 
-        if (resetIndex || currentVariantIndex >= typeVariants.size() || currentVariantIndex < 0) {
-            currentVariantIndex = 0;
+        if (currentRecipe != null) {
+            if (resultCountField != null) {
+                resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
+            }
+            if (cookingTimeField != null) {
+                cookingTimeField.setText(String.valueOf(currentRecipe.cookingTime));
+            }
+            if (experienceField != null) {
+                experienceField.setText(String.format(Locale.ROOT, "%.1f", currentRecipe.experience));
+            }
         }
-
-        currentRecipe = typeVariants.get(currentVariantIndex);
-
-        if (resultCountField != null) {
-            resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
-        }
+        updateEditorWidgetsVisibility();
         updateVariantButtons();
         updateToggleBtn(leftPaneX, contentY);
         updateButtonStates();
@@ -333,7 +435,15 @@ public class RecipeEditorScreen extends Screen {
 
     private void switchMachineType(RecipeTypeEnum newType) {
         if (targetItem == null) return;
-        refreshTypeVariants(newType, true);
+        if (selectedType != newType && !typeVariants.isEmpty()) {
+            List<CustomRecipeData> copyList = new ArrayList<>();
+            for (CustomRecipeData d : typeVariants) {
+                copyList.add(d.copy());
+            }
+            sessionVariantsByType.put(selectedType, copyList);
+            sessionVariantIndexByType.put(selectedType, currentVariantIndex);
+        }
+        refreshTypeVariants(newType, false);
         rebuildTypeButtons();
     }
 
@@ -368,6 +478,12 @@ public class RecipeEditorScreen extends Screen {
         if (resultCountField != null) {
             resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
         }
+        if (cookingTimeField != null) {
+            cookingTimeField.setText(String.valueOf(currentRecipe.cookingTime));
+        }
+        if (experienceField != null) {
+            experienceField.setText(String.format(Locale.ROOT, "%.1f", currentRecipe.experience));
+        }
         updateVariantButtons();
         updateToggleBtn(leftPaneX, contentY);
         updateButtonStates();
@@ -388,65 +504,98 @@ public class RecipeEditorScreen extends Screen {
         }
     }
 
-    private void setEditorWidgetsVisible(boolean visible) {
+    private void updateEditorWidgetsVisibility() {
+        boolean enabled = configCopy.modEnabled;
+        boolean hasItem = enabled && (targetItem != null && targetItem != Items.AIR);
+        boolean hasActiveCraft = hasItem && (currentRecipe != null);
+        boolean isFurnaceMachine = hasActiveCraft && (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING ||
+                selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.CAMPFIRE_COOKING);
+
         for (ButtonWidget btn : typeButtons) {
-            btn.visible = visible;
+            btn.visible = hasItem;
         }
-        if (prevWorkstationBtn != null) prevWorkstationBtn.visible = visible && (RecipeTypeEnum.values().length > WORKSTATIONS_PER_PAGE);
-        if (nextWorkstationBtn != null) nextWorkstationBtn.visible = visible && (RecipeTypeEnum.values().length > WORKSTATIONS_PER_PAGE);
-        if (prevVariantBtn != null) prevVariantBtn.visible = visible;
-        if (variantField != null) variantField.setVisible(visible);
-        if (nextVariantBtn != null) nextVariantBtn.visible = visible;
-        if (resultCountField != null) resultCountField.setVisible(visible);
-        if (minusCountBtn != null) minusCountBtn.visible = visible;
-        if (plusCountBtn != null) plusCountBtn.visible = visible;
-        if (saveCraftBtn != null) saveCraftBtn.visible = visible;
-        if (clearCraftBtn != null) clearCraftBtn.visible = visible;
-        if (deleteRecipeBtn != null) deleteRecipeBtn.visible = visible;
+        if (prevWorkstationBtn != null) prevWorkstationBtn.visible = hasItem && (RecipeTypeEnum.values().length > workstationsPerPage);
+        if (nextWorkstationBtn != null) nextWorkstationBtn.visible = hasItem && (RecipeTypeEnum.values().length > workstationsPerPage);
+        if (prevVariantBtn != null) prevVariantBtn.visible = hasActiveCraft;
+        if (variantField != null) variantField.setVisible(hasActiveCraft);
+        if (nextVariantBtn != null) nextVariantBtn.visible = hasActiveCraft;
+        if (resultCountField != null) resultCountField.setVisible(hasActiveCraft);
+        if (minusCountBtn != null) minusCountBtn.visible = hasActiveCraft;
+        if (plusCountBtn != null) plusCountBtn.visible = hasActiveCraft;
+        if (cookingTimeField != null) cookingTimeField.setVisible(isFurnaceMachine);
+        if (experienceField != null) experienceField.setVisible(isFurnaceMachine);
+        if (saveCraftBtn != null) saveCraftBtn.visible = hasActiveCraft;
+        if (clearCraftBtn != null) clearCraftBtn.visible = hasActiveCraft;
+        boolean showDelete = showCustomDeleteButtons && (currentFilter == CatalogFilter.CUSTOM) && (hasActiveCraft) && configCopy.hasCustomRecipe(targetItem);
+        if (deleteVariantBtn != null) deleteVariantBtn.visible = showDelete;
+        if (deleteRecipeBtn != null) deleteRecipeBtn.visible = showDelete;
+        if (createRecipeBtn != null) createRecipeBtn.visible = (hasItem && !hasActiveCraft);
+    }
+
+    private void setEditorWidgetsVisible(boolean visible) {
+        updateEditorWidgetsVisibility();
+    }
+
+    private void updateUiScale() {
+        float scaleX = (float) this.width / (float) BASE_WIDTH;
+        float scaleY = (float) this.height / (float) BASE_HEIGHT;
+        this.uiScale = Math.min(1.0f, Math.min(scaleX, scaleY));
+        if (this.uiScale <= 0.05f) this.uiScale = 1.0f;
+    }
+
+    public int getVirtualWidth() {
+        return (int) Math.ceil(this.width / uiScale);
+    }
+
+    public int getVirtualHeight() {
+        return (int) Math.ceil(this.height / uiScale);
     }
 
     @Override
     protected void init() {
-        contentY = 36;
-        int bottomY = this.height - 24;
+        updateUiScale();
+        int vWidth = getVirtualWidth();
+        int vHeight = getVirtualHeight();
 
-        // Calculate dynamic dimensions
-        int availableTotalWidth = Math.max(320, this.width - 24);
-        int availableRightWidth = Math.max(120, availableTotalWidth - LEFT_PANE_WIDTH - 16);
+        contentY = 24;
+        int bottomY = vHeight - 22;
+
+        // Calculate dynamic dimensions inside virtual canvas
+        leftPaneWidth = 196;
+        int availableTotalWidth = Math.max(300, vWidth - 20);
+        int availableRightWidth = Math.max(120, availableTotalWidth - leftPaneWidth - 14);
         catalogCols = Math.max(4, availableRightWidth / SLOT_SIZE);
 
         int actualCatalogWidth = catalogCols * SLOT_SIZE;
         searchWidth = actualCatalogWidth - 2;
 
-        int totalContentWidth = LEFT_PANE_WIDTH + 16 + actualCatalogWidth;
-        leftPaneX = Math.max(8, (this.width - totalContentWidth) / 2);
-        rightPaneX = leftPaneX + LEFT_PANE_WIDTH + 16;
+        int totalContentWidth = leftPaneWidth + 14 + actualCatalogWidth;
+        leftPaneX = Math.max(8, (vWidth - totalContentWidth) / 2);
+        rightPaneX = leftPaneX + leftPaneWidth + 14;
 
-        // Dynamic Rows Calculation
-        int filterY = contentY;
-        int tabY = filterY + 18;
+        workstationsPerPage = 8;
+        typeBtnStartY = contentY + 22;
+        typeBtnsHeight = 4 * 17;
+
+        // Dynamic Rows Calculation for Right Pane
+        this.filterY = contentY;
+        int tabY = filterY + 17;
         int searchY = tabY + 18;
-        catalogGridY = searchY + 22;
-        int availableCatalogHeight = Math.max(SLOT_SIZE * 3, (bottomY - 26) - catalogGridY);
+        catalogGridY = searchY + 21;
+        int availableCatalogHeight = Math.max(SLOT_SIZE * 3, (bottomY - 24) - catalogGridY);
         catalogRows = Math.max(3, availableCatalogHeight / SLOT_SIZE);
         itemsPerPage = catalogCols * catalogRows;
 
-        visibleTabs = Math.max(2, (searchWidth - 44) / 58);
+        visibleTabs = Math.max(2, (searchWidth - 40) / 54);
 
         // --- LEFT PANE (Controls Aligned horizontally with Right Pane Tabs) ---
-        // Top toggle button: [Мои крафты: ВКЛЮЧЕНЫ / ВЫКЛЮЧЕНЫ] - Aligned with filter buttons at filterY
         updateToggleBtn(leftPaneX, filterY);
 
         // Machine Type Buttons (2 Columns)
         rebuildTypeButtons();
 
-        int typeBtnStartY = filterY + 22;
-        int numVisibleTypes = Math.min(WORKSTATIONS_PER_PAGE, RecipeTypeEnum.values().length);
-        int numRows = (numVisibleTypes + 1) / 2;
-        int typeBtnsHeight = numRows * 18;
-
         // Variant Bar (Above Crafting Grid)
-        int variantBarY = typeBtnStartY + typeBtnsHeight + 4;
+        variantBarY = typeBtnStartY + typeBtnsHeight + 3;
         prevVariantBtn = ButtonWidget.builder(Text.literal("◀"), btn -> changeVariant(-1))
                 .dimensions(leftPaneX + 4, variantBarY, 18, 16)
                 .build();
@@ -466,6 +615,12 @@ public class RecipeEditorScreen extends Screen {
                         if (resultCountField != null) {
                             resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
                         }
+                        if (cookingTimeField != null) {
+                            cookingTimeField.setText(String.valueOf(currentRecipe.cookingTime));
+                        }
+                        if (experienceField != null) {
+                            experienceField.setText(String.format(Locale.ROOT, "%.1f", currentRecipe.experience));
+                        }
                         updateVariantButtons();
                         updateButtonStates();
                     }
@@ -481,7 +636,7 @@ public class RecipeEditorScreen extends Screen {
 
         // Crafting Grid & Result Slot Layout
         int gridStartX = leftPaneX + 4;
-        int gridStartY = variantBarY + 20;
+        gridStartY = variantBarY + 30;
         int arrowX = gridStartX + 3 * SLOT_SIZE + 10;
         int resultX = arrowX + 24;
         int resultY = gridStartY + SLOT_SIZE - 3;
@@ -489,7 +644,7 @@ public class RecipeEditorScreen extends Screen {
         // Result count controls (Centered under result slot)
         int countControlsWidth = 60;
         int countStartX = (resultX + 14) - (countControlsWidth / 2);
-        int countY = resultY + 32;
+        int countY = resultY + 31;
 
         minusCountBtn = ButtonWidget.builder(Text.literal("-"), btn -> adjustResultCount(-1))
                 .dimensions(countStartX, countY, 14, 16)
@@ -502,11 +657,13 @@ public class RecipeEditorScreen extends Screen {
         resultCountField.setChangedListener(text -> {
             try {
                 if (!text.trim().isEmpty()) {
+                    int max = targetItem != null && targetItem != Items.AIR ? targetItem.getMaxCount() : 64;
                     int val = Integer.parseInt(text.trim());
-                    if (val > 1000) val = 1000;
+                    if (val > max) val = max;
                     if (val < 1) val = 1;
                     if (currentRecipe != null) {
                         currentRecipe.setResultCountForType(selectedType, val);
+                        updateButtonStates();
                     }
                 }
             } catch (NumberFormatException ignored) {}
@@ -518,30 +675,80 @@ public class RecipeEditorScreen extends Screen {
                 .build();
         this.addDrawableChild(plusCountBtn);
 
-        // Action Buttons
-        int actionBtnY = gridStartY + 92;
+        // Furnace Cooking Time & Experience controls (under input slot: gridStartX + 4)
+        int furnaceControlsY = countY;
+        cookingTimeField = new TextFieldWidget(this.textRenderer, gridStartX + 2, furnaceControlsY, 34, 16, Text.translatable("recipeeditor.gui.label_time"));
+        cookingTimeField.setText(String.valueOf(currentRecipe != null ? currentRecipe.cookingTime : 200));
+        cookingTimeField.setMaxLength(5);
+        cookingTimeField.setChangedListener(text -> {
+            try {
+                if (!text.trim().isEmpty()) {
+                    int val = Integer.parseInt(text.trim());
+                    if (val < 1) val = 1;
+                    if (val > 72000) val = 72000;
+                    if (currentRecipe != null) {
+                        currentRecipe.cookingTime = val;
+                        updateButtonStates();
+                    }
+                }
+            } catch (NumberFormatException ignored) {}
+        });
+        this.addDrawableChild(cookingTimeField);
+
+        experienceField = new TextFieldWidget(this.textRenderer, gridStartX + 39, furnaceControlsY, 33, 16, Text.translatable("recipeeditor.gui.label_exp"));
+        experienceField.setText(String.format(Locale.ROOT, "%.1f", currentRecipe != null ? currentRecipe.experience : 0.1f));
+        experienceField.setMaxLength(5);
+        experienceField.setChangedListener(text -> {
+            try {
+                if (!text.trim().isEmpty()) {
+                    float val = Float.parseFloat(text.trim().replace(',', '.'));
+                    if (val < 0.0f) val = 0.0f;
+                    if (val > 100.0f) val = 100.0f;
+                    if (currentRecipe != null) {
+                        currentRecipe.experience = val;
+                        updateButtonStates();
+                    }
+                }
+            } catch (NumberFormatException ignored) {}
+        });
+        this.addDrawableChild(experienceField);
+
+        // Action Buttons (Full width stacked vertically)
+        actionBtnY = gridStartY + 76;
 
         saveCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.save_craft").formatted(Formatting.GREEN, Formatting.BOLD), btn -> saveCurrentCraft())
-                .dimensions(leftPaneX, actionBtnY, LEFT_PANE_WIDTH, 18)
+                .dimensions(leftPaneX, actionBtnY, leftPaneWidth, 18)
                 .build();
         this.addDrawableChild(saveCraftBtn);
 
         clearCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.clear_all").formatted(Formatting.RED), btn -> clearAllSlots())
-                .dimensions(leftPaneX, actionBtnY + 20, LEFT_PANE_WIDTH, 18)
+                .dimensions(leftPaneX, actionBtnY + 20, leftPaneWidth, 18)
                 .build();
         this.addDrawableChild(clearCraftBtn);
 
-        deleteRecipeBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.delete_custom").formatted(Formatting.RED), btn -> deleteCurrentRecipe())
-                .dimensions(leftPaneX, actionBtnY + 40, LEFT_PANE_WIDTH, 18)
+        deleteVariantBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.delete_variant").formatted(Formatting.RED), btn -> promptDeleteCurrentVariant())
+                .dimensions(leftPaneX, actionBtnY + 40, leftPaneWidth, 18)
+                .build();
+        this.addDrawableChild(deleteVariantBtn);
+
+        deleteRecipeBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.delete_custom").formatted(Formatting.RED), btn -> promptDeleteEntireCustomCraft())
+                .dimensions(leftPaneX, actionBtnY + 60, leftPaneWidth, 18)
                 .build();
         this.addDrawableChild(deleteRecipeBtn);
 
+        // Create Recipe Button for uncraftable items / machines without recipes
+        int createBtnY = gridStartY + 38;
+        createRecipeBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.create_recipe_btn").formatted(Formatting.GREEN, Formatting.BOLD), btn -> startCreatingRecipeForTarget())
+                .dimensions(leftPaneX + 10, createBtnY, leftPaneWidth - 20, 20)
+                .build();
+        this.addDrawableChild(createRecipeBtn);
+
         // Set initial visibility based on targetItem selection
-        setEditorWidgetsVisible(targetItem != null);
+        updateEditorWidgetsVisibility();
         updateVariantButtons();
 
         // --- RIGHT PANE (Filters, Tabs, Search, Dynamic Catalog) ---
-        rebuildFilterButtons(rightPaneX, filterY);
+        rebuildFilterButtons();
 
         prevTabBtn = ButtonWidget.builder(Text.literal("◀"), btn -> scrollTabs(-1))
                 .dimensions(rightPaneX, tabY, 18, 16)
@@ -558,16 +765,16 @@ public class RecipeEditorScreen extends Screen {
         searchField = new TextFieldWidget(this.textRenderer, rightPaneX, searchY, searchWidth, 18, Text.literal("Search"));
         searchField.setText(previousSearch);
         searchField.setPlaceholder(Text.translatable("recipeeditor.gui.search_placeholder").formatted(Formatting.GRAY));
-        searchField.setChangedListener(query -> refreshFilteredItems());
+        searchField.setChangedListener(query -> refreshFilteredItemsResetPage());
         this.addDrawableChild(searchField);
 
         // Catalog Pagination Buttons
-        int pageBtnY = catalogGridY + (catalogRows * SLOT_SIZE) + 6;
+        int pageBtnY = catalogGridY + (catalogRows * SLOT_SIZE) + 4;
         prevPageBtn = ButtonWidget.builder(Text.literal("◀"), btn -> changePage(-1))
-                .dimensions(rightPaneX, pageBtnY, 24, 18)
+                .dimensions(rightPaneX, pageBtnY, 24, 16)
                 .build();
         nextPageBtn = ButtonWidget.builder(Text.literal("▶"), btn -> changePage(1))
-                .dimensions(rightPaneX + searchWidth - 24, pageBtnY, 24, 18)
+                .dimensions(rightPaneX + searchWidth - 24, pageBtnY, 24, 16)
                 .build();
         this.addDrawableChild(prevPageBtn);
         this.addDrawableChild(nextPageBtn);
@@ -579,24 +786,50 @@ public class RecipeEditorScreen extends Screen {
         updateButtonStates();
     }
 
+    private void toggleHintsVisibility() {
+        this.showHints = !this.showHints;
+        updateToggleHintsBtnText();
+    }
+
+    private void updateToggleHintsBtnText() {
+        if (toggleHintsBtn != null) {
+            Text msg = showHints
+                    ? Text.translatable("recipeeditor.gui.hide_hints")
+                    : Text.translatable("recipeeditor.gui.show_hints");
+            toggleHintsBtn.setMessage(msg);
+        }
+    }
+
     private void rebuildBottomButtons(int bottomY) {
         Text resetText = Text.translatable("recipeeditor.gui.reset_defaults");
         Text exitText = Text.translatable("recipeeditor.gui.exit");
+        Text showHintsText = Text.translatable("recipeeditor.gui.show_hints");
+        Text hideHintsText = Text.translatable("recipeeditor.gui.hide_hints");
 
-        int wExit = Math.max(65, this.textRenderer.getWidth(exitText) + 20);
-        int wReset = Math.max(120, this.textRenderer.getWidth(resetText) + 16);
+        int wExit = Math.max(55, this.textRenderer.getWidth(exitText) + 16);
+        int wReset = Math.max(100, this.textRenderer.getWidth(resetText) + 16);
+        int wHints = Math.max(100, Math.max(this.textRenderer.getWidth(showHintsText), this.textRenderer.getWidth(hideHintsText)) + 16);
 
-        int rightMargin = this.width - 12;
+        int rightMargin = getVirtualWidth() - 8;
         int exitX = rightMargin - wExit;
-        int resetX = exitX - 6 - wReset;
+        int resetX = exitX - 4 - wReset;
+        int hintsX = resetX - 4 - wHints;
 
-        this.addDrawableChild(ButtonWidget.builder(resetText, btn -> promptResetDefaults())
-                .dimensions(resetX, bottomY, wReset, 20)
-                .build());
+        Text initialMsg = showHints ? hideHintsText : showHintsText;
+        toggleHintsBtn = ButtonWidget.builder(initialMsg, btn -> toggleHintsVisibility())
+                .dimensions(hintsX, bottomY, wHints, 18)
+                .build();
+        this.addDrawableChild(toggleHintsBtn);
 
-        this.addDrawableChild(ButtonWidget.builder(exitText, btn -> this.close())
-                .dimensions(exitX, bottomY, wExit, 20)
-                .build());
+        resetDefaultsBtn = ButtonWidget.builder(resetText, btn -> promptResetDefaults())
+                .dimensions(resetX, bottomY, wReset, 18)
+                .build();
+        this.addDrawableChild(resetDefaultsBtn);
+
+        exitBtn = ButtonWidget.builder(exitText, btn -> this.close())
+                .dimensions(exitX, bottomY, wExit, 18)
+                .build();
+        this.addDrawableChild(exitBtn);
     }
 
     private void promptResetDefaults() {
@@ -613,16 +846,211 @@ public class RecipeEditorScreen extends Screen {
         ));
     }
 
+    private void promptDeleteCurrentVariant() {
+        if (this.client == null || targetItem == null || currentRecipe == null) return;
+        this.client.setScreen(new ConfirmScreen(
+                confirmed -> {
+                    if (confirmed) {
+                        deleteCurrentVariant();
+                    }
+                    this.client.setScreen(this);
+                },
+                Text.translatable("recipeeditor.gui.delete_variant_confirm_title"),
+                Text.translatable("recipeeditor.gui.delete_variant_confirm_msg")
+        ));
+    }
+
+    private void promptDeleteEntireCustomCraft() {
+        if (this.client == null || targetItem == null) return;
+        this.client.setScreen(new ConfirmScreen(
+                confirmed -> {
+                    if (confirmed) {
+                        deleteEntireCustomCraft();
+                    }
+                    this.client.setScreen(this);
+                },
+                Text.translatable("recipeeditor.gui.delete_confirm_title"),
+                Text.translatable("recipeeditor.gui.delete_confirm_msg")
+        ));
+    }
+
+    private boolean isExactRecipeMatch(CustomRecipeData a, CustomRecipeData b, RecipeTypeEnum type) {
+        if (a == null || b == null) return false;
+        if (a.type != type || b.type != type) return false;
+        if (a.getResultCountForType(type) != b.getResultCountForType(type)) return false;
+
+        if (type == RecipeTypeEnum.SMELTING || type == RecipeTypeEnum.BLASTING ||
+            type == RecipeTypeEnum.SMOKING || type == RecipeTypeEnum.CAMPFIRE_COOKING) {
+            return a.getItemAt(0) == b.getItemAt(0) &&
+                   a.cookingTime == b.cookingTime &&
+                   Math.abs(a.experience - b.experience) < 0.001f;
+        }
+
+        if (type == RecipeTypeEnum.STONECUTTING) {
+            return a.getItemAt(0) == b.getItemAt(0);
+        }
+
+        if (type == RecipeTypeEnum.SMITHING) {
+            for (int i = 0; i < 3; i++) {
+                if (a.getItemAt(i) != b.getItemAt(i)) return false;
+            }
+            return true;
+        }
+
+        // Shaped Crafting 3x3: direct and horizontal mirror match
+        boolean directMatch = true;
+        for (int i = 0; i < 9; i++) {
+            if (a.getItemAt(i) != b.getItemAt(i)) {
+                directMatch = false;
+                break;
+            }
+        }
+        if (directMatch) return true;
+
+        boolean mirrorMatch = true;
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                if (a.getItemAt(r * 3 + c) != b.getItemAt(r * 3 + (2 - c))) {
+                    mirrorMatch = false;
+                    break;
+                }
+            }
+            if (!mirrorMatch) break;
+        }
+        return mirrorMatch;
+    }
+
+    private boolean isRecipeSavable(CustomRecipeData recipe, Item targetItem, RecipeTypeEnum type) {
+        if (recipe == null || targetItem == null || targetItem == Items.AIR) return false;
+        if (!hasAnyIngredients(recipe)) return false;
+
+        var world = this.client != null ? this.client.world : null;
+
+        // 1. If it's already saved in config with exact same pattern and count, no unsaved changes
+        List<CustomRecipeData> savedCustom = configCopy.getRecipesFor(targetItem, type);
+        for (CustomRecipeData saved : savedCustom) {
+            if (isExactRecipeMatch(saved, recipe, type)) {
+                return false;
+            }
+        }
+
+        // 2. If it exactly matches an existing vanilla / modded recipe for targetItem, it is unmodified
+        List<CustomRecipeData> scanned = RecipeInspector.getAllRecipeVariants(targetItem, world);
+        for (CustomRecipeData v : scanned) {
+            if (v.type == type && isExactRecipeMatch(v, recipe, type)) {
+                return false; // Unmodified vanilla / modded recipe!
+            }
+        }
+
+        return true;
+    }
+
+    private boolean isAnyVariantSavable() {
+        if (targetItem == null || targetItem == Items.AIR) return false;
+        for (CustomRecipeData v : typeVariants) {
+            if (isRecipeSavable(v, targetItem, selectedType)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean hasEditPermission() {
+        if (this.client == null) return true;
+        if (this.client.isInSingleplayer() || this.client.getServer() != null) return true;
+        return this.client.player != null && this.client.player.hasPermissionLevel(2);
+    }
+
     private void updateButtonStates() {
+        boolean enabled = configCopy.modEnabled;
+        boolean canEdit = enabled && hasEditPermission();
+
+        if (deleteVariantBtn != null) {
+            deleteVariantBtn.active = canEdit && targetItem != null && currentRecipe != null && configCopy.hasCustomRecipe(targetItem);
+        }
         if (deleteRecipeBtn != null) {
-            deleteRecipeBtn.active = targetItem != null && configCopy.hasCustomRecipe(targetItem);
+            deleteRecipeBtn.active = canEdit && targetItem != null && currentRecipe != null && configCopy.hasCustomRecipe(targetItem);
         }
         if (saveCraftBtn != null) {
-            saveCraftBtn.active = targetItem != null && currentRecipe != null && hasAnyIngredients(currentRecipe);
+            saveCraftBtn.active = canEdit && currentRecipe != null && isAnyVariantSavable();
         }
         if (clearCraftBtn != null) {
-            clearCraftBtn.active = currentRecipe != null && hasAnyIngredients(currentRecipe);
+            clearCraftBtn.active = canEdit && currentRecipe != null && hasAnyIngredients(currentRecipe);
         }
+        if (createRecipeBtn != null) {
+            createRecipeBtn.active = canEdit;
+        }
+        if (resetDefaultsBtn != null) {
+            resetDefaultsBtn.active = canEdit;
+        }
+        for (ButtonWidget btn : typeButtons) {
+            btn.active = enabled;
+        }
+        RecipeTypeEnum[] allTypes = RecipeTypeEnum.values();
+        int maxPages = Math.max(1, (allTypes.length + workstationsPerPage - 1) / workstationsPerPage);
+        if (prevWorkstationBtn != null) {
+            prevWorkstationBtn.active = enabled && workstationPage > 0;
+        }
+        if (nextWorkstationBtn != null) {
+            nextWorkstationBtn.active = enabled && workstationPage < maxPages - 1;
+        }
+        if (prevVariantBtn != null) {
+            prevVariantBtn.active = enabled && currentVariantIndex > 0;
+        }
+        if (nextVariantBtn != null) {
+            nextVariantBtn.active = enabled;
+        }
+        if (minusCountBtn != null) {
+            minusCountBtn.active = enabled;
+        }
+        if (plusCountBtn != null) {
+            plusCountBtn.active = enabled;
+        }
+        if (variantField != null) {
+            variantField.setEditable(enabled);
+        }
+        if (resultCountField != null) {
+            resultCountField.setEditable(enabled);
+        }
+        if (cookingTimeField != null) {
+            cookingTimeField.setEditable(enabled);
+        }
+        if (experienceField != null) {
+            experienceField.setEditable(enabled);
+        }
+        for (ButtonWidget btn : filterButtons) {
+            btn.active = enabled;
+        }
+        for (ButtonWidget btn : tabButtons) {
+            btn.active = enabled;
+        }
+        if (prevTabBtn != null) {
+            prevTabBtn.active = enabled && tabScrollOffset > 0;
+        }
+        if (nextTabBtn != null) {
+            int maxOffset = Math.max(0, modTabs.size() - visibleTabs);
+            nextTabBtn.active = enabled && tabScrollOffset < maxOffset;
+        }
+        if (searchField != null) {
+            searchField.setEditable(enabled);
+        }
+        if (prevPageBtn != null) {
+            prevPageBtn.active = enabled && catalogPage > 0;
+        }
+        if (nextPageBtn != null) {
+            int maxPage = Math.max(0, (filteredItems.size() - 1) / Math.max(1, itemsPerPage));
+            nextPageBtn.active = enabled && catalogPage < maxPage;
+        }
+        if (resetDefaultsBtn != null) {
+            resetDefaultsBtn.active = enabled;
+        }
+        if (toggleHintsBtn != null) {
+            toggleHintsBtn.active = enabled;
+        }
+    }
+
+    private void rebuildFilterButtons() {
+        rebuildFilterButtons(rightPaneX, filterY);
     }
 
     private void rebuildFilterButtons(int startX, int startY) {
@@ -638,11 +1066,19 @@ public class RecipeEditorScreen extends Screen {
             CatalogFilter f = filters[i];
             boolean isSelected = (f == currentFilter);
             Formatting color = isSelected ? Formatting.YELLOW : Formatting.GRAY;
-            Text label = Text.translatable(f.translationKey).formatted(color);
+            MutableText label = Text.translatable(f.translationKey).formatted(color);
+            if (f == CatalogFilter.CUSTOM && configCopy != null && configCopy.hasAnyCustomRecipes()) {
+                label = label.formatted(Formatting.UNDERLINE);
+            }
 
             ButtonWidget btn = ButtonWidget.builder(label, b -> {
+                if (currentFilter != f) {
+                    showCustomDeleteButtons = false;
+                }
                 currentFilter = f;
-                refreshFilteredItems();
+                refreshFilteredItemsResetPage();
+                updateEditorWidgetsVisibility();
+                updateButtonStates();
                 rebuildFilterButtons(startX, startY);
             }).dimensions(startX + i * (btnWidth + 2), startY, btnWidth, 15).build();
 
@@ -656,6 +1092,7 @@ public class RecipeEditorScreen extends Screen {
             this.remove(btn);
         }
         typeButtons.clear();
+        typeButtonEnums.clear();
         if (prevWorkstationBtn != null) {
             this.remove(prevWorkstationBtn);
             prevWorkstationBtn = null;
@@ -667,14 +1104,15 @@ public class RecipeEditorScreen extends Screen {
 
         RecipeTypeEnum[] allTypes = RecipeTypeEnum.values();
         int totalTypes = allTypes.length;
-        int maxPages = Math.max(1, (totalTypes + WORKSTATIONS_PER_PAGE - 1) / WORKSTATIONS_PER_PAGE);
+        int maxPages = Math.max(1, (totalTypes + workstationsPerPage - 1) / workstationsPerPage);
         workstationPage = Math.max(0, Math.min(maxPages - 1, workstationPage));
 
-        int btnW = (LEFT_PANE_WIDTH - 4) / 2;
-        int typeBtnStartY = contentY + 22;
+        int btnW = (leftPaneWidth - 4) / 2;
+        int btnH = 15;
+        int btnSpacing = 17;
 
-        int startIdx = workstationPage * WORKSTATIONS_PER_PAGE;
-        int endIdx = Math.min(totalTypes, startIdx + WORKSTATIONS_PER_PAGE);
+        int startIdx = workstationPage * workstationsPerPage;
+        int endIdx = Math.min(totalTypes, startIdx + workstationsPerPage);
 
         for (int i = startIdx; i < endIdx; i++) {
             RecipeTypeEnum t = allTypes[i];
@@ -685,27 +1123,27 @@ public class RecipeEditorScreen extends Screen {
             int row = localIdx / 2;
             int col = localIdx % 2;
             int x = leftPaneX + col * (btnW + 4);
-            int y = typeBtnStartY + row * 18;
+            int y = typeBtnStartY + row * btnSpacing;
 
             ButtonWidget btn = ButtonWidget.builder(label, b -> switchMachineType(t))
-                    .dimensions(x, y, btnW, 16)
-                    .tooltip(Tooltip.of(t.getTooltip()))
+                    .dimensions(x, y, btnW, btnH)
                     .build();
 
             btn.visible = (targetItem != null);
             typeButtons.add(btn);
+            typeButtonEnums.add(t);
             this.addDrawableChild(btn);
         }
 
-        // Add pager controls if more than 10 workstations exist
-        if (totalTypes > WORKSTATIONS_PER_PAGE) {
-            int pagerY = typeBtnStartY - 14;
+        // Add pager controls if more workstations than workstationsPerPage exist
+        if (totalTypes > workstationsPerPage) {
+            int pagerY = typeBtnStartY - 13;
             prevWorkstationBtn = ButtonWidget.builder(Text.literal("◀"), b -> {
                 if (workstationPage > 0) {
                     workstationPage--;
                     rebuildTypeButtons();
                 }
-            }).dimensions(leftPaneX, pagerY, 16, 12).build();
+            }).dimensions(leftPaneX, pagerY, 16, 11).build();
             prevWorkstationBtn.active = workstationPage > 0;
             prevWorkstationBtn.visible = (targetItem != null);
             this.addDrawableChild(prevWorkstationBtn);
@@ -715,7 +1153,7 @@ public class RecipeEditorScreen extends Screen {
                     workstationPage++;
                     rebuildTypeButtons();
                 }
-            }).dimensions(leftPaneX + LEFT_PANE_WIDTH - 16, pagerY, 16, 12).build();
+            }).dimensions(leftPaneX + leftPaneWidth - 16, pagerY, 16, 11).build();
             nextWorkstationBtn.active = workstationPage < maxPages - 1;
             nextWorkstationBtn.visible = (targetItem != null);
             this.addDrawableChild(nextWorkstationBtn);
@@ -725,7 +1163,7 @@ public class RecipeEditorScreen extends Screen {
     private void scrollTabs(int delta) {
         int maxOffset = Math.max(0, modTabs.size() - visibleTabs);
         tabScrollOffset = Math.max(0, Math.min(maxOffset, tabScrollOffset + delta));
-        rebuildTabButtons(rightPaneX + 22, contentY + 18);
+        rebuildTabButtons(rightPaneX + 22, contentY + 17);
     }
 
     private void rebuildTabButtons(int startX, int startY) {
@@ -738,8 +1176,8 @@ public class RecipeEditorScreen extends Screen {
         if (prevTabBtn != null) prevTabBtn.active = tabScrollOffset > 0;
         if (nextTabBtn != null) nextTabBtn.active = tabScrollOffset < maxOffset;
 
-        int availableTabsWidth = searchWidth - 44;
-        int tabWidth = Math.max(38, (availableTabsWidth - (visibleTabs - 1) * 2) / Math.max(1, visibleTabs));
+        int availableTabsWidth = searchWidth - 40;
+        int tabWidth = Math.max(34, (availableTabsWidth - (visibleTabs - 1) * 2) / Math.max(1, visibleTabs));
 
         for (int i = 0; i < visibleTabs; i++) {
             int tabIndex = tabScrollOffset + i;
@@ -760,7 +1198,10 @@ public class RecipeEditorScreen extends Screen {
             final int chosenIdx = tabIndex;
             ButtonWidget btn = ButtonWidget.builder(tabText, b -> {
                 selectedTabIdx = chosenIdx;
-                refreshFilteredItems();
+                showCustomDeleteButtons = false;
+                updateEditorWidgetsVisibility();
+                updateButtonStates();
+                refreshFilteredItemsResetPage();
                 rebuildTabButtons(startX, startY);
             }).dimensions(startX + (i * (tabWidth + 2)), startY, tabWidth, 16).build();
 
@@ -787,7 +1228,8 @@ public class RecipeEditorScreen extends Screen {
             updateToggleBtn(x, y);
             refreshFilteredItems();
             updateButtonStates();
-        }).dimensions(x, y, LEFT_PANE_WIDTH, 18).build();
+            updateEditorWidgetsVisibility();
+        }).dimensions(x, y, leftPaneWidth, 18).build();
         this.addDrawableChild(toggleEnabledBtn);
     }
 
@@ -805,23 +1247,19 @@ public class RecipeEditorScreen extends Screen {
 
     private void adjustResultCount(int delta) {
         if (currentRecipe != null) {
+            int max = targetItem != null && targetItem != Items.AIR ? targetItem.getMaxCount() : 64;
             int currentCount = currentRecipe.getResultCountForType(selectedType);
-            int newCount = Math.max(1, Math.min(1000, currentCount + delta));
+            int newCount = Math.max(1, Math.min(max, currentCount + delta));
             currentRecipe.setResultCountForType(selectedType, newCount);
             if (resultCountField != null) {
                 resultCountField.setText(String.valueOf(newCount));
             }
+            updateButtonStates();
         }
     }
 
     private void clearSelectedSlot() {
         if (selectedSlot == RESULT_SLOT) {
-            this.targetItem = null;
-            this.currentRecipe = null;
-            this.typeVariants.clear();
-            this.currentVariantIndex = 0;
-            setEditorWidgetsVisible(false);
-            updateButtonStates();
             return;
         }
         if (currentRecipe == null) return;
@@ -856,84 +1294,210 @@ public class RecipeEditorScreen extends Screen {
                 this.configCopy.recipes.put(e.getKey(), e.getValue().copy());
             }
         }
+        this.configCopy.rebuildEnabledCache();
+        String curSig = currentRecipe != null ? currentRecipe.getPatternSignature() : null;
         if (targetItem != null) {
             refreshTypeVariants(selectedType, false);
+            if (curSig != null) {
+                for (int i = 0; i < typeVariants.size(); i++) {
+                    if (curSig.equals(typeVariants.get(i).getPatternSignature())) {
+                        currentVariantIndex = i;
+                        currentRecipe = typeVariants.get(i);
+                        break;
+                    }
+                }
+            }
         }
         refreshFilteredItems();
         updateButtonStates();
+        rebuildFilterButtons();
     }
 
     private void saveCurrentCraft() {
-        if (targetItem == null || currentRecipe == null || targetItem == Items.AIR) return;
+        if (!hasEditPermission() || targetItem == null || targetItem == Items.AIR) return;
 
-        if (!hasAnyIngredients(currentRecipe)) {
-            notificationText = Text.translatable("recipeeditor.gui.craft_empty_warn").formatted(Formatting.RED, Formatting.BOLD);
-            notificationTimer = System.currentTimeMillis() + 3000;
-            return;
+        List<CustomRecipeData> toSave = new ArrayList<>();
+        for (CustomRecipeData v : typeVariants) {
+            if (isRecipeSavable(v, targetItem, selectedType)) {
+                toSave.add(v);
+            }
         }
 
-        currentRecipe.setResultItem(targetItem);
-        currentRecipe.type = selectedType;
-        if (currentRecipe.getResultCountForType(selectedType) <= 0) {
-            currentRecipe.setResultCountForType(selectedType, 1);
-        }
+        if (toSave.isEmpty()) return;
 
         // Check for conflicts with existing vanilla, mod, or custom recipes
-        List<com.recipeeditor.inspector.RecipeConflictInfo> conflicts = RecipeInspector.findConflicts(
-                currentRecipe,
-                targetItem,
-                this.client != null ? this.client.world : null,
-                configCopy
-        );
-
-        if (!conflicts.isEmpty()) {
-            if (this.client != null) {
-                this.client.setScreen(new RecipeConflictScreen(this, conflicts));
+        for (CustomRecipeData recipe : toSave) {
+            recipe.setResultItem(targetItem);
+            recipe.type = selectedType;
+            if (recipe.getResultCountForType(selectedType) <= 0) {
+                recipe.setResultCountForType(selectedType, 1);
             }
-            return;
+
+            List<com.recipeeditor.inspector.RecipeConflictInfo> conflicts = RecipeInspector.findConflicts(
+                    recipe,
+                    targetItem,
+                    this.client != null ? this.client.world : null,
+                    configCopy
+            );
+
+            if (!conflicts.isEmpty()) {
+                if (this.client != null) {
+                    this.client.setScreen(new RecipeConflictScreen(this, conflicts));
+                }
+                return;
+            }
         }
 
-        // Deduplicate exact pattern variants inside current type list
-        String currentSig = currentRecipe.getPatternSignature();
-        for (int i = typeVariants.size() - 1; i >= 0; i--) {
-            if (i != currentVariantIndex && currentSig.equals(typeVariants.get(i).getPatternSignature())) {
-                typeVariants.remove(i);
-                if (currentVariantIndex > i) currentVariantIndex--;
-            }
-        }
-
-        // Save only this recipe into config
-        configCopy.addOrUpdateRecipe(currentRecipe.copy());
+        // Save all savable variants into config
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
-        actual.addOrUpdateRecipe(currentRecipe.copy());
+        String savedSig = currentRecipe != null ? currentRecipe.getPatternSignature() : null;
+
+        for (CustomRecipeData recipe : toSave) {
+            if (recipe.overriddenKey != null || recipe.overriddenId != null) {
+                recipe.overrideExisting = true;
+            }
+            if (recipe.originalKey != null && !recipe.originalKey.equals(recipe.getKey())) {
+                configCopy.removeRecipeByKey(recipe.originalKey);
+                actual.removeRecipeByKey(recipe.originalKey);
+                sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, recipe.originalKey);
+            }
+            recipe.originalKey = recipe.getKey();
+
+            configCopy.addOrUpdateRecipe(recipe.copy());
+            actual.addOrUpdateRecipe(recipe.copy());
+            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE, recipe.toJson());
+        }
         actual.save();
-        sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE, currentRecipe.toJson());
+
+        sessionVariantsByType.clear();
+        sessionVariantIndexByType.clear();
 
         notificationText = Text.translatable("recipeeditor.gui.craft_saved").formatted(Formatting.GREEN, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
+
+        refreshTypeVariants(selectedType, false);
+
+        if (savedSig != null) {
+            for (int i = 0; i < typeVariants.size(); i++) {
+                if (savedSig.equals(typeVariants.get(i).getPatternSignature())) {
+                    currentVariantIndex = i;
+                    currentRecipe = typeVariants.get(i);
+                    break;
+                }
+            }
+        }
+
         updateVariantButtons();
         updateButtonStates();
         refreshFilteredItems();
+        rebuildFilterButtons();
     }
 
-    private void deleteCurrentRecipe() {
-        if (targetItem == null || currentRecipe == null) return;
+    private void deleteCurrentVariant() {
+        if (!hasEditPermission() || targetItem == null || currentRecipe == null) return;
+        sessionVariantsByType.clear();
+        sessionVariantIndexByType.clear();
 
-        configCopy.removeRecipe(currentRecipe);
-        RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
-        actual.removeRecipe(currentRecipe);
-        actual.save();
-        sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, currentRecipe.toJson());
+        boolean deleted = false;
+        if (currentRecipe.originalKey != null && !currentRecipe.originalKey.isEmpty()) {
+            configCopy.removeRecipeByKey(currentRecipe.originalKey);
+            RecipeEditorConfig.getInstance().removeRecipeByKey(currentRecipe.originalKey);
+            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, currentRecipe.originalKey);
+            deleted = true;
+        }
+
+        String currentKey = currentRecipe.getKey();
+        if (!currentKey.equals(currentRecipe.originalKey) && (configCopy.recipes.containsKey(currentKey) || configCopy.hasCustomRecipe(targetItem))) {
+            configCopy.removeRecipe(currentRecipe);
+            RecipeEditorConfig.getInstance().removeRecipe(currentRecipe);
+            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, currentRecipe.toJson());
+            deleted = true;
+        }
+
+        if (deleted) {
+            RecipeEditorConfig.getInstance().save();
+        }
+
+        notificationText = Text.translatable("recipeeditor.gui.variant_deleted").formatted(Formatting.RED, Formatting.BOLD);
+        notificationTimer = System.currentTimeMillis() + 3000;
+
+        refreshTypeVariants(selectedType, false);
+
+        if (typeVariants.isEmpty()) {
+            this.targetItem = null;
+            this.currentRecipe = null;
+            this.typeVariants.clear();
+            this.activeCreatedTypes.clear();
+            this.currentVariantIndex = 0;
+            this.showCustomDeleteButtons = false;
+        } else {
+            if (currentVariantIndex >= typeVariants.size()) {
+                currentVariantIndex = typeVariants.size() - 1;
+            }
+            currentRecipe = typeVariants.get(currentVariantIndex);
+            if (resultCountField != null) {
+                resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
+            }
+        }
+        updateVariantButtons();
+        updateButtonStates();
+        updateEditorWidgetsVisibility();
+
+        refreshFilteredItems();
+        rebuildFilterButtons();
+    }
+
+    private void deleteEntireCustomCraft() {
+        if (!hasEditPermission() || targetItem == null) return;
+        sessionVariantsByType.clear();
+        sessionVariantIndexByType.clear();
+
+        List<CustomRecipeData> toDelete = new ArrayList<>(configCopy.getRecipesFor(targetItem));
+        for (CustomRecipeData r : toDelete) {
+            configCopy.removeRecipe(r);
+            RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
+            actual.removeRecipe(r);
+            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, r.toJson());
+        }
+        RecipeEditorConfig.getInstance().save();
 
         notificationText = Text.translatable("recipeeditor.gui.craft_deleted").formatted(Formatting.RED, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
 
-        refreshTypeVariants(selectedType, true);
+        if (currentFilter == CatalogFilter.CUSTOM) {
+            this.targetItem = null;
+            this.currentRecipe = null;
+            this.typeVariants.clear();
+            this.activeCreatedTypes.clear();
+            this.currentVariantIndex = 0;
+            this.showCustomDeleteButtons = false;
+        } else {
+            refreshTypeVariants(selectedType, true);
+            if (typeVariants.isEmpty()) {
+                this.targetItem = null;
+                this.currentRecipe = null;
+                this.activeCreatedTypes.clear();
+                this.currentVariantIndex = 0;
+                this.showCustomDeleteButtons = false;
+            } else {
+                currentRecipe = typeVariants.get(0);
+                if (resultCountField != null) {
+                    resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
+                }
+            }
+        }
+
+        updateEditorWidgetsVisibility();
         updateButtonStates();
         refreshFilteredItems();
+        rebuildFilterButtons();
     }
 
     private void resetDefaults() {
+        if (!hasEditPermission()) return;
+        sessionVariantsByType.clear();
+        sessionVariantIndexByType.clear();
+
         configCopy.initDefaults();
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
         actual.initDefaults();
@@ -943,11 +1507,14 @@ public class RecipeEditorScreen extends Screen {
         this.targetItem = null;
         this.currentRecipe = null;
         this.typeVariants.clear();
+        this.activeCreatedTypes.clear();
         this.currentVariantIndex = 0;
+        this.showCustomDeleteButtons = false;
 
-        setEditorWidgetsVisible(false);
+        updateEditorWidgetsVisibility();
         updateButtonStates();
         refreshFilteredItems();
+        rebuildFilterButtons();
     }
 
     @Override
@@ -961,12 +1528,6 @@ public class RecipeEditorScreen extends Screen {
         if (targetItem == null) return -1;
 
         int gridStartX = leftPaneX + 4;
-        int typeBtnStartY = contentY + 22;
-        int numVisibleTypes = Math.min(WORKSTATIONS_PER_PAGE, RecipeTypeEnum.values().length);
-        int numRows = (numVisibleTypes + 1) / 2;
-        int typeBtnsHeight = numRows * 18;
-        int variantBarY = typeBtnStartY + typeBtnsHeight + 4;
-        int gridStartY = variantBarY + 20;
 
         if (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING ||
             selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.STONECUTTING ||
@@ -1040,13 +1601,18 @@ public class RecipeEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        int tabY = contentY + 18;
+        if (!configCopy.modEnabled) {
+            return false;
+        }
+        double sX = mouseX / uiScale;
+        double sY = mouseY / uiScale;
+        int tabY = contentY + 17;
         int tabHeight = 18;
         int catalogHeight = (catalogRows * SLOT_SIZE) + 10;
 
         // 1. Mouse wheel over Mod Tabs row: scroll tabs
-        if (mouseX >= rightPaneX && mouseX <= rightPaneX + searchWidth &&
-                mouseY >= tabY && mouseY <= tabY + tabHeight) {
+        if (sX >= rightPaneX && sX <= rightPaneX + searchWidth &&
+                sY >= tabY && sY <= tabY + tabHeight) {
             if (verticalAmount > 0) {
                 scrollTabs(-1);
                 return true;
@@ -1057,8 +1623,8 @@ public class RecipeEditorScreen extends Screen {
         }
 
         // 2. Mouse wheel over Catalog Grid: scroll catalog pages
-        if (mouseX >= rightPaneX && mouseX <= rightPaneX + searchWidth &&
-                mouseY >= catalogGridY && mouseY <= catalogGridY + catalogHeight) {
+        if (sX >= rightPaneX && sX <= rightPaneX + searchWidth &&
+                sY >= catalogGridY && sY <= catalogGridY + catalogHeight) {
             if (verticalAmount > 0) {
                 changePage(-1);
                 return true;
@@ -1068,41 +1634,80 @@ public class RecipeEditorScreen extends Screen {
             }
         }
 
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        // 3. Mouse wheel over Crafting Grid / Left Pane: scroll through craft variants (like catalog pages)
+        int craftAreaStartY = variantBarY;
+        int craftAreaEndY = (actionBtnY > 0) ? (actionBtnY + 40) : (gridStartY + 3 * SLOT_SIZE + 20);
+        if (sX >= leftPaneX && sX <= leftPaneX + leftPaneWidth &&
+                sY >= craftAreaStartY && sY <= craftAreaEndY && targetItem != null && !typeVariants.isEmpty()) {
+            if (verticalAmount > 0) {
+                if (currentVariantIndex > 0) {
+                    changeVariant(-1);
+                    return true;
+                }
+            } else if (verticalAmount < 0) {
+                if (currentVariantIndex < typeVariants.size() - 1) {
+                    changeVariant(1);
+                    return true;
+                }
+            }
+        }
+
+        return super.mouseScrolled(sX, sY, horizontalAmount, verticalAmount);
     }
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.render(context, mouseX, mouseY, delta);
+        int scaledMouseX = (int) (mouseX / uiScale);
+        int scaledMouseY = (int) (mouseY / uiScale);
 
-        int centerX = this.width / 2;
+        // Semi-transparent background
+        context.fill(0, 0, this.width, this.height, 0x90000000);
+
+        context.getMatrices().push();
+        context.getMatrices().scale(uiScale, uiScale, 1.0f);
+
+        super.render(context, scaledMouseX, scaledMouseY, delta);
+
+        int centerX = getVirtualWidth() / 2;
 
         // Title
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, centerX, 4, 0xFFFFFF);
 
         ItemStack hoveredStack = ItemStack.EMPTY;
-        int hoveredCraftingSlot = getCraftingSlotAt(mouseX, mouseY);
+        int hoveredCraftingSlot = getCraftingSlotAt(scaledMouseX, scaledMouseY);
 
         // --- LEFT PANE RENDERING ---
-        if (targetItem == null) {
+        if (!configCopy.modEnabled) {
+            // Message when mod is disabled (red title + gray/white prompt)
+            int pCenterX = leftPaneX + (leftPaneWidth / 2);
+            int pStartY = contentY + 36;
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_1").formatted(Formatting.RED, Formatting.BOLD), pCenterX, pStartY, 0xFFFF5555);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_2").formatted(Formatting.GRAY), pCenterX, pStartY + 14, 0xFFAAAAAA);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_3").formatted(Formatting.WHITE), pCenterX, pStartY + 26, 0xFFFFFFFF);
+        } else if (targetItem == null) {
             // Placeholder when no item is selected yet (green, 3 lines, centered)
-            int pCenterX = leftPaneX + (LEFT_PANE_WIDTH / 2);
-            int pStartY = contentY + 90;
+            int pCenterX = leftPaneX + (leftPaneWidth / 2);
+            int pStartY = contentY + 36;
             context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.select_item_hint_1").formatted(Formatting.GREEN), pCenterX, pStartY, 0xFF55FF55);
             context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.select_item_hint_2").formatted(Formatting.GREEN), pCenterX, pStartY + 12, 0xFF55FF55);
             context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.select_item_hint_3").formatted(Formatting.GREEN), pCenterX, pStartY + 24, 0xFF55FF55);
+        } else if (currentRecipe == null) {
+            // Screen prompt for machine without recipes
+            int pCenterX = leftPaneX + (leftPaneWidth / 2);
+            int promptY = gridStartY + 6;
+            String machineName = selectedType.getDisplayName().getString();
+            Text line1 = Text.translatable("recipeeditor.gui.uncraftable_machine_1").formatted(Formatting.GRAY);
+            Text line2 = Text.translatable("recipeeditor.gui.uncraftable_machine_2", machineName).formatted(Formatting.WHITE);
+            context.drawCenteredTextWithShadow(this.textRenderer, line1, pCenterX, promptY, 0xFFAAAAAA);
+            context.drawCenteredTextWithShadow(this.textRenderer, line2, pCenterX, promptY + 14, 0xFFFFFFFF);
         } else {
-            // Draw total variants count beside variant selector buttons
+            // Draw total variants count beside variant selector buttons and description directly below
             int variantTotal = Math.max(1, typeVariants.size());
-            int typeBtnStartY = contentY + 22;
-            int numVisibleTypes = Math.min(WORKSTATIONS_PER_PAGE, RecipeTypeEnum.values().length);
-            int numRows = (numVisibleTypes + 1) / 2;
-            int typeBtnsHeight = numRows * 18;
-            int variantBarY = typeBtnStartY + typeBtnsHeight + 4;
             int gridStartX = leftPaneX + 4;
-            int gridStartY = variantBarY + 20;
 
             context.drawTextWithShadow(this.textRenderer, Text.literal("/ " + variantTotal).formatted(Formatting.GRAY), leftPaneX + 74, variantBarY + 4, 0xFFAAAAAA);
+            Text variantText = Text.translatable("recipeeditor.gui.craft_variant", currentVariantIndex + 1, variantTotal).formatted(Formatting.GREEN);
+            context.drawTextWithShadow(this.textRenderer, variantText, leftPaneX + 4, variantBarY + 18, 0xFF55FF55);
 
             if (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING ||
                 selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.STONECUTTING ||
@@ -1118,10 +1723,12 @@ public class RecipeEditorScreen extends Screen {
                     Item item = currentRecipe.getItemAt(0);
                     if (item != Items.AIR) {
                         ItemStack stack = new ItemStack(item);
-                        context.drawItem(stack, inputX + 3, inputY + 3);
-                        context.drawStackOverlay(this.textRenderer, stack, inputX + 3, inputY + 3);
+                        drawItemInScreen(context, stack, inputX + 3, inputY + 3);
+                        if (configCopy.modEnabled) {
+                            context.drawStackOverlay(this.textRenderer, stack, inputX + 3, inputY + 3);
+                        }
                     }
-                    if (mouseX >= inputX && mouseX <= inputX + 22 && mouseY >= inputY && mouseY <= inputY + 22 && item != Items.AIR) {
+                    if (scaledMouseX >= inputX && scaledMouseX <= inputX + 22 && scaledMouseY >= inputY && scaledMouseY <= inputY + 22 && item != Items.AIR) {
                         hoveredStack = new ItemStack(item);
                     }
                 }
@@ -1138,10 +1745,12 @@ public class RecipeEditorScreen extends Screen {
                         Item item = currentRecipe.getItemAt(i);
                         if (item != Items.AIR) {
                             ItemStack stack = new ItemStack(item);
-                            context.drawItem(stack, slotX + 3, slotY + 3);
-                            context.drawStackOverlay(this.textRenderer, stack, slotX + 3, slotY + 3);
+                            drawItemInScreen(context, stack, slotX + 3, slotY + 3);
+                            if (configCopy.modEnabled) {
+                                context.drawStackOverlay(this.textRenderer, stack, slotX + 3, slotY + 3);
+                            }
                         }
-                        if (mouseX >= slotX && mouseX <= slotX + 22 && mouseY >= slotY && mouseY <= slotY + 22 && item != Items.AIR) {
+                        if (scaledMouseX >= slotX && scaledMouseX <= slotX + 22 && scaledMouseY >= slotY && scaledMouseY <= slotY + 22 && item != Items.AIR) {
                             hoveredStack = new ItemStack(item);
                         }
                     }
@@ -1162,10 +1771,12 @@ public class RecipeEditorScreen extends Screen {
                             Item item = currentRecipe.getItemAt(slotIndex);
                             if (item != Items.AIR) {
                                 ItemStack stack = new ItemStack(item);
-                                context.drawItem(stack, x + 3, y + 3);
-                                context.drawStackOverlay(this.textRenderer, stack, x + 3, y + 3);
+                                drawItemInScreen(context, stack, x + 3, y + 3);
+                                if (configCopy.modEnabled) {
+                                    context.drawStackOverlay(this.textRenderer, stack, x + 3, y + 3);
+                                }
                             }
-                            if (mouseX >= x && mouseX <= x + 22 && mouseY >= y && mouseY <= y + 22 && item != Items.AIR) {
+                            if (scaledMouseX >= x && scaledMouseX <= x + 22 && scaledMouseY >= y && scaledMouseY <= y + 22 && item != Items.AIR) {
                                 hoveredStack = new ItemStack(item);
                             }
                         }
@@ -1188,30 +1799,76 @@ public class RecipeEditorScreen extends Screen {
             if (targetItem != null && targetItem != Items.AIR) {
                 int count = currentRecipe != null ? currentRecipe.getResultCountForType(selectedType) : 1;
                 ItemStack resStack = new ItemStack(targetItem, count);
-                context.drawItem(resStack, resultX + 6, resultY + 6);
-                context.drawStackOverlay(this.textRenderer, resStack, resultX + 6, resultY + 6);
-                if (mouseX >= resultX && mouseX <= resultX + 28 && mouseY >= resultY && mouseY <= resultY + 28) {
+                drawItemInScreen(context, resStack, resultX + 6, resultY + 6);
+                if (configCopy.modEnabled) {
+                    context.drawStackOverlay(this.textRenderer, resStack, resultX + 6, resultY + 6);
+                }
+                if (scaledMouseX >= resultX && scaledMouseX <= resultX + 28 && scaledMouseY >= resultY && scaledMouseY <= resultY + 28) {
                     hoveredStack = resStack;
                 }
             }
 
-            // Active variant description text below crafting grid
-            Text variantText = Text.translatable("recipeeditor.gui.craft_variant", currentVariantIndex + 1, variantTotal).formatted(Formatting.GREEN);
-            context.drawTextWithShadow(this.textRenderer, variantText, leftPaneX, gridStartY + 76, 0xFF55FF55);
+            // Draw labels for furnace fields if applicable
+            if (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING ||
+                selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.CAMPFIRE_COOKING) {
+                if (cookingTimeField != null && cookingTimeField.isVisible()) {
+                    Text timeLabel = Text.translatable("recipeeditor.gui.label_time");
+                    context.drawTextWithShadow(this.textRenderer, timeLabel.copy().formatted(Formatting.GRAY), cookingTimeField.getX(), cookingTimeField.getY() - 10, 0xFFAAAAAA);
+                }
+                if (experienceField != null && experienceField.isVisible()) {
+                    Text expLabel = Text.translatable("recipeeditor.gui.label_exp");
+                    context.drawTextWithShadow(this.textRenderer, expLabel.copy().formatted(Formatting.YELLOW), experienceField.getX(), experienceField.getY() - 10, 0xFFFFAA00);
+                }
+            }
         }
 
-        // --- DRAW HINTS IN A CLEAN VERTICAL COLUMN UNDER LEFT MENU BUTTONS ---
-        int actionBtnY = (targetItem != null)
-                ? (contentY + 22 + ((Math.min(WORKSTATIONS_PER_PAGE, RecipeTypeEnum.values().length) + 1) / 2 * 18) + 4 + 20 + 92)
-                : (contentY + 140);
-        int hintStartY = actionBtnY + 62;
+        // --- DRAW HINTS IN A CLEAN ADAPTIVE VERTICAL COLUMN UNDER LEFT MENU BUTTONS (IF ENABLED) ---
+        if (showHints && configCopy.modEnabled) {
+            int hintStartY;
+            if (targetItem == null) {
+                hintStartY = contentY + 92;
+            } else if (currentRecipe == null) {
+                hintStartY = gridStartY + 68;
+            } else {
+                boolean deleteBtnsVisible = (deleteRecipeBtn != null && deleteRecipeBtn.visible);
+                hintStartY = deleteBtnsVisible ? (actionBtnY + 82) : (actionBtnY + 42);
+            }
+            int vBottomY = getVirtualHeight() - 22;
+            int availableHeight = vBottomY - hintStartY;
 
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_1").formatted(Formatting.GREEN), leftPaneX, hintStartY, 0xFF55FF55);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_1_sub").formatted(Formatting.GREEN), leftPaneX, hintStartY + 10, 0xFF55FF55);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_2").formatted(Formatting.GREEN), leftPaneX, hintStartY + 21, 0xFF55FF55);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_3").formatted(Formatting.GREEN), leftPaneX, hintStartY + 32, 0xFF55FF55);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_4").formatted(Formatting.GREEN), leftPaneX, hintStartY + 43, 0xFF55FF55);
-        context.drawTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.hint_5").formatted(Formatting.GREEN), leftPaneX, hintStartY + 54, 0xFF55FF55);
+            if (availableHeight >= 10) {
+                List<Text> hintLines = List.of(
+                        Text.translatable("recipeeditor.gui.hint_1").formatted(Formatting.GREEN),
+                        Text.translatable("recipeeditor.gui.hint_1_sub").formatted(Formatting.GREEN),
+                        Text.translatable("recipeeditor.gui.hint_2").formatted(Formatting.GREEN),
+                        Text.translatable("recipeeditor.gui.hint_2_sub").formatted(Formatting.GREEN),
+                        Text.translatable("recipeeditor.gui.hint_3").formatted(Formatting.GREEN),
+                        Text.translatable("recipeeditor.gui.hint_4").formatted(Formatting.GREEN),
+                        Text.translatable("recipeeditor.gui.hint_5").formatted(Formatting.GREEN)
+                );
+
+                int maxTextWidth = 10;
+                for (Text line : hintLines) {
+                    maxTextWidth = Math.max(maxTextWidth, this.textRenderer.getWidth(line));
+                }
+
+                float baseHeight = hintLines.size() * 10.0f;
+                float scaleH = (float) availableHeight / baseHeight;
+                float scaleW = (float) leftPaneWidth / (float) maxTextWidth;
+                float textScale = Math.min(1.0f, Math.min(scaleH, scaleW));
+
+                context.getMatrices().push();
+                context.getMatrices().translate(leftPaneX, hintStartY, 0);
+                context.getMatrices().scale(textScale, textScale, 1.0f);
+
+                int lineSpacing = 10;
+                for (int i = 0; i < hintLines.size(); i++) {
+                    context.drawTextWithShadow(this.textRenderer, hintLines.get(i), 0, i * lineSpacing, 0xFF55FF55);
+                }
+
+                context.getMatrices().pop();
+            }
+        }
 
         // --- DRAW DYNAMIC CATALOG GRID ---
         int startIndex = catalogPage * itemsPerPage;
@@ -1225,12 +1882,12 @@ public class RecipeEditorScreen extends Screen {
             int slotX = rightPaneX + cCol * SLOT_SIZE;
             int slotY = catalogGridY + cRow * SLOT_SIZE;
 
-            boolean isHovered = mouseX >= slotX && mouseX <= slotX + 22 && mouseY >= slotY && mouseY <= slotY + 22;
+            boolean isHovered = scaledMouseX >= slotX && scaledMouseX <= slotX + 22 && scaledMouseY >= slotY && scaledMouseY <= slotY + 22;
             drawSlotBox(context, slotX, slotY, 22, 22, isHovered, false);
 
             Item catItem = filteredItems.get(i);
             ItemStack catStack = new ItemStack(catItem);
-            context.drawItem(catStack, slotX + 3, slotY + 3);
+            drawItemInScreen(context, catStack, slotX + 3, slotY + 3);
 
             if (isHovered) {
                 hoveredStack = catStack;
@@ -1240,39 +1897,224 @@ public class RecipeEditorScreen extends Screen {
         // Catalog Page Info
         int maxPage = Math.max(1, (filteredItems.size() + itemsPerPage - 1) / Math.max(1, itemsPerPage));
         MutableText pageInfo = Text.translatable("recipeeditor.gui.items_total", catalogPage + 1, maxPage, filteredItems.size());
-        context.drawCenteredTextWithShadow(this.textRenderer, pageInfo.formatted(Formatting.GRAY), rightPaneX + (searchWidth / 2), catalogGridY + (catalogRows * SLOT_SIZE) + 10, 0xFFAAAAAA);
+        context.drawCenteredTextWithShadow(this.textRenderer, pageInfo.formatted(Formatting.GRAY), rightPaneX + (searchWidth / 2), catalogGridY + (catalogRows * SLOT_SIZE) + 8, 0xFFAAAAAA);
 
-        // Notification overlay message (drawn to the left of Reset Defaults button)
-        int bottomY = this.height - 24;
-        if (notificationText != null && System.currentTimeMillis() < notificationTimer) {
-            Text resetText = Text.translatable("recipeeditor.gui.reset_defaults");
-            Text exitText = Text.translatable("recipeeditor.gui.exit");
-
-            int wExit = Math.max(65, this.textRenderer.getWidth(exitText) + 20);
-            int wReset = Math.max(120, this.textRenderer.getWidth(resetText) + 16);
-            int resetX = (this.width - 12) - wExit - 6 - wReset;
-
-            int msgW = this.textRenderer.getWidth(notificationText);
-            int msgX = resetX - msgW - 10;
-            context.drawTextWithShadow(this.textRenderer, notificationText, Math.max(8, msgX), bottomY + 6, 0xFF55FF55);
+        if (RecipeInspector.isScanningJars()) {
+            Text scanIndicator = Text.translatable("recipeeditor.gui.scanning_recipes").formatted(Formatting.YELLOW);
+            context.drawCenteredTextWithShadow(this.textRenderer, scanIndicator, rightPaneX + (searchWidth / 2), catalogGridY + (catalogRows * SLOT_SIZE) + 20, 0xFFFFAA00);
         }
 
-        // Render dragged item or hover tooltip safely
+        // Notification overlay message (drawn to the left of bottom buttons or at top)
+        int bottomY = getVirtualHeight() - 22;
+        if (notificationText != null && System.currentTimeMillis() < notificationTimer) {
+            int msgW = this.textRenderer.getWidth(notificationText);
+            Text showHintsText = Text.translatable("recipeeditor.gui.show_hints");
+            Text hideHintsText = Text.translatable("recipeeditor.gui.hide_hints");
+            int wExit = Math.max(55, this.textRenderer.getWidth(Text.translatable("recipeeditor.gui.exit")) + 16);
+            int wReset = Math.max(100, this.textRenderer.getWidth(Text.translatable("recipeeditor.gui.reset_defaults")) + 16);
+            int wHints = Math.max(100, Math.max(this.textRenderer.getWidth(showHintsText), this.textRenderer.getWidth(hideHintsText)) + 16);
+            int hintsX = (getVirtualWidth() - 8) - wExit - 4 - wReset - 4 - wHints;
+
+            int msgX = hintsX - msgW - 8;
+            if (msgX >= 8) {
+                context.drawTextWithShadow(this.textRenderer, notificationText, msgX, bottomY + 5, 0xFF55FF55);
+            } else {
+                context.drawCenteredTextWithShadow(this.textRenderer, notificationText, getVirtualWidth() / 2, 16, 0xFF55FF55);
+            }
+        }
+
+        // Render dragged item
         if (draggedItem != null && draggedItem != Items.AIR) {
             ItemStack dragStack = (dragSourceSlot == RESULT_SLOT && currentRecipe != null)
                     ? new ItemStack(draggedItem, currentRecipe.getResultCountForType(selectedType))
                     : new ItemStack(draggedItem);
-            context.drawItem(dragStack, mouseX - 8, mouseY - 8);
-            context.drawStackOverlay(this.textRenderer, dragStack, mouseX - 8, mouseY - 8);
-        } else if (!hoveredStack.isEmpty()) {
-            try {
-                context.drawItemTooltip(this.textRenderer, hoveredStack, mouseX, mouseY);
-            } catch (Throwable t) {
-                try {
-                    context.drawTooltip(this.textRenderer, hoveredStack.getName(), mouseX, mouseY);
-                } catch (Throwable ignored) {}
+            drawItemInScreen(context, dragStack, scaledMouseX - 8, scaledMouseY - 8);
+            if (configCopy.modEnabled) {
+                context.drawStackOverlay(this.textRenderer, dragStack, scaledMouseX - 8, scaledMouseY - 8);
             }
         }
+
+        if (!configCopy.modEnabled) {
+            // Semi-transparent dark-grey veil over everything
+            context.fill(0, 0, getVirtualWidth(), getVirtualHeight(), 0x99181818);
+
+            // Re-render toggle button and exit button so they stay sharp and bright on top of the veil
+            if (toggleEnabledBtn != null && toggleEnabledBtn.visible) {
+                toggleEnabledBtn.render(context, scaledMouseX, scaledMouseY, delta);
+            }
+            if (exitBtn != null && exitBtn.visible) {
+                exitBtn.render(context, scaledMouseX, scaledMouseY, delta);
+            }
+
+            // Render message on top of veil
+            int pCenterX = leftPaneX + (leftPaneWidth / 2);
+            int pStartY = contentY + 36;
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_1").formatted(Formatting.RED, Formatting.BOLD), pCenterX, pStartY, 0xFFFF5555);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_2").formatted(Formatting.GRAY), pCenterX, pStartY + 14, 0xFFAAAAAA);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_3").formatted(Formatting.WHITE), pCenterX, pStartY + 26, 0xFFFFFFFF);
+        }
+
+        context.getMatrices().pop();
+
+        // Render Hover Tooltip (outside matrices, at native screen resolution)
+        if (!configCopy.modEnabled) {
+            if (toggleEnabledBtn != null && toggleEnabledBtn.visible && toggleEnabledBtn.isHovered()) {
+                try {
+                    context.drawTooltip(this.textRenderer, Text.translatable("recipeeditor.tooltip.toggle_mod"), mouseX, mouseY);
+                } catch (Throwable ignored) {}
+            } else if (exitBtn != null && exitBtn.visible && exitBtn.isHovered()) {
+                try {
+                    context.drawTooltip(this.textRenderer, Text.translatable("recipeeditor.tooltip.exit"), mouseX, mouseY);
+                } catch (Throwable ignored) {}
+            }
+            return;
+        }
+
+        if (draggedItem == null) {
+            if (!hoveredStack.isEmpty()) {
+                try {
+                    context.drawItemTooltip(this.textRenderer, hoveredStack, mouseX, mouseY);
+                } catch (Throwable t) {
+                    try {
+                        context.drawTooltip(this.textRenderer, hoveredStack.getName(), mouseX, mouseY);
+                    } catch (Throwable ignored) {}
+                }
+            } else {
+                Text buttonTooltip = getHoveredButtonTooltip(scaledMouseX, scaledMouseY);
+                if (buttonTooltip != null) {
+                    try {
+                        context.drawTooltip(this.textRenderer, buttonTooltip, mouseX, mouseY);
+                    } catch (Throwable ignored) {}
+                }
+            }
+        }
+    }
+
+    private Text getHoveredButtonTooltip(int scaledMouseX, int scaledMouseY) {
+        if (toggleEnabledBtn != null && toggleEnabledBtn.visible && toggleEnabledBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.toggle_mod");
+        }
+        for (int i = 0; i < typeButtons.size(); i++) {
+            ButtonWidget btn = typeButtons.get(i);
+            if (btn.visible && btn.isHovered()) {
+                if (i < typeButtonEnums.size()) {
+                    return typeButtonEnums.get(i).getTooltip();
+                }
+            }
+        }
+        if (prevWorkstationBtn != null && prevWorkstationBtn.visible && prevWorkstationBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.prev_workstation");
+        }
+        if (nextWorkstationBtn != null && nextWorkstationBtn.visible && nextWorkstationBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.next_workstation");
+        }
+        if (prevVariantBtn != null && prevVariantBtn.visible && prevVariantBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.prev_variant");
+        }
+        if (variantField != null && variantField.isVisible() && variantField.isMouseOver(scaledMouseX, scaledMouseY)) {
+            return Text.translatable("recipeeditor.tooltip.variant_field");
+        }
+        if (nextVariantBtn != null && nextVariantBtn.visible && nextVariantBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.next_variant");
+        }
+        if (minusCountBtn != null && minusCountBtn.visible && minusCountBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.minus_count");
+        }
+        if (resultCountField != null && resultCountField.isVisible() && resultCountField.isMouseOver(scaledMouseX, scaledMouseY)) {
+            return Text.translatable("recipeeditor.tooltip.count_field");
+        }
+        if (plusCountBtn != null && plusCountBtn.visible && plusCountBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.plus_count");
+        }
+        if (cookingTimeField != null && cookingTimeField.isVisible()) {
+            if (cookingTimeField.isMouseOver(scaledMouseX, scaledMouseY) ||
+                    (scaledMouseX >= cookingTimeField.getX() && scaledMouseX <= cookingTimeField.getX() + cookingTimeField.getWidth() &&
+                     scaledMouseY >= cookingTimeField.getY() - 12 && scaledMouseY < cookingTimeField.getY())) {
+                int ticks = 200;
+                try {
+                    String text = cookingTimeField.getText().trim();
+                    if (!text.isEmpty()) {
+                        ticks = Integer.parseInt(text);
+                    } else if (currentRecipe != null) {
+                        ticks = currentRecipe.cookingTime;
+                    }
+                } catch (NumberFormatException ignored) {
+                    if (currentRecipe != null) {
+                        ticks = currentRecipe.cookingTime;
+                    }
+                }
+                float seconds = ticks / 20.0f;
+                String secStr = (seconds == (long) seconds) ? String.format(Locale.ROOT, "%d", (long) seconds) : String.format(Locale.ROOT, "%.1f", seconds);
+                return Text.translatable("recipeeditor.tooltip.cooking_time_field", ticks, secStr);
+            }
+        }
+        if (experienceField != null && experienceField.isVisible()) {
+            if (experienceField.isMouseOver(scaledMouseX, scaledMouseY) ||
+                    (scaledMouseX >= experienceField.getX() && scaledMouseX <= experienceField.getX() + experienceField.getWidth() &&
+                     scaledMouseY >= experienceField.getY() - 12 && scaledMouseY < experienceField.getY())) {
+                float xp = currentRecipe != null ? currentRecipe.experience : 0.1f;
+                return Text.translatable("recipeeditor.tooltip.experience_field", String.format(Locale.ROOT, "%.1f", xp));
+            }
+        }
+        if (saveCraftBtn != null && saveCraftBtn.visible && saveCraftBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.save_craft");
+        }
+        if (clearCraftBtn != null && clearCraftBtn.visible && clearCraftBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.clear_all");
+        }
+        if (deleteVariantBtn != null && deleteVariantBtn.visible && deleteVariantBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.delete_variant");
+        }
+        if (deleteRecipeBtn != null && deleteRecipeBtn.visible && deleteRecipeBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.delete_recipe");
+        }
+        if (createRecipeBtn != null && createRecipeBtn.visible && createRecipeBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.create_recipe");
+        }
+        for (int i = 0; i < filterButtons.size(); i++) {
+            ButtonWidget btn = filterButtons.get(i);
+            if (btn.visible && btn.isHovered()) {
+                CatalogFilter[] filters = CatalogFilter.values();
+                if (i < filters.length) {
+                    CatalogFilter f = filters[i];
+                    return Text.translatable("recipeeditor.tooltip.filter_" + f.name().toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        if (prevTabBtn != null && prevTabBtn.visible && prevTabBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.prev_tab");
+        }
+        if (nextTabBtn != null && nextTabBtn.visible && nextTabBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.next_tab");
+        }
+        for (int i = 0; i < tabButtons.size(); i++) {
+            ButtonWidget btn = tabButtons.get(i);
+            if (btn.visible && btn.isHovered()) {
+                int tabIdx = tabScrollOffset + i;
+                if (tabIdx >= 0 && tabIdx < modTabs.size()) {
+                    return Text.translatable("recipeeditor.tooltip.tab_mod", modTabs.get(tabIdx).displayName);
+                }
+            }
+        }
+        if (searchField != null && searchField.isVisible() && searchField.isMouseOver(scaledMouseX, scaledMouseY)) {
+            return Text.translatable("recipeeditor.tooltip.search");
+        }
+        if (prevPageBtn != null && prevPageBtn.visible && prevPageBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.prev_page");
+        }
+        if (nextPageBtn != null && nextPageBtn.visible && nextPageBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.next_page");
+        }
+        if (toggleHintsBtn != null && toggleHintsBtn.visible && toggleHintsBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.toggle_hints");
+        }
+        if (resetDefaultsBtn != null && resetDefaultsBtn.visible && resetDefaultsBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.reset_defaults");
+        }
+        if (exitBtn != null && exitBtn.visible && exitBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.exit");
+        }
+        return null;
     }
 
     private void drawSlotBox(DrawContext context, int x, int y, int w, int h, boolean highlight, boolean isDropTarget) {
@@ -1293,40 +2135,65 @@ public class RecipeEditorScreen extends Screen {
         context.drawBorder(x, y, w, h, borderColor);
     }
 
+    private void drawItemInScreen(DrawContext context, ItemStack stack, int x, int y) {
+        if (stack == null || stack.isEmpty()) return;
+        if (!configCopy.modEnabled) {
+            com.mojang.blaze3d.systems.RenderSystem.setShaderColor(0.4f, 0.4f, 0.4f, 0.8f);
+            context.drawItem(stack, x, y);
+            com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
+            context.fill(x, y, x + 16, y + 16, 0x663a3a3a);
+        } else {
+            context.drawItem(stack, x, y);
+        }
+    }
+
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (super.mouseClicked(mouseX, mouseY, button)) {
+        double sX = mouseX / uiScale;
+        double sY = mouseY / uiScale;
+
+        if (!configCopy.modEnabled) {
+            if (toggleEnabledBtn != null && toggleEnabledBtn.visible && toggleEnabledBtn.isMouseOver(sX, sY)) {
+                return toggleEnabledBtn.mouseClicked(sX, sY, button);
+            }
+            if (exitBtn != null && exitBtn.visible && exitBtn.isMouseOver(sX, sY)) {
+                return exitBtn.mouseClicked(sX, sY, button);
+            }
+            return false;
+        }
+
+        if (super.mouseClicked(sX, sY, button)) {
             return true;
         }
 
         if (button == 0) { // Left click: select slot or start drag
-            int craftingSlot = getCraftingSlotAt(mouseX, mouseY);
+            int craftingSlot = getCraftingSlotAt(sX, sY);
             if (craftingSlot != -1) {
                 selectedSlot = craftingSlot;
                 Item itemInSlot = getItemInSlot(craftingSlot);
                 if (itemInSlot != null && itemInSlot != Items.AIR) {
                     draggedItem = itemInSlot;
                     dragSourceSlot = craftingSlot;
-                    dragStartX = mouseX;
-                    dragStartY = mouseY;
+                    dragStartX = sX;
+                    dragStartY = sY;
                 }
                 return true;
             }
 
-            Item catItem = getCatalogItemAt(mouseX, mouseY);
+            Item catItem = getCatalogItemAt(sX, sY);
             if (catItem != null && catItem != Items.AIR) {
                 if (Screen.hasShiftDown()) {
                     selectTargetItem(catItem);
                 } else {
                     draggedItem = catItem;
                     dragSourceSlot = -1;
-                    dragStartX = mouseX;
-                    dragStartY = mouseY;
+                    dragStartX = sX;
+                    dragStartY = sY;
                 }
                 return true;
             }
         } else if (button == 1) { // Right click: clear slot or LOAD RECIPE for catalog item
-            int craftingSlot = getCraftingSlotAt(mouseX, mouseY);
+            int craftingSlot = getCraftingSlotAt(sX, sY);
             if (craftingSlot >= 0 && craftingSlot < 9) {
                 if (currentRecipe != null) {
                     currentRecipe.setItemAt(craftingSlot, Items.AIR);
@@ -1345,7 +2212,7 @@ public class RecipeEditorScreen extends Screen {
                 return true;
             }
 
-            Item catItem = getCatalogItemAt(mouseX, mouseY);
+            Item catItem = getCatalogItemAt(sX, sY);
             if (catItem != null && catItem != Items.AIR) {
                 loadRecipeForTarget(catItem);
                 return true;
@@ -1357,8 +2224,14 @@ public class RecipeEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (!configCopy.modEnabled) {
+            return false;
+        }
+        double sX = mouseX / uiScale;
+        double sY = mouseY / uiScale;
+
         if (button == 0 && draggedItem != null) {
-            int targetSlot = getCraftingSlotAt(mouseX, mouseY);
+            int targetSlot = getCraftingSlotAt(sX, sY);
             if (targetItem == null) {
                 selectTargetItem(draggedItem);
                 if (targetSlot >= 0 && targetSlot < 9 && currentRecipe != null) {
@@ -1376,12 +2249,10 @@ public class RecipeEditorScreen extends Screen {
                     }
                 }
             } else {
-                double distSq = (mouseX - dragStartX) * (mouseX - dragStartX) + (mouseY - dragStartY) * (mouseY - dragStartY);
+                double distSq = (sX - dragStartX) * (sX - dragStartX) + (sY - dragStartY) * (sY - dragStartY);
                 if (dragSourceSlot == -1 && distSq < 36 && currentRecipe != null) {
                     if (selectedSlot >= 0 && selectedSlot < 9) {
                         currentRecipe.setItemAt(selectedSlot, draggedItem);
-                    } else if (selectedSlot == RESULT_SLOT) {
-                        selectTargetItem(draggedItem);
                     }
                 }
             }
@@ -1390,21 +2261,41 @@ public class RecipeEditorScreen extends Screen {
             updateButtonStates();
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(sX, sY, button);
     }
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (!configCopy.modEnabled) {
+            return false;
+        }
         if (draggedItem != null) {
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        double sX = mouseX / uiScale;
+        double sY = mouseY / uiScale;
+        return super.mouseDragged(sX, sY, button, deltaX / uiScale, deltaY / uiScale);
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if ((searchField != null && searchField.isFocused()) || (resultCountField != null && resultCountField.isFocused()) || (variantField != null && variantField.isFocused())) {
+        boolean textFieldFocused = (searchField != null && searchField.isFocused()) ||
+                (resultCountField != null && resultCountField.isFocused()) ||
+                (variantField != null && variantField.isFocused()) ||
+                (cookingTimeField != null && cookingTimeField.isFocused()) ||
+                (experienceField != null && experienceField.isFocused());
+
+        if (textFieldFocused) {
             return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+
+        if (!configCopy.modEnabled) {
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+
+        if (keyCode == GLFW.GLFW_KEY_I) {
+            toggleHintsVisibility();
+            return true;
         }
 
         if (keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) {

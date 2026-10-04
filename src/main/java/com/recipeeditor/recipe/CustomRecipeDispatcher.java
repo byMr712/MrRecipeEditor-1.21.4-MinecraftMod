@@ -8,15 +8,18 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.recipe.*;
 import net.minecraft.recipe.book.CookingRecipeCategory;
+import net.minecraft.recipe.book.CraftingRecipeCategory;
 import net.minecraft.recipe.display.CuttingRecipeDisplay;
 import net.minecraft.recipe.display.SlotDisplay;
 import net.minecraft.recipe.input.RecipeInput;
 import net.minecraft.recipe.input.SingleStackRecipeInput;
 import net.minecraft.recipe.input.SmithingRecipeInput;
+import net.minecraft.registry.Registries;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.util.Identifier;
 import net.minecraft.world.World;
+import com.recipeeditor.inspector.RecipeInspector;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -25,12 +28,70 @@ import java.util.Optional;
 
 public class CustomRecipeDispatcher {
 
+    public static boolean isRecipeOverridden(RecipeEntry<?> entry) {
+        if (entry == null || entry.id() == null) return false;
+        Identifier entryId = entry.id().getValue();
+        if (entryId == null || "recipeeditor".equals(entryId.getNamespace())) return false;
+
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
+            return false;
+        }
+
+        String fullId = entryId.toString();
+        String path = entryId.getPath();
+
+        for (CustomRecipeData recipeData : config.recipes.values()) {
+            if (!recipeData.enabled || !recipeData.overrideExisting) continue;
+
+            // 1. Direct ID match
+            if (recipeData.overriddenId != null) {
+                if (recipeData.overriddenId.equals(fullId) || recipeData.overriddenId.equals(path)) {
+                    return true;
+                }
+            }
+
+            // 2. Pattern key match
+            if (recipeData.overriddenKey != null && recipeData.resultItemId != null) {
+                Identifier targetId = Identifier.tryParse(recipeData.resultItemId);
+                if (targetId != null && Registries.ITEM.containsId(targetId)) {
+                    Item targetItem = Registries.ITEM.get(targetId);
+                    CustomRecipeData entryData = RecipeInspector.decompileFromEntry(entry, targetItem);
+                    if (entryData != null && recipeData.overriddenKey.equals(entryData.getKey())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     public static <I extends RecipeInput, T extends Recipe<I>> Optional<RecipeEntry<T>> getCustomMatch(RecipeType<T> type, I input, World world) {
         List<RecipeEntry<T>> matches = getCustomMatches(type, input, world);
         if (!matches.isEmpty()) {
             return Optional.of(matches.get(0));
         }
         return Optional.empty();
+    }
+
+    private static final java.util.Map<String, RecipeEntry<?>> SYNTHETIC_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static void clearSyntheticCache() {
+        SYNTHETIC_CACHE.clear();
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <I extends RecipeInput, T extends Recipe<I>> RecipeEntry<T> getCachedSyntheticEntry(CustomRecipeData recipeData, RecipeTypeEnum targetEnum, RecipeType<T> type) {
+        String cacheKey = recipeData.getKey() + "#" + recipeData.hashCode() + "#" + targetEnum.name();
+        return (RecipeEntry<T>) SYNTHETIC_CACHE.computeIfAbsent(cacheKey, k -> {
+            T dynamicRecipe = createSyntheticRecipe(recipeData, targetEnum, type);
+            if (dynamicRecipe != null) {
+                Identifier id = getRecipeIdentifier(recipeData);
+                RegistryKey<Recipe<?>> key = RegistryKey.of(RegistryKeys.RECIPE, id);
+                return new RecipeEntry<>(key, dynamicRecipe);
+            }
+            return null;
+        });
     }
 
     public static <I extends RecipeInput, T extends Recipe<I>> List<RecipeEntry<T>> getCustomMatches(RecipeType<T> type, I input, World world) {
@@ -47,11 +108,9 @@ public class CustomRecipeDispatcher {
             if (!recipeData.enabled || recipeData.type != targetEnum) continue;
 
             if (matchesInput(recipeData, targetEnum, input)) {
-                T dynamicRecipe = createSyntheticRecipe(recipeData, targetEnum, type);
-                if (dynamicRecipe != null) {
-                    Identifier id = Identifier.of("recipeeditor", "dynamic_" + sanitizeId(recipeData.id));
-                    RegistryKey<Recipe<?>> key = RegistryKey.of(RegistryKeys.RECIPE, id);
-                    list.add(new RecipeEntry<>(key, dynamicRecipe));
+                RecipeEntry<T> entry = getCachedSyntheticEntry(recipeData, targetEnum, type);
+                if (entry != null) {
+                    list.add(entry);
                 }
             }
         }
@@ -71,11 +130,9 @@ public class CustomRecipeDispatcher {
         for (CustomRecipeData recipeData : config.recipes.values()) {
             if (!recipeData.enabled || recipeData.type != targetEnum) continue;
 
-            T dynamicRecipe = createSyntheticRecipe(recipeData, targetEnum, type);
-            if (dynamicRecipe != null) {
-                Identifier id = Identifier.of("recipeeditor", "dynamic_" + sanitizeId(recipeData.id));
-                RegistryKey<Recipe<?>> key = RegistryKey.of(RegistryKeys.RECIPE, id);
-                list.add(new RecipeEntry<>(key, dynamicRecipe));
+            RecipeEntry<T> entry = getCachedSyntheticEntry(recipeData, targetEnum, type);
+            if (entry != null) {
+                list.add(entry);
             }
         }
         return list;
@@ -94,12 +151,8 @@ public class CustomRecipeDispatcher {
             Ingredient inputIng = recipeData.getIngredientAt(0);
             if (inputIng == null) continue;
 
-            StonecuttingRecipe recipe = createSyntheticRecipe(recipeData, RecipeTypeEnum.STONECUTTING, RecipeType.STONECUTTING);
-            if (recipe != null) {
-                Identifier id = Identifier.of("recipeeditor", "dynamic_" + sanitizeId(recipeData.id));
-                RegistryKey<Recipe<?>> key = RegistryKey.of(RegistryKeys.RECIPE, id);
-                RecipeEntry<StonecuttingRecipe> recipeEntry = new RecipeEntry<>(key, recipe);
-
+            RecipeEntry<StonecuttingRecipe> recipeEntry = getCachedSyntheticEntry(recipeData, RecipeTypeEnum.STONECUTTING, RecipeType.STONECUTTING);
+            if (recipeEntry != null) {
                 int count = Math.max(1, recipeData.getResultCountForType(RecipeTypeEnum.STONECUTTING));
                 ItemStack resultStack = new ItemStack(recipeData.getResultItem(), count);
                 SlotDisplay optionDisplay = new SlotDisplay.StackSlotDisplay(resultStack);
@@ -110,6 +163,7 @@ public class CustomRecipeDispatcher {
         return new CuttingRecipeDisplay.Grouping<>(entries);
     }
 
+    @SuppressWarnings({"rawtypes", "unchecked"})
     public static List<RecipeEntry<?>> getAllCustomRecipes() {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
@@ -122,14 +176,18 @@ public class CustomRecipeDispatcher {
             RecipeType<?> mcType = getMcTypeForEnum(recipeData.type);
             if (mcType == null) continue;
 
-            Recipe<?> dynamicRecipe = createSyntheticRecipe(recipeData, recipeData.type, mcType);
-            if (dynamicRecipe != null) {
-                Identifier id = Identifier.of("recipeeditor", "dynamic_" + sanitizeId(recipeData.id));
-                RegistryKey<Recipe<?>> key = RegistryKey.of(RegistryKeys.RECIPE, id);
-                list.add(new RecipeEntry<>(key, dynamicRecipe));
+            RecipeEntry<?> entry = getCachedSyntheticEntry(recipeData, recipeData.type, (RecipeType) mcType);
+            if (entry != null) {
+                list.add(entry);
             }
         }
         return list;
+    }
+
+    private static Identifier getRecipeIdentifier(CustomRecipeData recipeData) {
+        String base = sanitizeId(recipeData.id);
+        String sigHash = Integer.toHexString(Math.abs(recipeData.getKey().hashCode()));
+        return Identifier.of("recipeeditor", "dynamic_" + base + "_" + sigHash);
     }
 
     private static String sanitizeId(String id) {
@@ -163,6 +221,10 @@ public class CustomRecipeDispatcher {
     }
 
     private static boolean matchesInput(CustomRecipeData data, RecipeTypeEnum typeEnum, RecipeInput input) {
+        if (input instanceof net.minecraft.recipe.input.CraftingRecipeInput crafting) {
+            return CustomDynamicCraftingRecipe.matchesCrafting(crafting, data);
+        }
+
         if (input instanceof SingleStackRecipeInput single) {
             ItemStack stack = single.item();
             if (stack.isEmpty()) return false;
@@ -196,22 +258,31 @@ public class CustomRecipeDispatcher {
         int safeCount = Math.min(resultItem.getMaxCount(), Math.max(1, data.getResultCountForType(typeEnum)));
         ItemStack resultStack = new ItemStack(resultItem, safeCount);
 
-        if (typeEnum == RecipeTypeEnum.SMELTING) {
+        if (typeEnum == RecipeTypeEnum.SHAPED_CRAFTING) {
+            if (data.isShapeless) {
+                net.minecraft.util.collection.DefaultedList<Ingredient> ingredients = net.minecraft.util.collection.DefaultedList.of();
+                ingredients.addAll(data.getNonEmptyIngredients());
+                return (T) new ShapelessRecipe(data.id, CraftingRecipeCategory.MISC, resultStack, ingredients);
+            }
+            RawShapedRecipe raw = data.getRawRecipe();
+            if (raw == null) return null;
+            return (T) new ShapedRecipe(data.id, CraftingRecipeCategory.MISC, raw, resultStack, true);
+        } else if (typeEnum == RecipeTypeEnum.SMELTING) {
             Ingredient ing = data.getIngredientAt(0);
             if (ing == null) return null;
-            return (T) new SmeltingRecipe(data.id, CookingRecipeCategory.MISC, ing, resultStack, data.experience, data.cookingTime);
+            return (T) new SmeltingRecipe(data.id, CookingRecipeCategory.MISC, ing, resultStack, data.experience, Math.max(1, data.cookingTime));
         } else if (typeEnum == RecipeTypeEnum.BLASTING) {
             Ingredient ing = data.getIngredientAt(0);
             if (ing == null) return null;
-            return (T) new BlastingRecipe(data.id, CookingRecipeCategory.MISC, ing, resultStack, data.experience, Math.max(20, data.cookingTime / 2));
+            return (T) new BlastingRecipe(data.id, CookingRecipeCategory.MISC, ing, resultStack, data.experience, Math.max(1, data.cookingTime));
         } else if (typeEnum == RecipeTypeEnum.SMOKING) {
             Ingredient ing = data.getIngredientAt(0);
             if (ing == null) return null;
-            return (T) new SmokingRecipe(data.id, CookingRecipeCategory.MISC, ing, resultStack, data.experience, Math.max(20, data.cookingTime / 2));
+            return (T) new SmokingRecipe(data.id, CookingRecipeCategory.MISC, ing, resultStack, data.experience, Math.max(1, data.cookingTime));
         } else if (typeEnum == RecipeTypeEnum.CAMPFIRE_COOKING) {
             Ingredient ing = data.getIngredientAt(0);
             if (ing == null) return null;
-            return (T) new CampfireCookingRecipe(data.id, CookingRecipeCategory.MISC, ing, resultStack, data.experience, data.cookingTime * 3);
+            return (T) new CampfireCookingRecipe(data.id, CookingRecipeCategory.MISC, ing, resultStack, data.experience, Math.max(1, data.cookingTime));
         } else if (typeEnum == RecipeTypeEnum.STONECUTTING) {
             Ingredient ing = data.getIngredientAt(0);
             if (ing == null) return null;

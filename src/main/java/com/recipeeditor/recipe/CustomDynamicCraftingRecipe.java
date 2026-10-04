@@ -13,6 +13,7 @@ import net.minecraft.recipe.book.RecipeBookCategories;
 import net.minecraft.recipe.book.RecipeBookCategory;
 import net.minecraft.recipe.display.RecipeDisplay;
 import net.minecraft.recipe.display.ShapedCraftingRecipeDisplay;
+import net.minecraft.recipe.display.ShapelessCraftingRecipeDisplay;
 import net.minecraft.recipe.display.SlotDisplay;
 import net.minecraft.recipe.input.CraftingRecipeInput;
 import net.minecraft.registry.RegistryWrapper;
@@ -67,7 +68,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
             if (!recipeData.enabled) continue;
 
             if (recipeData.type == RecipeTypeEnum.SHAPED_CRAFTING) {
-                if (matchesShaped(input, recipeData)) {
+                if (matchesCrafting(input, recipeData)) {
                     return recipeData;
                 }
             }
@@ -75,7 +76,59 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         return null;
     }
 
-    private boolean matchesShaped(CraftingRecipeInput input, CustomRecipeData recipeData) {
+    public static boolean matchesCrafting(CraftingRecipeInput input, CustomRecipeData recipeData) {
+        if (recipeData == null || recipeData.type != RecipeTypeEnum.SHAPED_CRAFTING) return false;
+        if (recipeData.isShapeless) {
+            return matchesShapeless(input, recipeData);
+        } else {
+            return matchesShaped(input, recipeData);
+        }
+    }
+
+    public static boolean matchesShapeless(CraftingRecipeInput input, CustomRecipeData recipeData) {
+        if (input.isEmpty()) return false;
+
+        List<Ingredient> ingredients = recipeData.getNonEmptyIngredients();
+        int expectedCount = ingredients.size();
+        if (expectedCount == 0 || input.getStackCount() != expectedCount) {
+            return false;
+        }
+
+        ItemStack[] inputStacks = new ItemStack[expectedCount];
+        int count = 0;
+        int inputSize = input.size();
+        for (int i = 0; i < inputSize; i++) {
+            ItemStack stack = input.getStackInSlot(i);
+            if (!stack.isEmpty()) {
+                if (count >= expectedCount) return false;
+                inputStacks[count++] = stack;
+            }
+        }
+        if (count != expectedCount) return false;
+
+        return matchShapelessBacktrack(inputStacks, ingredients, 0, new boolean[expectedCount]);
+    }
+
+    private static boolean matchShapelessBacktrack(ItemStack[] stacks, List<Ingredient> ingredients,
+                                             int stackIdx, boolean[] usedIngs) {
+        if (stackIdx >= stacks.length) {
+            return true;
+        }
+
+        ItemStack currentStack = stacks[stackIdx];
+        for (int i = 0; i < ingredients.size(); i++) {
+            if (!usedIngs[i] && ingredients.get(i).test(currentStack)) {
+                usedIngs[i] = true;
+                if (matchShapelessBacktrack(stacks, ingredients, stackIdx + 1, usedIngs)) {
+                    return true;
+                }
+                usedIngs[i] = false;
+            }
+        }
+        return false;
+    }
+
+    public static boolean matchesShaped(CraftingRecipeInput input, CustomRecipeData recipeData) {
         if (input.isEmpty()) return false;
 
         // 1. Determine bounding box of non-empty slots in recipe
@@ -101,61 +154,59 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         int patternW = maxCol - minCol + 1;
         int patternH = maxRow - minRow + 1;
 
-        if (input.getWidth() != patternW || input.getHeight() != patternH) {
+        int inputW = input.getWidth();
+        int inputH = input.getHeight();
+
+        if (inputW < patternW || inputH < patternH) {
             return false;
         }
 
-        // Check normal orientation
-        boolean normalMatches = true;
-        for (int r = 0; r < patternH; r++) {
-            for (int c = 0; c < patternW; c++) {
-                int slotIdx = (minRow + r) * 3 + (minCol + c);
-                Ingredient expected = recipeData.getIngredientAt(slotIdx);
-                ItemStack actual = input.getStackInSlot(c, r);
+        // Test all possible positions (dx, dy) where pattern can fit in the crafting input grid
+        for (int dx = 0; dx <= inputW - patternW; dx++) {
+            for (int dy = 0; dy <= inputH - patternH; dy++) {
+                if (checkMatchAt(input, recipeData, minRow, minCol, maxCol, patternW, patternH, dx, dy, false)) {
+                    return true;
+                }
+                if (checkMatchAt(input, recipeData, minRow, minCol, maxCol, patternW, patternH, dx, dy, true)) {
+                    return true;
+                }
+            }
+        }
 
+        return false;
+    }
+
+    private static boolean checkMatchAt(CraftingRecipeInput input, CustomRecipeData recipeData,
+                                 int minRow, int minCol, int maxCol, int patternW, int patternH,
+                                 int dx, int dy, boolean mirrored) {
+        int inputW = input.getWidth();
+        int inputH = input.getHeight();
+
+        for (int ir = 0; ir < inputH; ir++) {
+            for (int ic = 0; ic < inputW; ic++) {
+                int pr = ir - dy;
+                int pc = ic - dx;
+
+                Ingredient expected = null;
+                if (pr >= 0 && pr < patternH && pc >= 0 && pc < patternW) {
+                    int slotCol = mirrored ? (maxCol - pc) : (minCol + pc);
+                    int slotIdx = (minRow + pr) * 3 + slotCol;
+                    expected = recipeData.getIngredientAt(slotIdx);
+                }
+
+                ItemStack actual = input.getStackInSlot(ic, ir);
                 if (expected == null) {
                     if (!actual.isEmpty()) {
-                        normalMatches = false;
-                        break;
+                        return false;
                     }
                 } else {
                     if (!expected.test(actual)) {
-                        normalMatches = false;
-                        break;
+                        return false;
                     }
                 }
             }
-            if (!normalMatches) break;
         }
-
-        if (normalMatches) {
-            return true;
-        }
-
-        // Check mirrored orientation (flipped horizontally)
-        boolean mirroredMatches = true;
-        for (int r = 0; r < patternH; r++) {
-            for (int c = 0; c < patternW; c++) {
-                int slotIdx = (minRow + r) * 3 + (maxCol - c);
-                Ingredient expected = recipeData.getIngredientAt(slotIdx);
-                ItemStack actual = input.getStackInSlot(c, r);
-
-                if (expected == null) {
-                    if (!actual.isEmpty()) {
-                        mirroredMatches = false;
-                        break;
-                    }
-                } else {
-                    if (!expected.test(actual)) {
-                        mirroredMatches = false;
-                        break;
-                    }
-                }
-            }
-            if (!mirroredMatches) break;
-        }
-
-        return mirroredMatches;
+        return true;
     }
 
     @Override
@@ -164,22 +215,44 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
     }
 
     @Override
+    public net.minecraft.util.collection.DefaultedList<ItemStack> getRecipeRemainders(CraftingRecipeInput input) {
+        return CraftingRecipe.collectRecipeRemainders(input);
+    }
+
+    @Override
     public ItemStack craft(CraftingRecipeInput input, RegistryWrapper.WrapperLookup registries) {
         CustomRecipeData matched = findMatchingRecipe(input);
         if (matched != null) {
             Item resultItem = matched.getResultItem();
             if (resultItem != Items.AIR) {
-                return new ItemStack(resultItem, matched.getResultCountForType(matched.type));
+                int safeCount = Math.min(resultItem.getMaxCount(), Math.max(1, matched.getResultCountForType(matched.type)));
+                return new ItemStack(resultItem, safeCount);
             }
         }
         return ItemStack.EMPTY;
     }
+
+    private static final java.util.concurrent.atomic.AtomicInteger DISPLAY_VERSION = new java.util.concurrent.atomic.AtomicInteger(0);
+
+    public static void invalidateDisplayCache() {
+        DISPLAY_VERSION.incrementAndGet();
+    }
+
+    private volatile List<RecipeDisplay> cachedDisplays = null;
+    private volatile int cachedDisplaysHash = 0;
 
     @Override
     public List<RecipeDisplay> getDisplays() {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
             return Collections.emptyList();
+        }
+
+        int version = DISPLAY_VERSION.get();
+        int configHash = (config.recipes != null ? config.recipes.hashCode() : 0) ^ (config.modEnabled ? 1 : 0) ^ version;
+        List<RecipeDisplay> cached = cachedDisplays;
+        if (cached != null && cachedDisplaysHash == configHash) {
+            return cached;
         }
 
         List<RecipeDisplay> displays = new ArrayList<>();
@@ -194,29 +267,53 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
             SlotDisplay resultDisplay = new SlotDisplay.StackSlotDisplay(new ItemStack(resultItem, safeCount));
 
             if (recipe.type == RecipeTypeEnum.SHAPED_CRAFTING) {
-                List<SlotDisplay> ingredients = new ArrayList<>(9);
-                for (int i = 0; i < 9; i++) {
-                    String slotStr = recipe.getSlotString(i);
-                    if (slotStr == null || slotStr.isEmpty() || slotStr.equals("minecraft:air")) {
-                        ingredients.add(SlotDisplay.EmptySlotDisplay.INSTANCE);
-                    } else if (slotStr.startsWith("#")) {
-                        Identifier tagId = Identifier.tryParse(slotStr.substring(1));
-                        if (tagId != null) {
-                            ingredients.add(new SlotDisplay.TagSlotDisplay(net.minecraft.registry.tag.TagKey.of(net.minecraft.registry.RegistryKeys.ITEM, tagId)));
+                if (recipe.isShapeless) {
+                    List<SlotDisplay> ingredients = new ArrayList<>();
+                    for (int i = 0; i < 9; i++) {
+                        String slotStr = recipe.getSlotString(i);
+                        if (slotStr != null && !slotStr.isEmpty() && !slotStr.equals("minecraft:air")) {
+                            if (slotStr.startsWith("#")) {
+                                Identifier tagId = Identifier.tryParse(slotStr.substring(1));
+                                if (tagId != null) {
+                                    ingredients.add(new SlotDisplay.TagSlotDisplay(net.minecraft.registry.tag.TagKey.of(net.minecraft.registry.RegistryKeys.ITEM, tagId)));
+                                } else {
+                                    Item item = recipe.getItemAt(i);
+                                    if (item != Items.AIR) ingredients.add(new SlotDisplay.ItemSlotDisplay(item));
+                                }
+                            } else {
+                                Item item = recipe.getItemAt(i);
+                                if (item != Items.AIR) ingredients.add(new SlotDisplay.ItemSlotDisplay(item));
+                            }
+                        }
+                    }
+                    displays.add(new ShapelessCraftingRecipeDisplay(ingredients, resultDisplay, craftingStation));
+                } else {
+                    List<SlotDisplay> ingredients = new ArrayList<>(9);
+                    for (int i = 0; i < 9; i++) {
+                        String slotStr = recipe.getSlotString(i);
+                        if (slotStr == null || slotStr.isEmpty() || slotStr.equals("minecraft:air")) {
+                            ingredients.add(SlotDisplay.EmptySlotDisplay.INSTANCE);
+                        } else if (slotStr.startsWith("#")) {
+                            Identifier tagId = Identifier.tryParse(slotStr.substring(1));
+                            if (tagId != null) {
+                                ingredients.add(new SlotDisplay.TagSlotDisplay(net.minecraft.registry.tag.TagKey.of(net.minecraft.registry.RegistryKeys.ITEM, tagId)));
+                            } else {
+                                Item item = recipe.getItemAt(i);
+                                ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.EmptySlotDisplay.INSTANCE);
+                            }
                         } else {
                             Item item = recipe.getItemAt(i);
                             ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.EmptySlotDisplay.INSTANCE);
                         }
-                    } else {
-                        Item item = recipe.getItemAt(i);
-                        ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.EmptySlotDisplay.INSTANCE);
                     }
+                    displays.add(new ShapedCraftingRecipeDisplay(3, 3, ingredients, resultDisplay, craftingStation));
                 }
-                displays.add(new ShapedCraftingRecipeDisplay(3, 3, ingredients, resultDisplay, craftingStation));
             }
         }
 
-        return displays;
+        cachedDisplays = Collections.unmodifiableList(displays);
+        cachedDisplaysHash = configHash;
+        return cachedDisplays;
     }
 
     @Override
