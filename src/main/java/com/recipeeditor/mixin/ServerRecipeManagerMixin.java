@@ -178,13 +178,47 @@ public class ServerRecipeManagerMixin {
         }
     }
 
+    @Inject(method = "get(Lnet/minecraft/recipe/NetworkRecipeId;)Lnet/minecraft/recipe/ServerRecipeManager$ServerRecipe;", at = @At("HEAD"), cancellable = true)
+    private void onGetNetworkRecipe(net.minecraft.recipe.NetworkRecipeId id, CallbackInfoReturnable<ServerRecipeManager.ServerRecipe> cir) {
+        if (id != null && id.index() >= 1_000_000) {
+            ServerRecipeManager.ServerRecipe custom = CustomRecipeDispatcher.getCustomServerRecipe(id);
+            if (custom != null) {
+                cir.setReturnValue(custom);
+            }
+        }
+    }
+
+    @Inject(method = "get(Lnet/minecraft/recipe/NetworkRecipeId;)Lnet/minecraft/recipe/ServerRecipeManager$ServerRecipe;", at = @At("RETURN"), cancellable = true)
+    private void onGetNetworkRecipeReturn(net.minecraft.recipe.NetworkRecipeId id, CallbackInfoReturnable<ServerRecipeManager.ServerRecipe> cir) {
+        ServerRecipeManager.ServerRecipe original = cir.getReturnValue();
+        if (original != null && original.parent() != null && CustomRecipeDispatcher.isRecipeOverridden(original.parent())) {
+            cir.setReturnValue(null);
+        }
+    }
+
     @Inject(method = "forEachRecipeDisplay", at = @At("HEAD"), cancellable = true)
     private void onForEachRecipeDisplay(RegistryKey<Recipe<?>> key, Consumer<RecipeDisplayEntry> consumer, CallbackInfo ci) {
         if (key != null && key.getValue() != null) {
             if (CustomRecipeDispatcher.isIdOverridden(key.getValue().toString())) {
                 ci.cancel();
+                return;
+            }
+            if ("recipeeditor".equals(key.getValue().getNamespace())) {
+                List<ServerRecipeManager.ServerRecipe> list = CustomRecipeDispatcher.getCustomServerRecipesByKey(key);
+                if (list != null) {
+                    for (ServerRecipeManager.ServerRecipe r : list) {
+                        consumer.accept(r.display());
+                    }
+                }
+                ci.cancel();
             }
         }
+    }
+
+    @Inject(method = "initialize", at = @At("RETURN"))
+    private void onInitialize(net.minecraft.resource.featuretoggle.FeatureSet features, CallbackInfo ci) {
+        CustomRecipeDispatcher.invalidateRecipeBookCache();
+        CustomRecipeDispatcher.ensureRecipeBookEntriesUpToDate();
     }
 }
 

@@ -61,11 +61,9 @@ public class RecipeEditorMod implements ModInitializer {
         // Player join sync
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             try {
-                RegistryKey<Recipe<?>> key = RegistryKey.of(RegistryKeys.RECIPE, Identifier.of(MOD_ID, "custom_crafting"));
-                handler.getPlayer().unlockRecipes(List.of(key));
-
                 RecipeEditorConfig config = RecipeEditorConfig.getInstance();
                 ServerPlayNetworking.send(handler.getPlayer(), new SyncRecipesS2CPacket(config.toJson()));
+                com.recipeeditor.recipe.CustomRecipeDispatcher.sendCustomRecipeBookEntries(handler.getPlayer());
             } catch (Exception e) {
                 LOGGER.error("Failed to sync RecipeEditor recipes for player", e);
             }
@@ -78,6 +76,7 @@ public class RecipeEditorMod implements ModInitializer {
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resourceManager, success) -> {
             if (success) {
                 RecipeEditorConfig.getInstance().invalidateAllRecipeCaches();
+                com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(server.getPlayerManager().getPlayerList());
             }
         });
 
@@ -166,6 +165,7 @@ public class RecipeEditorMod implements ModInitializer {
                     for (ServerPlayerEntity p : context.server().getPlayerManager().getPlayerList()) {
                         ServerPlayNetworking.send(p, syncPacket);
                     }
+                    com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(context.server().getPlayerManager().getPlayerList());
 
                     // Dynamically refresh stonecutter recipes for connected players
                     try {

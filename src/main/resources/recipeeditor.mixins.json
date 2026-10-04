@@ -6,7 +6,8 @@
   "mixins": [
     "ServerRecipeManagerMixin",
     "CampfireBlockMixin",
-    "AbstractFurnaceScreenHandlerMixin"
+    "AbstractFurnaceScreenHandlerMixin",
+    "ServerRecipeBookMixin"
   ],
   "injectors": {
     "defaultRequire": 1
