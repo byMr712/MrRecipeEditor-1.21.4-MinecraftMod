@@ -111,27 +111,39 @@ public class ServerRecipeManagerMixin {
     @Inject(method = "getStonecutterRecipes", at = @At("RETURN"), cancellable = true)
     private void onGetStonecutterRecipes(CallbackInfoReturnable<CuttingRecipeDisplay.Grouping<StonecuttingRecipe>> cir) {
         CuttingRecipeDisplay.Grouping<StonecuttingRecipe> custom = CustomRecipeDispatcher.getCustomStonecutterGrouping();
-        if (!custom.isEmpty()) {
-            List<CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe>> combined = new ArrayList<>(custom.entries());
-            CuttingRecipeDisplay.Grouping<StonecuttingRecipe> original = cir.getReturnValue();
-            if (original != null && original.entries() != null) {
-                combined.addAll(original.entries());
-            }
-            cir.setReturnValue(new CuttingRecipeDisplay.Grouping<>(combined));
+        CuttingRecipeDisplay.Grouping<StonecuttingRecipe> original = cir.getReturnValue();
+        List<CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe>> combined = new ArrayList<>();
+        if (custom != null && !custom.isEmpty()) {
+            combined.addAll(custom.entries());
         }
+        if (original != null && original.entries() != null) {
+            for (CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe> entry : original.entries()) {
+                if (entry.recipe() != null && entry.recipe().recipe().isPresent() && CustomRecipeDispatcher.isRecipeOverridden(entry.recipe().recipe().get())) {
+                    continue;
+                }
+                combined.add(entry);
+            }
+        }
+        cir.setReturnValue(new CuttingRecipeDisplay.Grouping<>(combined));
     }
 
     @Inject(method = "getStonecutterRecipeForSync", at = @At("RETURN"), cancellable = true)
     private void onGetStonecutterRecipeForSync(CallbackInfoReturnable<CuttingRecipeDisplay.Grouping<StonecuttingRecipe>> cir) {
         CuttingRecipeDisplay.Grouping<StonecuttingRecipe> custom = CustomRecipeDispatcher.getCustomStonecutterGrouping();
-        if (!custom.isEmpty()) {
-            List<CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe>> combined = new ArrayList<>(custom.entries());
-            CuttingRecipeDisplay.Grouping<StonecuttingRecipe> original = cir.getReturnValue();
-            if (original != null && original.entries() != null) {
-                combined.addAll(original.entries());
-            }
-            cir.setReturnValue(new CuttingRecipeDisplay.Grouping<>(combined));
+        CuttingRecipeDisplay.Grouping<StonecuttingRecipe> original = cir.getReturnValue();
+        List<CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe>> combined = new ArrayList<>();
+        if (custom != null && !custom.isEmpty()) {
+            combined.addAll(custom.entries());
         }
+        if (original != null && original.entries() != null) {
+            for (CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe> entry : original.entries()) {
+                if (entry.recipe() != null && entry.recipe().recipe().isPresent() && CustomRecipeDispatcher.isRecipeOverridden(entry.recipe().recipe().get())) {
+                    continue;
+                }
+                combined.add(entry);
+            }
+        }
+        cir.setReturnValue(new CuttingRecipeDisplay.Grouping<>(combined));
     }
 
     @Inject(method = "values", at = @At("RETURN"), cancellable = true)

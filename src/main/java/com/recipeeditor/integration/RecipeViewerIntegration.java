@@ -14,5 +14,16 @@ public class RecipeViewerIntegration {
                 }
             } catch (Throwable ignored) {}
         }
+        if (FabricLoader.getInstance().isModLoaded("emi")) {
+            try {
+                Class<?> emiReloadManager = Class.forName("dev.emi.emi.runtime.EmiReloadManager");
+                emiReloadManager.getMethod("reload").invoke(null);
+            } catch (Throwable ignored) {
+                try {
+                    Class<?> emiRecipes = Class.forName("dev.emi.emi.registry.EmiRecipes");
+                    emiRecipes.getMethod("bake").invoke(null);
+                } catch (Throwable ignored2) {}
+            }
+        }
     }
 }
