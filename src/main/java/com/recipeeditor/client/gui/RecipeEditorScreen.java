@@ -2344,8 +2344,10 @@ public class RecipeEditorScreen extends Screen {
                             float snapExp = currentRecipe.experience;
                             int snapTime = currentRecipe.cookingTime;
                             boolean snapShapeless = currentRecipe.isShapeless;
+                            int snapCount = currentRecipe.getResultCountForType(selectedType);
 
                             this.targetItem = draggedItem;
+                            this.activeCreatedTypes.add(selectedType);
                             sessionVariantsByType.clear();
                             sessionVariantIndexByType.clear();
                             refreshTypeVariants(selectedType, true);
@@ -2364,12 +2366,14 @@ public class RecipeEditorScreen extends Screen {
                                 currentRecipe = typeVariants.get(matchIdx);
                             } else {
                                 Identifier id = Registries.ITEM.getId(draggedItem);
+                                int countToUse = Math.min(snapCount > 0 ? snapCount : 1, draggedItem.getMaxCount());
                                 CustomRecipeData newVariant = new CustomRecipeData(
                                         id != null ? id.getPath() : "craft",
                                         id != null ? id.toString() : "minecraft:air",
-                                        1,
+                                        countToUse,
                                         selectedType
                                 );
+                                newVariant.setResultCountForType(selectedType, countToUse);
                                 newVariant.patternSlots = snapSlots;
                                 newVariant.experience = snapExp;
                                 newVariant.cookingTime = snapTime;
