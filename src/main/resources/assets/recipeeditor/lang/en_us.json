@@ -28,7 +28,7 @@
   "recipeeditor.gui.catalog_title": "Item Catalog:",
   "recipeeditor.gui.search_placeholder": "Search by name or ID...",
   "recipeeditor.gui.save_craft": "Save Craft",
-  "recipeeditor.gui.clear_all": "Clear Craft Window",
+  "recipeeditor.gui.clear_all": "Clear Crafting Grid",
   "recipeeditor.gui.delete_variant": "Delete this Craft Variant",
   "recipeeditor.gui.delete_custom": "Delete this Craft",
   "recipeeditor.gui.craft_saved": "Craft saved successfully!",
