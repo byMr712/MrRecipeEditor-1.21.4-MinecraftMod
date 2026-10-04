@@ -130,14 +130,5 @@ public class ServerRecipeManagerMixin {
             cir.setReturnValue(new CuttingRecipeDisplay.Grouping<>(combined));
         }
     }
-
-    @Inject(method = "values", at = @At("RETURN"), cancellable = true)
-    private void onValues(CallbackInfoReturnable<Collection<RecipeEntry<?>>> cir) {
-        List<RecipeEntry<?>> custom = CustomRecipeDispatcher.getAllCustomRecipes();
-        if (!custom.isEmpty()) {
-            List<RecipeEntry<?>> combined = new ArrayList<>(cir.getReturnValue());
-            combined.addAll(custom);
-            cir.setReturnValue(combined);
-        }
-    }
 }
+
