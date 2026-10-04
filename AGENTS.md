@@ -78,6 +78,23 @@ flowchart TD
 
 ---
 
+### 🔹 Фаза 5: Сетевая синхронизация, книга рецептов 1.21.4 и интеграция с просмотрщиками (Recipe Book & Viewers)
+* [x] **5.1. Ванильная книга рецептов Minecraft 1.21.4 (`ServerRecipeBook` & `NetworkRecipeId`):**
+  * Пул динамических `NetworkRecipeId` (индексы от `1_000_000+`) в `CustomRecipeDispatcher`.
+  * Создание валидных `RecipeDisplayEntry` с корректными категориями (`EQUIPMENT`, `BUILDING`, `REDSTONE`, `MISC`), верстаками и требованиями ингредиентов (`craftingRequirements`).
+  * Инжекция в `ServerRecipeBook.isUnlocked` для мгновенного доступа к автокрафту и блокировки переопределённых оригиналов.
+  * Инжекция в `ServerRecipeBook.sendInitRecipesPacket` и рассылка пакетов `RecipeBookAddS2CPacket` / `RecipeBookRemoveS2CPacket` при подключении и изменениях на лету.
+  * Перехват `ServerRecipeManager.get(NetworkRecipeId)` для штатной работы автозаполнения сетки при клике по рецепту (`CraftRequestC2SPacket`).
+* [x] **5.2. Интеграция с модами просмотра крафтов (REI / EMI):**
+  * Протестирована и верифицирована интеграция с Roughly Enough Items (REI): динамический перезапуск реестров и скрытие переопределённых крафтов.
+  * Реализована тестовая поддержка перезагрузки для EMI через `RecipeViewerIntegration`.
+  * Перехват `getStonecutterRecipes` и `getStonecutterRecipeForSync` в `ServerRecipeManagerMixin` для камнереза.
+* [x] **5.3. Изоляция серверного окружения (Dedicated Server Safety):**
+  * Полное разделение серверных миксинов и клиентских классов GUI/инспектора.
+  * Замена кэширования `hashCode()` на отслеживание монотонного `configVersion`.
+
+---
+
 ## 📌 Чеклист для AI-агентов и разработчиков
 
 | Задача | Статус | Примечания |
@@ -115,6 +132,14 @@ flowchart TD
 | Скрытие виджетов при отключении мода | ✅ Завершено | Виджеты левой панели скрываются при `modEnabled == false` |
 | Настройка времени плавки и опыта в GUI | ✅ Завершено | Поля ввода времени (тики) и опыта (XP) для печей |
 | Высокий приоритет миксина (500) | ✅ Завершено | Совместимость с оптимизаторами FastSuite / Recipe Essentials |
+| Интеграция с ванильной книгой рецептов верстака (1.21.4) | ✅ Завершено | Реализовано через `ServerRecipeBookMixin` и `ServerRecipeManagerMixin` |
+| Поддержка `NetworkRecipeId` и `RecipeDisplayEntry` | ✅ Завершено | Генерация пула индексов `1_000_000+` в `CustomRecipeDispatcher` |
+| Автозаполнение сетки при клике в книге (`CraftRequestC2SPacket`) | ✅ Завершено | Перехват `ServerRecipeManager.get(NetworkRecipeId)` и `isUnlocked()` |
+| Протестированная интеграция с REI | ✅ Завершено | Скрытие переопределений и регистрация синтетических записей |
+| Тестовая поддержка перезагрузки EMI | ✅ Завершено | Интеграция через `RecipeViewerIntegration.java` |
+| Синхронизация рецептов камнереза | ✅ Завершено | Миксины `getStonecutterRecipes` и `getStonecutterRecipeForSync` |
+| Безопасность выделенного сервера (Dedicated Server) | ✅ Завершено | Изоляция клиентских классов от общих сетевых и серверных миксинов |
+| Переход от `hashCode()` к `configVersion` | ✅ Завершено | Надежная инвалидация кэшей при изменениях конфигурации |
 
 
 ---

@@ -18,9 +18,10 @@
 
 ## What can this mod do?
 
-### Mod Integration
+### Mod Integration & Recipe Viewers
 - Modify recipes from any installed mods! Everything is neatly sorted into mod tabs.
-- All your custom recipes show up right away in JEI, REI, EMI, and the vanilla Minecraft Recipe Book!
+- Created and overridden recipes are fully integrated into Minecraft's vanilla Recipe Book (crafting table and furnaces) with instant one-click autofill support.
+- Recipe viewer support: integration with **Roughly Enough Items (REI)** is fully tested and verified — all custom recipes appear immediately in searches, and overridden recipes are properly hidden. For all other recipe viewers (such as EMI or JEI), test support is currently provided.
 
 ### Supports 7 Workstations & Tables
 - **Crafting Table** — convenient 3x3 grid. Smaller recipes (2x2 or 1x2, like torches or sticks) can be crafted anywhere on the table grid.
