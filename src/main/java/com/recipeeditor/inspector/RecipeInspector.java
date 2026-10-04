@@ -449,9 +449,31 @@ public class RecipeInspector {
                     if (!DECOMPILED_CACHE.containsKey(resultItem)) {
                         DECOMPILED_CACHE.put(resultItem, decompiled);
                     }
+                    indexDecompiledIngredients(decompiled, resultItem);
                 }
             }
         } catch (Exception ignored) {}
+    }
+
+    private static void indexDecompiledIngredients(CustomRecipeData data, Item resultItem) {
+        if (data == null || resultItem == Items.AIR || data.patternSlots == null) return;
+        for (int i = 0; i < 9; i++) {
+            String s = data.getSlotString(i);
+            if (s == null || s.isEmpty() || s.equals("minecraft:air")) continue;
+            if (s.startsWith("#")) {
+                List<Item> tagItems = TagResolver.getAllItemsForTag(s);
+                for (Item it : tagItems) {
+                    if (it != Items.AIR) {
+                        INGREDIENT_TO_ITEMS.computeIfAbsent(it, k -> ConcurrentHashMap.newKeySet()).add(resultItem);
+                    }
+                }
+            } else {
+                Item it = data.getItemAt(i);
+                if (it != Items.AIR) {
+                    INGREDIENT_TO_ITEMS.computeIfAbsent(it, k -> ConcurrentHashMap.newKeySet()).add(resultItem);
+                }
+            }
+        }
     }
 
     private static CustomRecipeData buildDecompiledRecipeFromJson(JsonObject obj, Item resultItem, int count, String recipeIdStr) {
@@ -589,6 +611,22 @@ public class RecipeInspector {
             if (ing != null) {
                 for (Item it : getAllItemsFromSlotDisplay(ing)) {
                     if (it != Items.AIR) INGREDIENT_TO_ITEMS.computeIfAbsent(it, k -> ConcurrentHashMap.newKeySet()).add(resultItem);
+                }
+            }
+        } else if (display instanceof StonecutterRecipeDisplay stonecutter) {
+            SlotDisplay ing = stonecutter.input();
+            if (ing != null) {
+                for (Item it : getAllItemsFromSlotDisplay(ing)) {
+                    if (it != Items.AIR) INGREDIENT_TO_ITEMS.computeIfAbsent(it, k -> ConcurrentHashMap.newKeySet()).add(resultItem);
+                }
+            }
+        } else if (display instanceof SmithingRecipeDisplay smithing) {
+            SlotDisplay[] smithingIngs = new SlotDisplay[]{smithing.template(), smithing.base(), smithing.addition()};
+            for (SlotDisplay sd : smithingIngs) {
+                if (sd != null) {
+                    for (Item it : getAllItemsFromSlotDisplay(sd)) {
+                        if (it != Items.AIR) INGREDIENT_TO_ITEMS.computeIfAbsent(it, k -> ConcurrentHashMap.newKeySet()).add(resultItem);
+                    }
                 }
             }
         }
@@ -754,6 +792,45 @@ public class RecipeInspector {
         }
 
         return variants;
+    }
+
+    public static boolean isCookingInputOverridden(RecipeTypeEnum typeEnum, Item inputItem, World world) {
+        if (inputItem == null || inputItem == Items.AIR || typeEnum == null) return false;
+        if (!cacheInitialized) {
+            initializeCache(world);
+        }
+        Set<Item> candidates = INGREDIENT_TO_ITEMS.get(inputItem);
+        if (candidates == null || candidates.isEmpty()) {
+            return false;
+        }
+        boolean hasAnyRecipe = false;
+        boolean allOverridden = true;
+
+        for (Item resultItem : candidates) {
+            List<CustomRecipeData> variants = getAllRecipeVariantsOfType(resultItem, typeEnum, world);
+            for (CustomRecipeData v : variants) {
+                if (v.type != typeEnum) continue;
+                String slotStr = v.getSlotString(0);
+                boolean matches = false;
+                if (slotStr != null && slotStr.startsWith("#")) {
+                    List<Item> tagItems = TagResolver.getAllItemsForTag(slotStr);
+                    matches = tagItems.contains(inputItem);
+                } else if (v.getItemAt(0) == inputItem) {
+                    matches = true;
+                }
+                if (matches) {
+                    hasAnyRecipe = true;
+                    String id = v.overriddenId != null ? v.overriddenId : v.id;
+                    if (!CustomRecipeDispatcher.isIdOverridden(id)) {
+                        allOverridden = false;
+                        break;
+                    }
+                }
+            }
+            if (!allOverridden) break;
+        }
+
+        return hasAnyRecipe && allOverridden;
     }
 
     public static List<CustomRecipeData> expandRecipeTags(CustomRecipeData recipe) {
@@ -1269,9 +1346,15 @@ public class RecipeInspector {
         Set<Item> candidateIngredients = new HashSet<>();
         if (candidate.patternSlots != null) {
             for (int i = 0; i < 9; i++) {
-                Item it = candidate.getItemAt(i);
-                if (it != null && it != Items.AIR) {
-                    candidateIngredients.add(it);
+                String s = candidate.getSlotString(i);
+                if (s != null && s.startsWith("#")) {
+                    List<Item> tagItems = TagResolver.getAllItemsForTag(s);
+                    candidateIngredients.addAll(tagItems);
+                } else {
+                    Item it = candidate.getItemAt(i);
+                    if (it != null && it != Items.AIR) {
+                        candidateIngredients.add(it);
+                    }
                 }
             }
         }
@@ -1284,7 +1367,8 @@ public class RecipeInspector {
                     itemsToCheck.addAll(resItems);
                 }
             }
-        } else {
+        }
+        if (itemsToCheck.isEmpty()) {
             itemsToCheck.addAll(KNOWN_RECIPE_ITEMS);
             itemsToCheck.addAll(RECIPE_ENTRIES.keySet());
             itemsToCheck.addAll(RECIPE_DISPLAYS.keySet());

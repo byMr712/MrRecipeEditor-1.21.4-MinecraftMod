@@ -22,6 +22,7 @@ public class RecipeEditorConfig {
     private static volatile RecipeEditorConfig INSTANCE;
 
     public volatile boolean modEnabled = true;
+    public volatile int configVersion = 0;
     public Map<String, CustomRecipeData> recipes = Collections.synchronizedMap(new LinkedHashMap<>());
     private transient final Set<String> enabledResultIds = ConcurrentHashMap.newKeySet();
 
@@ -58,11 +59,12 @@ public class RecipeEditorConfig {
         Path configPath = getConfigPath();
         File configFile = configPath.toFile();
         if (configFile.exists()) {
-            try (FileReader reader = new FileReader(configFile)) {
+            try (java.io.BufferedReader reader = java.nio.file.Files.newBufferedReader(configPath, java.nio.charset.StandardCharsets.UTF_8)) {
                 RecipeEditorConfig config = GSON.fromJson(reader, RecipeEditorConfig.class);
                 if (config != null) {
                     config.validate();
                     INSTANCE = config;
+                    com.recipeeditor.recipe.CustomRecipeDispatcher.invalidateOverriddenCache();
                     return config;
                 }
             } catch (Exception e) {
@@ -132,7 +134,7 @@ public class RecipeEditorConfig {
                 parent.mkdirs();
             }
 
-            try (FileWriter writer = new FileWriter(tmpPath.toFile())) {
+            try (java.io.BufferedWriter writer = java.nio.file.Files.newBufferedWriter(tmpPath, java.nio.charset.StandardCharsets.UTF_8)) {
                 GSON.toJson(this, writer);
             }
 
@@ -141,15 +143,18 @@ public class RecipeEditorConfig {
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                 java.nio.file.Files.move(tmpPath, configPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
+            configVersion++;
             rebuildEnabledCache();
             com.recipeeditor.recipe.CustomDynamicCraftingRecipe.invalidateDisplayCache();
             com.recipeeditor.recipe.CustomRecipeDispatcher.clearSyntheticCache();
+            com.recipeeditor.recipe.CustomRecipeDispatcher.invalidateOverriddenCache();
         } catch (IOException e) {
             RecipeEditorMod.LOGGER.error("Failed to save RecipeEditor config atomically", e);
         }
     }
 
     public void invalidateAllRecipeCaches() {
+        configVersion++;
         if (recipes != null) {
             synchronized (recipes) {
                 for (CustomRecipeData r : recipes.values()) {
@@ -159,6 +164,7 @@ public class RecipeEditorConfig {
         }
         com.recipeeditor.recipe.CustomDynamicCraftingRecipe.invalidateDisplayCache();
         com.recipeeditor.recipe.CustomRecipeDispatcher.clearSyntheticCache();
+        com.recipeeditor.recipe.CustomRecipeDispatcher.invalidateOverriddenCache();
     }
 
     public boolean hasAnyCustomRecipes() {
@@ -218,25 +224,31 @@ public class RecipeEditorConfig {
                 recipes = Collections.synchronizedMap(new LinkedHashMap<>());
             }
             recipes.put(recipe.getKey(), recipe);
+            configVersion++;
             if (recipe.enabled) {
                 enabledResultIds.add(recipe.resultItemId);
             } else {
                 rebuildEnabledCache();
             }
+            com.recipeeditor.recipe.CustomRecipeDispatcher.invalidateOverriddenCache();
         }
     }
 
     public void removeRecipe(CustomRecipeData recipe) {
         if (recipes != null && recipe != null) {
             recipes.remove(recipe.getKey());
+            configVersion++;
             rebuildEnabledCache();
+            com.recipeeditor.recipe.CustomRecipeDispatcher.invalidateOverriddenCache();
         }
     }
 
     public void removeRecipeByKey(String key) {
         if (recipes != null && key != null) {
             recipes.remove(key);
+            configVersion++;
             rebuildEnabledCache();
+            com.recipeeditor.recipe.CustomRecipeDispatcher.invalidateOverriddenCache();
         }
     }
 

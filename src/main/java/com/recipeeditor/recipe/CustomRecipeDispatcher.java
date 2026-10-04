@@ -28,7 +28,12 @@ import java.util.Set;
 
 public class CustomRecipeDispatcher {
     private static volatile Set<String> cachedOverriddenIds = null;
-    private static int lastConfigHashCode = -1;
+    private static volatile int lastConfigVersion = -1;
+
+    public static synchronized void invalidateOverriddenCache() {
+        cachedOverriddenIds = null;
+        lastConfigVersion = -1;
+    }
 
     private static synchronized void updateOverriddenCaches(RecipeEditorConfig config) {
         Set<String> ids = new HashSet<>();
@@ -37,9 +42,8 @@ public class CustomRecipeDispatcher {
                 if (!recipeData.enabled || !recipeData.overrideExisting) continue;
                 if (recipeData.overriddenId != null && !recipeData.overriddenId.isEmpty()) {
                     ids.add(recipeData.overriddenId);
-                    int colon = recipeData.overriddenId.indexOf(':');
-                    if (colon >= 0) {
-                        ids.add(recipeData.overriddenId.substring(colon + 1));
+                    if (recipeData.overriddenId.startsWith("minecraft:")) {
+                        ids.add(recipeData.overriddenId.substring("minecraft:".length()));
                     }
                 }
             }
@@ -57,15 +61,55 @@ public class CustomRecipeDispatcher {
             return false;
         }
 
-        int currentHash = config.hashCode();
-        if (cachedOverriddenIds == null || lastConfigHashCode != currentHash) {
+        int currentVer = config.configVersion;
+        if (cachedOverriddenIds == null || lastConfigVersion != currentVer) {
             updateOverriddenCaches(config);
-            lastConfigHashCode = currentHash;
+            lastConfigVersion = currentVer;
+        }
+
+        if (cachedOverriddenIds == null || cachedOverriddenIds.isEmpty()) {
+            return false;
         }
 
         String fullId = entryId.toString();
-        String path = entryId.getPath();
-        return cachedOverriddenIds != null && (cachedOverriddenIds.contains(fullId) || cachedOverriddenIds.contains(path));
+        if (cachedOverriddenIds.contains(fullId)) {
+            return true;
+        }
+
+        if ("minecraft".equals(entryId.getNamespace())) {
+            String path = entryId.getPath();
+            return cachedOverriddenIds.contains(path);
+        }
+
+        return false;
+    }
+
+    public static boolean isIdOverridden(String fullOrShortId) {
+        if (fullOrShortId == null || fullOrShortId.isEmpty()) return false;
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
+            return false;
+        }
+
+        int currentVer = config.configVersion;
+        if (cachedOverriddenIds == null || lastConfigVersion != currentVer) {
+            updateOverriddenCaches(config);
+            lastConfigVersion = currentVer;
+        }
+
+        if (cachedOverriddenIds == null || cachedOverriddenIds.isEmpty()) {
+            return false;
+        }
+
+        if (cachedOverriddenIds.contains(fullOrShortId)) {
+            return true;
+        }
+
+        if (fullOrShortId.startsWith("minecraft:")) {
+            return cachedOverriddenIds.contains(fullOrShortId.substring("minecraft:".length()));
+        }
+
+        return false;
     }
 
     public static <I extends RecipeInput, T extends Recipe<I>> Optional<RecipeEntry<T>> getCustomMatch(RecipeType<T> type, I input, World world) {

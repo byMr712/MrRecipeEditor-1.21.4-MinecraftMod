@@ -26,4 +26,27 @@ public enum RecipeTypeEnum {
     public Text getTooltip() {
         return Text.translatable(tooltipKey);
     }
+
+    public static RecipeTypeEnum fromRecipeType(net.minecraft.recipe.RecipeType<?> type) {
+        if (type == net.minecraft.recipe.RecipeType.SMELTING) return SMELTING;
+        if (type == net.minecraft.recipe.RecipeType.BLASTING) return BLASTING;
+        if (type == net.minecraft.recipe.RecipeType.SMOKING) return SMOKING;
+        if (type == net.minecraft.recipe.RecipeType.CAMPFIRE_COOKING) return CAMPFIRE_COOKING;
+        if (type == net.minecraft.recipe.RecipeType.STONECUTTING) return STONECUTTING;
+        if (type == net.minecraft.recipe.RecipeType.SMITHING) return SMITHING;
+        if (type == net.minecraft.recipe.RecipeType.CRAFTING) return SHAPED_CRAFTING;
+        return null;
+    }
+
+    public net.minecraft.recipe.RecipeType<?> toRecipeType() {
+        return switch (this) {
+            case SMELTING -> net.minecraft.recipe.RecipeType.SMELTING;
+            case BLASTING -> net.minecraft.recipe.RecipeType.BLASTING;
+            case SMOKING -> net.minecraft.recipe.RecipeType.SMOKING;
+            case CAMPFIRE_COOKING -> net.minecraft.recipe.RecipeType.CAMPFIRE_COOKING;
+            case STONECUTTING -> net.minecraft.recipe.RecipeType.STONECUTTING;
+            case SMITHING -> net.minecraft.recipe.RecipeType.SMITHING;
+            case SHAPED_CRAFTING -> net.minecraft.recipe.RecipeType.CRAFTING;
+        };
+    }
 }

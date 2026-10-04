@@ -436,6 +436,7 @@ public class RecipeEditorScreen extends Screen {
 
     private void switchMachineType(RecipeTypeEnum newType) {
         if (targetItem == null) return;
+        this.selectedSlot = 0;
         if (selectedType != newType && !typeVariants.isEmpty()) {
             List<CustomRecipeData> copyList = new ArrayList<>();
             for (CustomRecipeData d : typeVariants) {
@@ -1398,14 +1399,27 @@ public class RecipeEditorScreen extends Screen {
         if (!allConflicts.isEmpty()) {
             if (this.client != null) {
                 this.client.setScreen(new RecipeConflictScreen(this, allConflicts, () -> {
+                    RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
+                    // Point 4: Delete conflicting custom recipe if it was overridden by this new recipe
+                    for (com.recipeeditor.inspector.RecipeConflictInfo info : allConflicts) {
+                        if (info.conflictingRecipeKey != null && !info.conflictingRecipeKey.isEmpty()) {
+                            configCopy.removeRecipeByKey(info.conflictingRecipeKey);
+                            actual.removeRecipeByKey(info.conflictingRecipeKey);
+                            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, info.conflictingRecipeKey);
+                        }
+                    }
+
+                    // Point 3: Only apply conflict overrides to the recipe that actually generated the conflict
                     for (CustomRecipeData recipe : toSave) {
-                        recipe.overrideExisting = true;
                         for (com.recipeeditor.inspector.RecipeConflictInfo info : allConflicts) {
-                            if (info.conflictingRecipeId != null && !info.conflictingRecipeId.isEmpty()) {
-                                recipe.overriddenId = info.conflictingRecipeId;
-                            }
-                            if (info.conflictingRecipeKey != null && !info.conflictingRecipeKey.isEmpty()) {
-                                recipe.overriddenKey = info.conflictingRecipeKey;
+                            if (info.attemptedRecipe == recipe) {
+                                recipe.overrideExisting = true;
+                                if (info.conflictingRecipeId != null && !info.conflictingRecipeId.isEmpty()) {
+                                    recipe.overriddenId = info.conflictingRecipeId;
+                                }
+                                if (info.conflictingRecipeKey != null && !info.conflictingRecipeKey.isEmpty()) {
+                                    recipe.overriddenKey = info.conflictingRecipeKey;
+                                }
                             }
                         }
                     }
@@ -2326,16 +2340,66 @@ public class RecipeEditorScreen extends Screen {
                         selectedSlot = targetSlot;
                     } else if (targetSlot == RESULT_SLOT) {
                         if (currentRecipe != null) {
+                            String[] snapSlots = currentRecipe.patternSlots != null ? Arrays.copyOf(currentRecipe.patternSlots, 9) : new String[9];
+                            float snapExp = currentRecipe.experience;
+                            int snapTime = currentRecipe.cookingTime;
+                            boolean snapShapeless = currentRecipe.isShapeless;
+
                             this.targetItem = draggedItem;
-                            this.currentRecipe.setResultItem(draggedItem);
-                            int max = draggedItem.getMaxCount();
-                            if (this.currentRecipe.getResultCountForType(selectedType) > max) {
-                                this.currentRecipe.setResultCountForType(selectedType, max);
+                            sessionVariantsByType.clear();
+                            sessionVariantIndexByType.clear();
+                            refreshTypeVariants(selectedType, true);
+
+                            int matchIdx = -1;
+                            for (int i = 0; i < typeVariants.size(); i++) {
+                                CustomRecipeData v = typeVariants.get(i);
+                                if (Arrays.equals(v.patternSlots, snapSlots)) {
+                                    matchIdx = i;
+                                    break;
+                                }
                             }
-                            if (resultCountField != null) {
-                                resultCountField.setText(String.valueOf(this.currentRecipe.getResultCountForType(selectedType)));
+
+                            if (matchIdx >= 0) {
+                                currentVariantIndex = matchIdx;
+                                currentRecipe = typeVariants.get(matchIdx);
+                            } else {
+                                Identifier id = Registries.ITEM.getId(draggedItem);
+                                CustomRecipeData newVariant = new CustomRecipeData(
+                                        id != null ? id.getPath() : "craft",
+                                        id != null ? id.toString() : "minecraft:air",
+                                        1,
+                                        selectedType
+                                );
+                                newVariant.patternSlots = snapSlots;
+                                newVariant.experience = snapExp;
+                                newVariant.cookingTime = snapTime;
+                                newVariant.isShapeless = snapShapeless;
+                                newVariant.invalidateCache();
+                                typeVariants.add(newVariant);
+                                currentVariantIndex = typeVariants.size() - 1;
+                                currentRecipe = newVariant;
+                            }
+
+                            if (currentRecipe != null) {
+                                int max = draggedItem.getMaxCount();
+                                if (currentRecipe.getResultCountForType(selectedType) > max) {
+                                    currentRecipe.setResultCountForType(selectedType, max);
+                                }
+                                if (resultCountField != null) {
+                                    resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
+                                }
+                                if (cookingTimeField != null) {
+                                    cookingTimeField.setText(String.valueOf(currentRecipe.cookingTime));
+                                }
+                                if (experienceField != null) {
+                                    experienceField.setText(String.format(Locale.ROOT, "%.1f", currentRecipe.experience));
+                                }
                             }
                             selectedSlot = RESULT_SLOT;
+                            updateEditorWidgetsVisibility();
+                            updateVariantButtons();
+                            rebuildTypeButtons();
+                            updateButtonStates();
                         } else {
                             selectTargetItem(draggedItem);
                             selectedSlot = RESULT_SLOT;

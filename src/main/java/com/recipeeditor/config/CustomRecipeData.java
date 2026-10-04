@@ -171,12 +171,12 @@ public class CustomRecipeData {
             }
             cachedIngredients = temp;
             cachedPatternHash = currentHash;
-        } else if (cachedIngredients[slot] == null) {
-            // If previously resolved to null for a tag before registry was ready, retry now
+        } else if (cachedIngredients[slot] == null || (cachedIngredients[slot].isEmpty() && getSlotString(slot).startsWith("#"))) {
+            // If previously resolved to empty for a tag before registry was ready, retry now
             String slotStr = getSlotString(slot);
             if (slotStr != null && slotStr.startsWith("#")) {
                 Ingredient retry = computeIngredientForSlot(slot);
-                if (retry != null) {
+                if (retry != null && !retry.isEmpty()) {
                     cachedIngredients[slot] = retry;
                 }
             }
@@ -198,12 +198,15 @@ public class CustomRecipeData {
                     return Ingredient.fromTag(entryList.get());
                 }
             }
+            // Tag is missing/unresolved: return an unmatchable empty ingredient instead of null (air)
+            return Ingredient.ofItems();
         }
         Item item = getItemAt(slot);
         if (item != Items.AIR) {
             return Ingredient.ofItem(item);
         }
-        return null;
+        // Unknown item identifier: return an unmatchable empty ingredient instead of null (air)
+        return Ingredient.ofItems();
     }
 
     public Optional<Ingredient> createIngredientForSlot(int slot) {
