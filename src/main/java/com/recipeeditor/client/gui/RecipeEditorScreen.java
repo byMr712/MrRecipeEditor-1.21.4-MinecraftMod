@@ -696,7 +696,10 @@ public class RecipeEditorScreen extends Screen {
                 .build();
         this.addDrawableChild(plusCountBtn);
 
-        // Shapeless toggle button (under 3x3 crafting grid)
+        // Shapeless toggle button (Centered directly above the result slot)
+        int shapelessBtnWidth = 64;
+        int shapelessBtnX = (resultX + 14) - (shapelessBtnWidth / 2);
+        int shapelessBtnY = resultY - 18;
         shapelessToggleBtn = ButtonWidget.builder(
                 getShapelessBtnText(),
                 btn -> {
@@ -706,7 +709,7 @@ public class RecipeEditorScreen extends Screen {
                         updateButtonStates();
                     }
                 })
-                .dimensions(gridStartX + 2, countY, 70, 16)
+                .dimensions(shapelessBtnX, shapelessBtnY, shapelessBtnWidth, 16)
                 .build();
         this.addDrawableChild(shapelessToggleBtn);
 
@@ -913,6 +916,7 @@ public class RecipeEditorScreen extends Screen {
         if (a == null || b == null) return false;
         if (a.type != type || b.type != type) return false;
         if (a.getResultCountForType(type) != b.getResultCountForType(type)) return false;
+        if (a.isShapeless != b.isShapeless) return false;
 
         if (type == RecipeTypeEnum.SMELTING || type == RecipeTypeEnum.BLASTING ||
             type == RecipeTypeEnum.SMOKING || type == RecipeTypeEnum.CAMPFIRE_COOKING) {
@@ -2150,6 +2154,12 @@ public class RecipeEditorScreen extends Screen {
                 float xp = currentRecipe != null ? currentRecipe.experience : 0.1f;
                 return Text.translatable("recipeeditor.tooltip.experience_field", String.format(Locale.ROOT, "%.1f", xp));
             }
+        }
+        if (shapelessToggleBtn != null && shapelessToggleBtn.visible && shapelessToggleBtn.isHovered()) {
+            boolean shapeless = currentRecipe != null && currentRecipe.isShapeless;
+            return shapeless
+                    ? Text.translatable("recipeeditor.tooltip.shapeless_desc")
+                    : Text.translatable("recipeeditor.tooltip.shaped_desc");
         }
         if (saveCraftBtn != null && saveCraftBtn.visible && saveCraftBtn.isHovered()) {
             return Text.translatable("recipeeditor.tooltip.save_craft");
