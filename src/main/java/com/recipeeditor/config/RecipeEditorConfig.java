@@ -38,6 +38,10 @@ public class RecipeEditorConfig {
         return instance;
     }
 
+    public static synchronized void reloadLocal() {
+        INSTANCE = load();
+    }
+
     public static Path getConfigPath() {
         Path configDir = FabricLoader.getInstance().getConfigDir();
         Path newPath = configDir.resolve("mrrecipeeditor.json");

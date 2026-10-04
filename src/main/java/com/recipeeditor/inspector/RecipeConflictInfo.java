@@ -12,11 +12,20 @@ public class RecipeConflictInfo {
     public final String sourceName;
     public final RecipeTypeEnum workstationType;
 
+    public final String conflictingRecipeId;
+    public final String conflictingRecipeKey;
+
     public RecipeConflictInfo(CustomRecipeData attemptedRecipe, Item conflictingItem, String sourceName, RecipeTypeEnum workstationType) {
+        this(attemptedRecipe, conflictingItem, sourceName, workstationType, null, null);
+    }
+
+    public RecipeConflictInfo(CustomRecipeData attemptedRecipe, Item conflictingItem, String sourceName, RecipeTypeEnum workstationType, String conflictingRecipeId, String conflictingRecipeKey) {
         this.attemptedRecipe = attemptedRecipe;
         this.conflictingItem = conflictingItem;
         this.sourceName = sourceName;
         this.workstationType = workstationType;
+        this.conflictingRecipeId = conflictingRecipeId;
+        this.conflictingRecipeKey = conflictingRecipeKey;
     }
 
     public Text getConflictingItemName() {

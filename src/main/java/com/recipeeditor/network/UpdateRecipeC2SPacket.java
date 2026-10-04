@@ -12,6 +12,7 @@ public record UpdateRecipeC2SPacket(int action, String payload) implements Custo
     public static final int ACTION_DELETE_RECIPE = 2;
     public static final int ACTION_RESET_DEFAULTS = 3;
     public static final int ACTION_TOGGLE_ENABLED = 4;
+    public static final int ACTION_DELETE_ALL_FOR_ITEM = 5;
 
     public static final Id<UpdateRecipeC2SPacket> ID = new Id<>(Identifier.of(RecipeEditorMod.MOD_ID, "update_recipe"));
     public static final PacketCodec<RegistryByteBuf, UpdateRecipeC2SPacket> CODEC = PacketCodec.tuple(

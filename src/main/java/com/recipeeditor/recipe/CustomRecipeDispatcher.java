@@ -19,14 +19,33 @@ import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.util.Identifier;
 import net.minecraft.world.World;
-import com.recipeeditor.inspector.RecipeInspector;
-
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public class CustomRecipeDispatcher {
+    private static volatile Set<String> cachedOverriddenIds = null;
+    private static int lastConfigHashCode = -1;
+
+    private static synchronized void updateOverriddenCaches(RecipeEditorConfig config) {
+        Set<String> ids = new HashSet<>();
+        if (config != null && config.recipes != null) {
+            for (CustomRecipeData recipeData : config.recipes.values()) {
+                if (!recipeData.enabled || !recipeData.overrideExisting) continue;
+                if (recipeData.overriddenId != null && !recipeData.overriddenId.isEmpty()) {
+                    ids.add(recipeData.overriddenId);
+                    int colon = recipeData.overriddenId.indexOf(':');
+                    if (colon >= 0) {
+                        ids.add(recipeData.overriddenId.substring(colon + 1));
+                    }
+                }
+            }
+        }
+        cachedOverriddenIds = ids;
+    }
 
     public static boolean isRecipeOverridden(RecipeEntry<?> entry) {
         if (entry == null || entry.id() == null) return false;
@@ -38,32 +57,15 @@ public class CustomRecipeDispatcher {
             return false;
         }
 
+        int currentHash = config.hashCode();
+        if (cachedOverriddenIds == null || lastConfigHashCode != currentHash) {
+            updateOverriddenCaches(config);
+            lastConfigHashCode = currentHash;
+        }
+
         String fullId = entryId.toString();
         String path = entryId.getPath();
-
-        for (CustomRecipeData recipeData : config.recipes.values()) {
-            if (!recipeData.enabled || !recipeData.overrideExisting) continue;
-
-            // 1. Direct ID match
-            if (recipeData.overriddenId != null) {
-                if (recipeData.overriddenId.equals(fullId) || recipeData.overriddenId.equals(path)) {
-                    return true;
-                }
-            }
-
-            // 2. Pattern key match
-            if (recipeData.overriddenKey != null && recipeData.resultItemId != null) {
-                Identifier targetId = Identifier.tryParse(recipeData.resultItemId);
-                if (targetId != null && Registries.ITEM.containsId(targetId)) {
-                    Item targetItem = Registries.ITEM.get(targetId);
-                    CustomRecipeData entryData = RecipeInspector.decompileFromEntry(entry, targetItem);
-                    if (entryData != null && recipeData.overriddenKey.equals(entryData.getKey())) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
+        return cachedOverriddenIds != null && (cachedOverriddenIds.contains(fullId) || cachedOverriddenIds.contains(path));
     }
 
     public static <I extends RecipeInput, T extends Recipe<I>> Optional<RecipeEntry<T>> getCustomMatch(RecipeType<T> type, I input, World world) {

@@ -122,6 +122,7 @@ public class RecipeEditorScreen extends Screen {
     private ButtonWidget clearCraftBtn;
     private ButtonWidget deleteVariantBtn;
     private ButtonWidget deleteRecipeBtn;
+    private ButtonWidget shapelessToggleBtn;
     private boolean showCustomDeleteButtons = false;
     private final Map<RecipeTypeEnum, List<CustomRecipeData>> sessionVariantsByType = new HashMap<>();
     private final Map<RecipeTypeEnum, Integer> sessionVariantIndexByType = new HashMap<>();
@@ -526,10 +527,23 @@ public class RecipeEditorScreen extends Screen {
         if (experienceField != null) experienceField.setVisible(isFurnaceMachine);
         if (saveCraftBtn != null) saveCraftBtn.visible = hasActiveCraft;
         if (clearCraftBtn != null) clearCraftBtn.visible = hasActiveCraft;
+        if (shapelessToggleBtn != null) {
+            boolean isShapedTable = hasActiveCraft && (selectedType == RecipeTypeEnum.SHAPED_CRAFTING);
+            shapelessToggleBtn.visible = isShapedTable;
+            shapelessToggleBtn.active = enabled && hasEditPermission();
+            shapelessToggleBtn.setMessage(getShapelessBtnText());
+        }
         boolean showDelete = showCustomDeleteButtons && (currentFilter == CatalogFilter.CUSTOM) && (hasActiveCraft) && configCopy.hasCustomRecipe(targetItem);
         if (deleteVariantBtn != null) deleteVariantBtn.visible = showDelete;
         if (deleteRecipeBtn != null) deleteRecipeBtn.visible = showDelete;
         if (createRecipeBtn != null) createRecipeBtn.visible = (hasItem && !hasActiveCraft);
+    }
+
+    private Text getShapelessBtnText() {
+        boolean shapeless = currentRecipe != null && currentRecipe.isShapeless;
+        return shapeless
+                ? Text.translatable("recipeeditor.gui.shapeless_btn").formatted(Formatting.AQUA)
+                : Text.translatable("recipeeditor.gui.shaped_btn").formatted(Formatting.GRAY);
     }
 
     private void setEditorWidgetsVisible(boolean visible) {
@@ -659,8 +673,14 @@ public class RecipeEditorScreen extends Screen {
                 if (!text.trim().isEmpty()) {
                     int max = targetItem != null && targetItem != Items.AIR ? targetItem.getMaxCount() : 64;
                     int val = Integer.parseInt(text.trim());
-                    if (val > max) val = max;
-                    if (val < 1) val = 1;
+                    if (val > max) {
+                        val = max;
+                        resultCountField.setText(String.valueOf(val));
+                    }
+                    if (val < 1) {
+                        val = 1;
+                        resultCountField.setText(String.valueOf(val));
+                    }
                     if (currentRecipe != null) {
                         currentRecipe.setResultCountForType(selectedType, val);
                         updateButtonStates();
@@ -674,6 +694,20 @@ public class RecipeEditorScreen extends Screen {
                 .dimensions(countStartX + 46, countY, 14, 16)
                 .build();
         this.addDrawableChild(plusCountBtn);
+
+        // Shapeless toggle button (under 3x3 crafting grid)
+        shapelessToggleBtn = ButtonWidget.builder(
+                getShapelessBtnText(),
+                btn -> {
+                    if (currentRecipe != null) {
+                        currentRecipe.isShapeless = !currentRecipe.isShapeless;
+                        btn.setMessage(getShapelessBtnText());
+                        updateButtonStates();
+                    }
+                })
+                .dimensions(gridStartX + 2, countY, 70, 16)
+                .build();
+        this.addDrawableChild(shapelessToggleBtn);
 
         // Furnace Cooking Time & Experience controls (under input slot: gridStartX + 4)
         int furnaceControlsY = countY;
@@ -721,7 +755,7 @@ public class RecipeEditorScreen extends Screen {
                 .build();
         this.addDrawableChild(saveCraftBtn);
 
-        clearCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.clear_all").formatted(Formatting.RED), btn -> clearAllSlots())
+        clearCraftBtn = ButtonWidget.builder(Text.translatable("recipeeditor.gui.clear_all").formatted(Formatting.RED), btn -> promptClearAllSlots())
                 .dimensions(leftPaneX, actionBtnY + 20, leftPaneWidth, 18)
                 .build();
         this.addDrawableChild(clearCraftBtn);
@@ -1313,6 +1347,22 @@ public class RecipeEditorScreen extends Screen {
         rebuildFilterButtons();
     }
 
+    private void promptClearAllSlots() {
+        if (!hasEditPermission() || currentRecipe == null) return;
+        if (this.client != null) {
+            this.client.setScreen(new ConfirmScreen(
+                    confirmed -> {
+                        if (confirmed) {
+                            clearAllSlots();
+                        }
+                        this.client.setScreen(this);
+                    },
+                    Text.translatable("recipeeditor.gui.clear_confirm_title").formatted(Formatting.RED, Formatting.BOLD),
+                    Text.translatable("recipeeditor.gui.clear_confirm_msg")
+            ));
+        }
+    }
+
     private void saveCurrentCraft() {
         if (!hasEditPermission() || targetItem == null || targetItem == Items.AIR) return;
 
@@ -1326,6 +1376,7 @@ public class RecipeEditorScreen extends Screen {
         if (toSave.isEmpty()) return;
 
         // Check for conflicts with existing vanilla, mod, or custom recipes
+        List<com.recipeeditor.inspector.RecipeConflictInfo> allConflicts = new ArrayList<>();
         for (CustomRecipeData recipe : toSave) {
             recipe.setResultItem(targetItem);
             recipe.type = selectedType;
@@ -1339,16 +1390,35 @@ public class RecipeEditorScreen extends Screen {
                     this.client != null ? this.client.world : null,
                     configCopy
             );
-
             if (!conflicts.isEmpty()) {
-                if (this.client != null) {
-                    this.client.setScreen(new RecipeConflictScreen(this, conflicts));
-                }
-                return;
+                allConflicts.addAll(conflicts);
             }
         }
 
-        // Save all savable variants into config
+        if (!allConflicts.isEmpty()) {
+            if (this.client != null) {
+                this.client.setScreen(new RecipeConflictScreen(this, allConflicts, () -> {
+                    for (CustomRecipeData recipe : toSave) {
+                        recipe.overrideExisting = true;
+                        for (com.recipeeditor.inspector.RecipeConflictInfo info : allConflicts) {
+                            if (info.conflictingRecipeId != null && !info.conflictingRecipeId.isEmpty()) {
+                                recipe.overriddenId = info.conflictingRecipeId;
+                            }
+                            if (info.conflictingRecipeKey != null && !info.conflictingRecipeKey.isEmpty()) {
+                                recipe.overriddenKey = info.conflictingRecipeKey;
+                            }
+                        }
+                    }
+                    executeSaveCraft(toSave);
+                }));
+            }
+            return;
+        }
+
+        executeSaveCraft(toSave);
+    }
+
+    private void executeSaveCraft(List<CustomRecipeData> toSave) {
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
         String savedSig = currentRecipe != null ? currentRecipe.getPatternSignature() : null;
 
@@ -1367,7 +1437,9 @@ public class RecipeEditorScreen extends Screen {
             actual.addOrUpdateRecipe(recipe.copy());
             sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE, recipe.toJson());
         }
-        actual.save();
+        if (this.client != null && this.client.isInSingleplayer()) {
+            actual.save();
+        }
 
         sessionVariantsByType.clear();
         sessionVariantIndexByType.clear();
@@ -1415,7 +1487,9 @@ public class RecipeEditorScreen extends Screen {
         }
 
         if (deleted) {
-            RecipeEditorConfig.getInstance().save();
+            if (this.client != null && this.client.isInSingleplayer()) {
+                RecipeEditorConfig.getInstance().save();
+            }
         }
 
         notificationText = Text.translatable("recipeeditor.gui.variant_deleted").formatted(Formatting.RED, Formatting.BOLD);
@@ -1457,9 +1531,16 @@ public class RecipeEditorScreen extends Screen {
             configCopy.removeRecipe(r);
             RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
             actual.removeRecipe(r);
-            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, r.toJson());
         }
-        RecipeEditorConfig.getInstance().save();
+
+        Identifier targetId = Registries.ITEM.getId(targetItem);
+        if (targetId != null) {
+            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_ALL_FOR_ITEM, targetId.toString());
+        }
+
+        if (this.client != null && this.client.isInSingleplayer()) {
+            RecipeEditorConfig.getInstance().save();
+        }
 
         notificationText = Text.translatable("recipeeditor.gui.craft_deleted").formatted(Formatting.RED, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
@@ -2244,8 +2325,21 @@ public class RecipeEditorScreen extends Screen {
                         currentRecipe.setItemAt(targetSlot, draggedItem);
                         selectedSlot = targetSlot;
                     } else if (targetSlot == RESULT_SLOT) {
-                        selectTargetItem(draggedItem);
-                        selectedSlot = RESULT_SLOT;
+                        if (currentRecipe != null) {
+                            this.targetItem = draggedItem;
+                            this.currentRecipe.setResultItem(draggedItem);
+                            int max = draggedItem.getMaxCount();
+                            if (this.currentRecipe.getResultCountForType(selectedType) > max) {
+                                this.currentRecipe.setResultCountForType(selectedType, max);
+                            }
+                            if (resultCountField != null) {
+                                resultCountField.setText(String.valueOf(this.currentRecipe.getResultCountForType(selectedType)));
+                            }
+                            selectedSlot = RESULT_SLOT;
+                        } else {
+                            selectTargetItem(draggedItem);
+                            selectedSlot = RESULT_SLOT;
+                        }
                     }
                 }
             } else {

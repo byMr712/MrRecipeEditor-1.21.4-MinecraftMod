@@ -39,6 +39,8 @@ public class RecipeInspector {
     private static final Set<Item> KNOWN_RECIPE_ITEMS = ConcurrentHashMap.newKeySet();
     private static final Map<Item, CustomRecipeData> DECOMPILED_CACHE = new ConcurrentHashMap<>();
     private static final Map<Item, List<CustomRecipeData>> DECOMPILED_VARIANTS = new ConcurrentHashMap<>();
+    private static final Set<Item> SYNTHETIC_ITEMS = ConcurrentHashMap.newKeySet();
+    private static final Map<Item, Set<Item>> INGREDIENT_TO_ITEMS = new ConcurrentHashMap<>();
     /** Multilingual item name index: translationKey -> Set of lowercase names from all scanned lang files */
     private static final Map<String, Set<String>> ITEM_LANG_NAMES = new ConcurrentHashMap<>();
     private static volatile boolean cacheInitialized = false;
@@ -84,6 +86,8 @@ public class RecipeInspector {
         RECIPE_ENTRIES.clear();
         RECIPE_DISPLAYS.clear();
         DECOMPILED_CACHE.clear();
+        INGREDIENT_TO_ITEMS.clear();
+        SYNTHETIC_ITEMS.clear();
         TagResolver.clearWorldCache();
         cacheInitialized = false;
     }
@@ -125,7 +129,7 @@ public class RecipeInspector {
                 for (RecipeEntry<?> entry : server.getRecipeManager().values()) {
                     indexRecipeEntry(entry);
                 }
-                cacheInitialized = true;
+                finishCacheInitialization();
                 return;
             }
 
@@ -144,16 +148,28 @@ public class RecipeInspector {
                                 if (resultItem != Items.AIR) {
                                     RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(display);
                                     KNOWN_RECIPE_ITEMS.add(resultItem);
+                                    indexDisplayIngredients(display, resultItem);
                                 }
                             }
                         }
                     }
                 }
-                cacheInitialized = true;
+                finishCacheInitialization();
                 return;
             }
         }
 
+        finishCacheInitialization();
+    }
+
+    private static void finishCacheInitialization() {
+        if (SYNTHETIC_ITEMS.isEmpty()) {
+            for (Item item : Registries.ITEM) {
+                if (!getSyntheticDynamicRecipes(item).isEmpty()) {
+                    SYNTHETIC_ITEMS.add(item);
+                }
+            }
+        }
         cacheInitialized = true;
     }
 
@@ -554,10 +570,35 @@ public class RecipeInspector {
                         RECIPE_ENTRIES.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(entry);
                         RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(display);
                         KNOWN_RECIPE_ITEMS.add(resultItem);
+                        indexDisplayIngredients(display, resultItem);
                     }
                 }
             }
         } catch (Exception ignored) {}
+    }
+
+    private static void indexDisplayIngredients(RecipeDisplay display, Item resultItem) {
+        if (display == null || resultItem == Items.AIR) return;
+        List<SlotDisplay> ingredients = null;
+        if (display instanceof ShapedCraftingRecipeDisplay shaped) {
+            ingredients = shaped.ingredients();
+        } else if (display instanceof ShapelessCraftingRecipeDisplay shapeless) {
+            ingredients = shapeless.ingredients();
+        } else if (display instanceof FurnaceRecipeDisplay furnace) {
+            SlotDisplay ing = furnace.ingredient();
+            if (ing != null) {
+                for (Item it : getAllItemsFromSlotDisplay(ing)) {
+                    if (it != Items.AIR) INGREDIENT_TO_ITEMS.computeIfAbsent(it, k -> ConcurrentHashMap.newKeySet()).add(resultItem);
+                }
+            }
+        }
+        if (ingredients != null) {
+            for (SlotDisplay sd : ingredients) {
+                for (Item it : getAllItemsFromSlotDisplay(sd)) {
+                    if (it != Items.AIR) INGREDIENT_TO_ITEMS.computeIfAbsent(it, k -> ConcurrentHashMap.newKeySet()).add(resultItem);
+                }
+            }
+        }
     }
 
     public static Set<Item> getAllItemsFromSlotDisplay(SlotDisplay display) {
@@ -598,7 +639,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        boolean hasEntry = RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || !getSyntheticDynamicRecipes(item).isEmpty();
+        boolean hasEntry = RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || SYNTHETIC_ITEMS.contains(item);
         if (hasEntry) {
             return RecipeStatus.VANILLA_OR_MODDED;
         }
@@ -610,7 +651,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        return RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || !getSyntheticDynamicRecipes(item).isEmpty();
+        return RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || SYNTHETIC_ITEMS.contains(item);
     }
 
     public static List<CustomRecipeData> getAllRecipeVariants(Item targetItem, World world) {
@@ -1213,7 +1254,7 @@ public class RecipeInspector {
                     if (isPatternMatching(saved, candidate)) {
                         if (seenConflictingItems.add(savedItem)) {
                             String source = net.minecraft.text.Text.translatable("recipeeditor.gui.conflict_source_custom").getString();
-                            conflicts.add(new RecipeConflictInfo(candidate, savedItem, source, candidate.type));
+                            conflicts.add(new RecipeConflictInfo(candidate, savedItem, source, candidate.type, saved.overriddenId, saved.getKey()));
                         }
                     }
                 }
@@ -1225,10 +1266,30 @@ public class RecipeInspector {
             initializeCache(world);
         }
 
-        Set<Item> itemsToCheck = new HashSet<>(KNOWN_RECIPE_ITEMS);
-        itemsToCheck.addAll(RECIPE_ENTRIES.keySet());
-        itemsToCheck.addAll(RECIPE_DISPLAYS.keySet());
-        itemsToCheck.addAll(DECOMPILED_VARIANTS.keySet());
+        Set<Item> candidateIngredients = new HashSet<>();
+        if (candidate.patternSlots != null) {
+            for (int i = 0; i < 9; i++) {
+                Item it = candidate.getItemAt(i);
+                if (it != null && it != Items.AIR) {
+                    candidateIngredients.add(it);
+                }
+            }
+        }
+
+        Set<Item> itemsToCheck = new HashSet<>();
+        if (!INGREDIENT_TO_ITEMS.isEmpty() && !candidateIngredients.isEmpty()) {
+            for (Item ing : candidateIngredients) {
+                Set<Item> resItems = INGREDIENT_TO_ITEMS.get(ing);
+                if (resItems != null) {
+                    itemsToCheck.addAll(resItems);
+                }
+            }
+        } else {
+            itemsToCheck.addAll(KNOWN_RECIPE_ITEMS);
+            itemsToCheck.addAll(RECIPE_ENTRIES.keySet());
+            itemsToCheck.addAll(RECIPE_DISPLAYS.keySet());
+            itemsToCheck.addAll(DECOMPILED_VARIANTS.keySet());
+        }
 
         for (Item item : itemsToCheck) {
             if (item == Items.AIR || item == currentTargetItem || seenConflictingItems.contains(item)) continue;
@@ -1245,7 +1306,8 @@ public class RecipeInspector {
                             String modName = getFriendlyModName(id != null ? id.getNamespace() : "");
                             source = net.minecraft.text.Text.translatable("recipeeditor.gui.conflict_source_mod", modName).getString();
                         }
-                        conflicts.add(new RecipeConflictInfo(candidate, item, source, candidate.type));
+                        String recId = (v.overriddenId != null && !v.overriddenId.isEmpty()) ? v.overriddenId : v.id;
+                        conflicts.add(new RecipeConflictInfo(candidate, item, source, candidate.type, recId, v.getKey()));
                         break;
                     }
                 }

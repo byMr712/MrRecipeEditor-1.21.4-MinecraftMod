@@ -9,6 +9,7 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.text.OrderedText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 
@@ -17,31 +18,64 @@ import java.util.List;
 public class RecipeConflictScreen extends Screen {
     private final Screen parent;
     private final List<RecipeConflictInfo> conflicts;
+    private final Runnable onConfirmOverride;
 
     private int scrollOffset = 0;
     private int maxScroll = 0;
-    private int dialogWidth = 340;
-    private int dialogHeight = 230;
+    private int dialogWidth = 420;
+    private int dialogHeight = 260;
 
-    public RecipeConflictScreen(Screen parent, List<RecipeConflictInfo> conflicts) {
+    public RecipeConflictScreen(Screen parent, List<RecipeConflictInfo> conflicts, Runnable onConfirmOverride) {
         super(Text.translatable("recipeeditor.gui.conflict_title"));
         this.parent = parent;
         this.conflicts = conflicts;
+        this.onConfirmOverride = onConfirmOverride;
+    }
+
+    public RecipeConflictScreen(Screen parent, List<RecipeConflictInfo> conflicts) {
+        this(parent, conflicts, null);
     }
 
     @Override
     protected void init() {
-        dialogWidth = Math.min(340, Math.max(260, this.width - 24));
-        dialogHeight = Math.min(230, Math.max(160, this.height - 24));
+        dialogWidth = Math.min(430, Math.max(300, this.width - 24));
+        dialogHeight = Math.min(270, Math.max(180, this.height - 24));
         int dialogX = (this.width - dialogWidth) / 2;
         int dialogY = (this.height - dialogHeight) / 2;
-        int btnWidth = Math.min(100, dialogWidth - 30);
-        int btnX = dialogX + (dialogWidth - btnWidth) / 2;
+
         int btnY = dialogY + dialogHeight - 24;
 
-        this.addDrawableChild(ButtonWidget.builder(Text.translatable("recipeeditor.gui.conflict_dismiss"), btn -> this.close())
-                .dimensions(btnX, btnY, btnWidth, 18)
-                .build());
+        if (onConfirmOverride != null) {
+            int overrideBtnW = 140;
+            int cancelBtnW = 90;
+            int totalBtnW = overrideBtnW + 8 + cancelBtnW;
+            int startBtnX = dialogX + (dialogWidth - totalBtnW) / 2;
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("recipeeditor.gui.conflict_override").formatted(Formatting.GOLD),
+                    btn -> {
+                        this.close();
+                        if (onConfirmOverride != null) {
+                            onConfirmOverride.run();
+                        }
+                    })
+                    .dimensions(startBtnX, btnY, overrideBtnW, 18)
+                    .build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("recipeeditor.gui.conflict_cancel"),
+                    btn -> this.close())
+                    .dimensions(startBtnX + overrideBtnW + 8, btnY, cancelBtnW, 18)
+                    .build());
+        } else {
+            int btnWidth = 110;
+            int btnX = dialogX + (dialogWidth - btnWidth) / 2;
+            this.addDrawableChild(ButtonWidget.builder(
+                    Text.translatable("recipeeditor.gui.conflict_dismiss"),
+                    btn -> this.close())
+                    .dimensions(btnX, btnY, btnWidth, 18)
+                    .build());
+        }
     }
 
     @Override
@@ -67,31 +101,39 @@ public class RecipeConflictScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        // Semi-transparent background dim
-        context.fill(0, 0, this.width, this.height, 0xAA000000);
+        // Render parent screen underneath if present
+        if (this.parent != null) {
+            this.parent.render(context, -1, -1, delta);
+        }
+
+        // Elegant semi-transparent dim overlay
+        context.fill(0, 0, this.width, this.height, 0xB0000000);
 
         int dialogX = (this.width - dialogWidth) / 2;
         int dialogY = (this.height - dialogHeight) / 2;
 
-        // Dialog Box Background & Border
-        context.fill(dialogX, dialogY, dialogX + dialogWidth, dialogY + dialogHeight, 0xF0151515);
-        context.drawBorder(dialogX, dialogY, dialogWidth, dialogHeight, 0xFFFF3333);
+        // Dialog Panel Background & Borders
+        context.fill(dialogX, dialogY, dialogX + dialogWidth, dialogY + dialogHeight, 0xF5181818);
+        context.drawBorder(dialogX, dialogY, dialogWidth, dialogHeight, 0xFF4A4A4A);
 
-        // Red Bold Title
-        Text title = Text.translatable("recipeeditor.gui.conflict_title").formatted(Formatting.RED, Formatting.BOLD);
-        context.drawCenteredTextWithShadow(this.textRenderer, title, this.width / 2, dialogY + 8, 0xFFFF3333);
+        // Header Banner
+        context.fill(dialogX + 1, dialogY + 1, dialogX + dialogWidth - 1, dialogY + 30, 0xFF242424);
+        context.fill(dialogX + 1, dialogY + 29, dialogX + dialogWidth - 1, dialogY + 30, 0xFFE08020);
 
-        // Description text
+        // Header Title
+        Text titleText = Text.literal("⚠️ ").append(Text.translatable("recipeeditor.gui.conflict_title")).formatted(Formatting.GOLD, Formatting.BOLD);
+        context.drawCenteredTextWithShadow(this.textRenderer, titleText, this.width / 2, dialogY + 6, 0xFFFFAA00);
+
+        // Subtitle
         Text desc = Text.translatable("recipeeditor.gui.conflict_desc").formatted(Formatting.GRAY);
-        context.drawCenteredTextWithShadow(this.textRenderer, desc, this.width / 2, dialogY + 22, 0xFFAAAAAA);
+        context.drawCenteredTextWithShadow(this.textRenderer, desc, this.width / 2, dialogY + 18, 0xFFAAAAAA);
 
-        // List Viewport
-        int listX = dialogX + 12;
-        int listY = dialogY + 36;
-        int listW = dialogWidth - 24;
+        // List Viewport bounds
+        int listX = dialogX + 10;
+        int listY = dialogY + 34;
+        int listW = dialogWidth - 20;
         int listH = dialogHeight - 64;
 
-        // Enable Scissor for clean clipping
         context.enableScissor(listX, listY, listX + listW, listY + listH);
 
         int totalContentHeight = 0;
@@ -104,111 +146,129 @@ public class RecipeConflictScreen extends Screen {
             RecipeTypeEnum wsType = info.workstationType;
 
             int entryStartY = currentY;
+            int cardH = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? 78 : 50;
 
-            // Header: "Место крафта: [Название станка]"
-            Text wsText = Text.translatable("recipeeditor.gui.conflict_workstation", wsType.getDisplayName().getString()).formatted(Formatting.GOLD, Formatting.BOLD);
-            context.drawTextWithShadow(this.textRenderer, wsText, listX + 4, entryStartY, 0xFFFFAA00);
+            // Card background
+            context.fill(listX + 2, entryStartY, listX + listW - 4, entryStartY + cardH - 4, 0x44222222);
+            context.drawBorder(listX + 2, entryStartY, listW - 6, cardH - 4, 0x33FFFFFF);
 
-            int gridY = entryStartY + 12;
+            // Left Side: Grid & Station
+            int gridX = listX + 8;
+            int gridY = entryStartY + 4;
+
+            Text wsText = wsType.getDisplayName().copy().formatted(Formatting.YELLOW, Formatting.BOLD);
+            context.drawTextWithShadow(this.textRenderer, wsText, gridX, gridY, 0xFFFFAA00);
+
+            int slotGridY = gridY + 11;
             int arrowX;
             int resX;
 
-            // Render mini-grid based on workstation type
             if (wsType == RecipeTypeEnum.SMELTING || wsType == RecipeTypeEnum.BLASTING ||
                 wsType == RecipeTypeEnum.SMOKING || wsType == RecipeTypeEnum.STONECUTTING ||
                 wsType == RecipeTypeEnum.CAMPFIRE_COOKING) {
                 // 1 Slot
-                int slotX = listX + 10;
-                drawMiniSlot(context, slotX, gridY);
+                drawMiniSlot(context, gridX, slotGridY);
                 if (rec != null) {
                     Item inItem = rec.getItemAt(0);
                     if (inItem != Items.AIR) {
                         ItemStack st = new ItemStack(inItem);
-                        context.drawItem(st, slotX + 1, gridY + 1);
-                        if (mouseX >= slotX && mouseX <= slotX + 18 && mouseY >= gridY && mouseY <= gridY + 18 && mouseY >= listY && mouseY <= listY + listH) {
+                        context.drawItem(st, gridX + 1, slotGridY + 1);
+                        if (isHovered(mouseX, mouseY, gridX, slotGridY, 18, 18, listY, listH)) {
                             hoveredStack = st;
                         }
                     }
                 }
-                arrowX = slotX + 24;
-                resX = arrowX + 20;
+                arrowX = gridX + 22;
+                resX = arrowX + 16;
             } else if (wsType == RecipeTypeEnum.SMITHING) {
                 // 3 Slots
-                int startSlotX = listX + 10;
                 for (int s = 0; s < 3; s++) {
-                    int slotX = startSlotX + s * 20;
-                    drawMiniSlot(context, slotX, gridY);
+                    int slotX = gridX + s * 19;
+                    drawMiniSlot(context, slotX, slotGridY);
                     if (rec != null) {
                         Item inItem = rec.getItemAt(s);
                         if (inItem != Items.AIR) {
                             ItemStack st = new ItemStack(inItem);
-                            context.drawItem(st, slotX + 1, gridY + 1);
-                            if (mouseX >= slotX && mouseX <= slotX + 18 && mouseY >= gridY && mouseY <= gridY + 18 && mouseY >= listY && mouseY <= listY + listH) {
+                            context.drawItem(st, slotX + 1, slotGridY + 1);
+                            if (isHovered(mouseX, mouseY, slotX, slotGridY, 18, 18, listY, listH)) {
                                 hoveredStack = st;
                             }
                         }
                     }
                 }
-                arrowX = startSlotX + 64;
-                resX = arrowX + 20;
+                arrowX = gridX + 3 * 19 + 4;
+                resX = arrowX + 16;
             } else {
-                // 3x3 Grid
-                int startSlotX = listX + 10;
+                // 3x3 Grid (compact 18px per slot)
                 for (int r = 0; r < 3; r++) {
                     for (int c = 0; c < 3; c++) {
                         int slotIdx = r * 3 + c;
-                        int slotX = startSlotX + c * 19;
-                        int sY = gridY + r * 19;
+                        int slotX = gridX + c * 18;
+                        int sY = slotGridY + r * 18;
                         drawMiniSlot(context, slotX, sY);
                         if (rec != null) {
                             Item inItem = rec.getItemAt(slotIdx);
                             if (inItem != Items.AIR) {
                                 ItemStack st = new ItemStack(inItem);
                                 context.drawItem(st, slotX + 1, sY + 1);
-                                if (mouseX >= slotX && mouseX <= slotX + 18 && mouseY >= sY && mouseY <= sY + 18 && mouseY >= listY && mouseY <= listY + listH) {
+                                if (isHovered(mouseX, mouseY, slotX, sY, 18, 18, listY, listH)) {
                                     hoveredStack = st;
                                 }
                             }
                         }
                     }
                 }
-                arrowX = startSlotX + 3 * 19 + 6;
-                resX = arrowX + 20;
+                arrowX = gridX + 3 * 18 + 4;
+                resX = arrowX + 16;
             }
 
-            // Arrow & Conflicting Result item
-            int arrowY = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? (gridY + 19) : (gridY + 3);
-            int resY = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? (gridY + 18) : gridY;
+            int arrowY = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? (slotGridY + 18) : (slotGridY + 4);
+            int resY = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? (slotGridY + 17) : slotGridY;
 
-            context.drawTextWithShadow(this.textRenderer, Text.literal("➡").formatted(Formatting.GOLD, Formatting.BOLD), arrowX, arrowY, 0xFFFFAA00);
+            context.drawTextWithShadow(this.textRenderer, Text.literal("➜").formatted(Formatting.GOLD), arrowX, arrowY, 0xFFFFAA00);
             drawMiniSlot(context, resX, resY);
 
             if (info.conflictingItem != null && info.conflictingItem != Items.AIR) {
                 ItemStack resSt = new ItemStack(info.conflictingItem);
                 context.drawItem(resSt, resX + 1, resY + 1);
                 context.drawStackOverlay(this.textRenderer, resSt, resX + 1, resY + 1);
-                if (mouseX >= resX && mouseX <= resX + 18 && mouseY >= resY && mouseY <= resY + 18 && mouseY >= listY && mouseY <= listY + listH) {
+                if (isHovered(mouseX, mouseY, resX, resY, 18, 18, listY, listH)) {
                     hoveredStack = resSt;
                 }
             }
 
-            // Conflicting Info Details Text
-            int textY = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? (gridY + 60) : (gridY + 22);
+            // Right Side: Conflict Details with multi-line text wrapping
+            int textX = resX + 24;
+            int textY = entryStartY + 6;
+            int textW = listW - (textX - listX) - 10;
 
-            Text usedByText = Text.translatable("recipeeditor.gui.conflict_used_by", info.getConflictingItemName().getString()).formatted(Formatting.RED);
-            context.drawTextWithShadow(this.textRenderer, usedByText, listX + 4, textY, 0xFFFF5555);
+            if (textW > 40) {
+                Text usedByHeader = Text.translatable("recipeeditor.gui.conflict_used_by", info.getConflictingItemName().getString()).formatted(Formatting.WHITE, Formatting.BOLD);
+                List<OrderedText> wrappedUsedBy = this.textRenderer.wrapLines(usedByHeader, textW);
+                for (int l = 0; l < Math.min(2, wrappedUsedBy.size()); l++) {
+                    context.drawTextWithShadow(this.textRenderer, wrappedUsedBy.get(l), textX, textY, 0xFFFF5555);
+                    textY += 10;
+                }
 
-            Text sourceText = Text.translatable("recipeeditor.gui.conflict_source", info.sourceName).formatted(Formatting.YELLOW);
-            context.drawTextWithShadow(this.textRenderer, sourceText, listX + 4, textY + 11, 0xFFFFAA00);
+                if (info.conflictingRecipeId != null && !info.conflictingRecipeId.isEmpty()) {
+                    Text idText = Text.literal("ID: " + info.conflictingRecipeId).formatted(Formatting.DARK_GRAY);
+                    List<OrderedText> wrappedId = this.textRenderer.wrapLines(idText, textW);
+                    if (!wrappedId.isEmpty()) {
+                        context.drawTextWithShadow(this.textRenderer, wrappedId.get(0), textX, textY, 0xFF888888);
+                        textY += 10;
+                    }
+                }
 
-            int entryHeight = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? 96 : 58;
-            currentY += entryHeight;
-            totalContentHeight += entryHeight;
-
-            // Separator line between entries
-            if (i < conflicts.size() - 1) {
-                context.fill(listX + 4, currentY - 4, listX + listW - 8, currentY - 3, 0x44FFFFFF);
+                Text sourceText = Text.translatable("recipeeditor.gui.conflict_source", info.sourceName).formatted(Formatting.YELLOW);
+                List<OrderedText> wrappedSource = this.textRenderer.wrapLines(sourceText, textW);
+                for (int l = 0; l < Math.min(2, wrappedSource.size()); l++) {
+                    context.drawTextWithShadow(this.textRenderer, wrappedSource.get(l), textX, textY, 0xFFFFAA00);
+                    textY += 10;
+                }
             }
+
+            currentY += cardH;
+            totalContentHeight += cardH;
         }
 
         context.disableScissor();
@@ -227,14 +287,18 @@ public class RecipeConflictScreen extends Screen {
 
         super.render(context, mouseX, mouseY, delta);
 
-        // Tooltips
+        // Item Tooltips
         if (!hoveredStack.isEmpty()) {
             context.drawItemTooltip(this.textRenderer, hoveredStack, mouseX, mouseY);
         }
     }
 
+    private boolean isHovered(int mouseX, int mouseY, int x, int y, int w, int h, int listY, int listH) {
+        return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h && mouseY >= listY && mouseY <= listY + listH;
+    }
+
     private void drawMiniSlot(DrawContext context, int x, int y) {
-        context.fill(x, y, x + 18, y + 18, 0x88000000);
-        context.drawBorder(x, y, 18, 18, 0xFF444444);
+        context.fill(x, y, x + 18, y + 18, 0x99000000);
+        context.drawBorder(x, y, 18, 18, 0xFF555555);
     }
 }

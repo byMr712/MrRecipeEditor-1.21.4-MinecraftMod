@@ -288,25 +288,46 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
                     }
                     displays.add(new ShapelessCraftingRecipeDisplay(ingredients, resultDisplay, craftingStation));
                 } else {
-                    List<SlotDisplay> ingredients = new ArrayList<>(9);
-                    for (int i = 0; i < 9; i++) {
-                        String slotStr = recipe.getSlotString(i);
-                        if (slotStr == null || slotStr.isEmpty() || slotStr.equals("minecraft:air")) {
-                            ingredients.add(SlotDisplay.EmptySlotDisplay.INSTANCE);
-                        } else if (slotStr.startsWith("#")) {
-                            Identifier tagId = Identifier.tryParse(slotStr.substring(1));
-                            if (tagId != null) {
-                                ingredients.add(new SlotDisplay.TagSlotDisplay(net.minecraft.registry.tag.TagKey.of(net.minecraft.registry.RegistryKeys.ITEM, tagId)));
-                            } else {
-                                Item item = recipe.getItemAt(i);
-                                ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.EmptySlotDisplay.INSTANCE);
+                    int minRow = 3, maxRow = -1, minCol = 3, maxCol = -1;
+                    for (int r = 0; r < 3; r++) {
+                        for (int c = 0; c < 3; c++) {
+                            int idx = r * 3 + c;
+                            String s = recipe.getSlotString(idx);
+                            if (s != null && !s.isEmpty() && !s.equals("minecraft:air")) {
+                                minRow = Math.min(minRow, r);
+                                maxRow = Math.max(maxRow, r);
+                                minCol = Math.min(minCol, c);
+                                maxCol = Math.max(maxCol, c);
                             }
-                        } else {
-                            Item item = recipe.getItemAt(i);
-                            ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.EmptySlotDisplay.INSTANCE);
                         }
                     }
-                    displays.add(new ShapedCraftingRecipeDisplay(3, 3, ingredients, resultDisplay, craftingStation));
+
+                    if (minRow <= maxRow && minCol <= maxCol) {
+                        int patternW = maxCol - minCol + 1;
+                        int patternH = maxRow - minRow + 1;
+                        List<SlotDisplay> ingredients = new ArrayList<>(patternW * patternH);
+                        for (int r = minRow; r <= maxRow; r++) {
+                            for (int c = minCol; c <= maxCol; c++) {
+                                int i = r * 3 + c;
+                                String slotStr = recipe.getSlotString(i);
+                                if (slotStr == null || slotStr.isEmpty() || slotStr.equals("minecraft:air")) {
+                                    ingredients.add(SlotDisplay.EmptySlotDisplay.INSTANCE);
+                                } else if (slotStr.startsWith("#")) {
+                                    Identifier tagId = Identifier.tryParse(slotStr.substring(1));
+                                    if (tagId != null) {
+                                        ingredients.add(new SlotDisplay.TagSlotDisplay(net.minecraft.registry.tag.TagKey.of(net.minecraft.registry.RegistryKeys.ITEM, tagId)));
+                                    } else {
+                                        Item item = recipe.getItemAt(i);
+                                        ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.EmptySlotDisplay.INSTANCE);
+                                    }
+                                } else {
+                                    Item item = recipe.getItemAt(i);
+                                    ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.EmptySlotDisplay.INSTANCE);
+                                }
+                            }
+                        }
+                        displays.add(new ShapedCraftingRecipeDisplay(patternW, patternH, ingredients, resultDisplay, craftingStation));
+                    }
                 }
             }
         }

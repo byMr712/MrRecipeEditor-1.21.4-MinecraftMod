@@ -17,6 +17,7 @@ public class RecipeEditorClient implements ClientModInitializer {
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             RecipeInspector.invalidateWorldCache();
             RecipeEditorConfig.getInstance().invalidateAllRecipeCaches();
+            RecipeEditorConfig.reloadLocal();
         });
 
         // Invalidate and pre-warm recipe caches when joining a new world so tag lookups refresh

@@ -71,6 +71,16 @@ public class RecipeEditorMod implements ModInitializer {
             }
         });
 
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            RecipeEditorConfig.getInstance().invalidateAllRecipeCaches();
+        });
+
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resourceManager, success) -> {
+            if (success) {
+                RecipeEditorConfig.getInstance().invalidateAllRecipeCaches();
+            }
+        });
+
         // Server-side packet handler
         ServerPlayNetworking.registerGlobalReceiver(UpdateRecipeC2SPacket.ID, (payload, context) -> {
             context.server().execute(() -> {
@@ -93,7 +103,18 @@ public class RecipeEditorMod implements ModInitializer {
                 switch (payload.action()) {
                     case UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE -> {
                         CustomRecipeData data = CustomRecipeData.fromJson(payload.payload());
-                        if (data != null && data.getResultItem() != net.minecraft.item.Items.AIR) {
+                        if (data != null && data.type != null && data.getResultItem() != net.minecraft.item.Items.AIR) {
+                            if (data.patternSlots == null || data.patternSlots.length != 9) {
+                                String[] newSlots = new String[9];
+                                java.util.Arrays.fill(newSlots, "minecraft:air");
+                                if (data.patternSlots != null) {
+                                    System.arraycopy(data.patternSlots, 0, newSlots, 0, Math.min(data.patternSlots.length, 9));
+                                }
+                                data.patternSlots = newSlots;
+                            }
+                            for (int i = 0; i < 9; i++) {
+                                if (data.patternSlots[i] == null) data.patternSlots[i] = "minecraft:air";
+                            }
                             data.resultCount = Math.max(1, Math.min(1000, data.resultCount));
                             data.cookingTime = Math.max(1, Math.min(72000, data.cookingTime));
                             data.experience = Math.max(0.0f, Math.min(100.0f, data.experience));
@@ -109,6 +130,23 @@ public class RecipeEditorMod implements ModInitializer {
                         } else if (payload.payload() != null && !payload.payload().isEmpty()) {
                             config.removeRecipeByKey(payload.payload());
                             changed = true;
+                        }
+                    }
+                    case UpdateRecipeC2SPacket.ACTION_DELETE_ALL_FOR_ITEM -> {
+                        String itemId = payload.payload();
+                        if (itemId != null && !itemId.isEmpty()) {
+                            java.util.List<CustomRecipeData> toRemove = new java.util.ArrayList<>();
+                            for (CustomRecipeData r : config.recipes.values()) {
+                                if (itemId.equals(r.resultItemId)) {
+                                    toRemove.add(r);
+                                }
+                            }
+                            for (CustomRecipeData r : toRemove) {
+                                config.removeRecipe(r);
+                            }
+                            if (!toRemove.isEmpty()) {
+                                changed = true;
+                            }
                         }
                     }
                     case UpdateRecipeC2SPacket.ACTION_RESET_DEFAULTS -> {
@@ -127,6 +165,20 @@ public class RecipeEditorMod implements ModInitializer {
                     SyncRecipesS2CPacket syncPacket = new SyncRecipesS2CPacket(config.toJson());
                     for (ServerPlayerEntity p : context.server().getPlayerManager().getPlayerList()) {
                         ServerPlayNetworking.send(p, syncPacket);
+                    }
+
+                    // Dynamically refresh stonecutter recipes for connected players
+                    try {
+                        var recipeManager = context.server().getRecipeManager();
+                        var stonecutterPacket = new net.minecraft.network.packet.s2c.play.SynchronizeRecipesS2CPacket(
+                                recipeManager.getPropertySets(),
+                                recipeManager.getStonecutterRecipeForSync()
+                        );
+                        for (ServerPlayerEntity p : context.server().getPlayerManager().getPlayerList()) {
+                            p.networkHandler.sendPacket(stonecutterPacket);
+                        }
+                    } catch (Throwable t) {
+                        LOGGER.warn("Failed to synchronize stonecutter recipes: {}", t.getMessage());
                     }
                 }
             });
