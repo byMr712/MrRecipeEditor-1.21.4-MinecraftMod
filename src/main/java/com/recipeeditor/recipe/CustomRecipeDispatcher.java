@@ -40,15 +40,23 @@ public class CustomRecipeDispatcher {
         if (config != null && config.recipes != null) {
             for (CustomRecipeData recipeData : config.recipes.values()) {
                 if (!recipeData.enabled || !recipeData.overrideExisting) continue;
-                if (recipeData.overriddenId != null && !recipeData.overriddenId.isEmpty()) {
-                    ids.add(recipeData.overriddenId);
-                    if (recipeData.overriddenId.startsWith("minecraft:")) {
-                        ids.add(recipeData.overriddenId.substring("minecraft:".length()));
-                    }
-                }
+                addIdVariants(ids, recipeData.overriddenId);
+                addIdVariants(ids, recipeData.overriddenKey);
+                addIdVariants(ids, recipeData.id);
+                addIdVariants(ids, recipeData.resultItemId);
             }
         }
         cachedOverriddenIds = ids;
+    }
+
+    private static void addIdVariants(Set<String> ids, String id) {
+        if (id == null || id.isEmpty()) return;
+        ids.add(id);
+        if (id.startsWith("minecraft:")) {
+            ids.add(id.substring("minecraft:".length()));
+        } else {
+            ids.add("minecraft:" + id);
+        }
     }
 
     public static boolean isRecipeOverridden(RecipeEntry<?> entry) {
@@ -109,7 +117,7 @@ public class CustomRecipeDispatcher {
             return cachedOverriddenIds.contains(fullOrShortId.substring("minecraft:".length()));
         }
 
-        return false;
+        return cachedOverriddenIds.contains("minecraft:" + fullOrShortId);
     }
 
     public static <I extends RecipeInput, T extends Recipe<I>> Optional<RecipeEntry<T>> getCustomMatch(RecipeType<T> type, I input, World world) {
@@ -228,6 +236,28 @@ public class CustomRecipeDispatcher {
             }
         }
         return list;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public static Optional<RecipeEntry<?>> getCustomRecipeEntryByKey(RegistryKey<Recipe<?>> key) {
+        if (key == null || key.getValue() == null) return Optional.empty();
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
+            return Optional.empty();
+        }
+        Identifier targetId = key.getValue();
+        for (CustomRecipeData recipeData : config.recipes.values()) {
+            if (!recipeData.enabled) continue;
+            Identifier id = getRecipeIdentifier(recipeData);
+            if (id.equals(targetId)) {
+                RecipeType<?> mcType = getMcTypeForEnum(recipeData.type);
+                if (mcType != null) {
+                    RecipeEntry<?> entry = getCachedSyntheticEntry(recipeData, recipeData.type, (RecipeType) mcType);
+                    if (entry != null) return Optional.of(entry);
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     private static Identifier getRecipeIdentifier(CustomRecipeData recipeData) {

@@ -8,17 +8,20 @@ import net.minecraft.recipe.ServerRecipeManager;
 import net.minecraft.recipe.display.CuttingRecipeDisplay;
 import net.minecraft.recipe.input.RecipeInput;
 import net.minecraft.recipe.StonecuttingRecipe;
+import net.minecraft.recipe.RecipeDisplayEntry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.world.World;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 @Mixin(value = ServerRecipeManager.class, priority = 500)
 public class ServerRecipeManagerMixin {
@@ -128,6 +131,47 @@ public class ServerRecipeManagerMixin {
                 combined.addAll(original.entries());
             }
             cir.setReturnValue(new CuttingRecipeDisplay.Grouping<>(combined));
+        }
+    }
+
+    @Inject(method = "values", at = @At("RETURN"), cancellable = true)
+    private void onValues(CallbackInfoReturnable<Collection<RecipeEntry<?>>> cir) {
+        Collection<RecipeEntry<?>> original = cir.getReturnValue();
+        List<RecipeEntry<?>> filtered = new ArrayList<>();
+        if (original != null) {
+            for (RecipeEntry<?> entry : original) {
+                if (!CustomRecipeDispatcher.isRecipeOverridden(entry)) {
+                    filtered.add(entry);
+                }
+            }
+        }
+        filtered.addAll(CustomRecipeDispatcher.getAllCustomRecipes());
+        cir.setReturnValue(filtered);
+    }
+
+    @Inject(method = "get(Lnet/minecraft/registry/RegistryKey;)Ljava/util/Optional;", at = @At("RETURN"), cancellable = true)
+    private void onGet(RegistryKey<Recipe<?>> key, CallbackInfoReturnable<Optional<RecipeEntry<?>>> cir) {
+        Optional<RecipeEntry<?>> original = cir.getReturnValue();
+        if (original != null && original.isPresent()) {
+            if (CustomRecipeDispatcher.isRecipeOverridden(original.get())) {
+                cir.setReturnValue(Optional.empty());
+                return;
+            }
+        }
+        if (original == null || original.isEmpty()) {
+            Optional<RecipeEntry<?>> custom = CustomRecipeDispatcher.getCustomRecipeEntryByKey(key);
+            if (custom.isPresent()) {
+                cir.setReturnValue(custom);
+            }
+        }
+    }
+
+    @Inject(method = "forEachRecipeDisplay", at = @At("HEAD"), cancellable = true)
+    private void onForEachRecipeDisplay(RegistryKey<Recipe<?>> key, Consumer<RecipeDisplayEntry> consumer, CallbackInfo ci) {
+        if (key != null && key.getValue() != null) {
+            if (CustomRecipeDispatcher.isIdOverridden(key.getValue().toString())) {
+                ci.cancel();
+            }
         }
     }
 }

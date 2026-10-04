@@ -1458,6 +1458,7 @@ public class RecipeEditorScreen extends Screen {
         if (this.client != null && this.client.isInSingleplayer()) {
             actual.save();
         }
+        com.recipeeditor.integration.RecipeViewerIntegration.reloadRecipeViewers();
 
         sessionVariantsByType.clear();
         sessionVariantIndexByType.clear();
@@ -1508,6 +1509,7 @@ public class RecipeEditorScreen extends Screen {
             if (this.client != null && this.client.isInSingleplayer()) {
                 RecipeEditorConfig.getInstance().save();
             }
+            com.recipeeditor.integration.RecipeViewerIntegration.reloadRecipeViewers();
         }
 
         notificationText = Text.translatable("recipeeditor.gui.variant_deleted").formatted(Formatting.RED, Formatting.BOLD);
@@ -1559,6 +1561,7 @@ public class RecipeEditorScreen extends Screen {
         if (this.client != null && this.client.isInSingleplayer()) {
             RecipeEditorConfig.getInstance().save();
         }
+        com.recipeeditor.integration.RecipeViewerIntegration.reloadRecipeViewers();
 
         notificationText = Text.translatable("recipeeditor.gui.craft_deleted").formatted(Formatting.RED, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;

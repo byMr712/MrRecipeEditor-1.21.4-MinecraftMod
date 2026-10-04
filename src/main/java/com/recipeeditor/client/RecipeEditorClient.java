@@ -46,6 +46,7 @@ public class RecipeEditorClient implements ClientModInitializer {
                     if (context.client().currentScreen instanceof RecipeEditorScreen screen) {
                         screen.onServerConfigSynced(synced);
                     }
+                    com.recipeeditor.integration.RecipeViewerIntegration.reloadRecipeViewers();
                 }
             });
         });
