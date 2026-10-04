@@ -10,6 +10,9 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 public class RecipeEditorClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
+        // Initialize recipe viewer hooks (REI visibility predicate, etc.)
+        com.recipeeditor.integration.RecipeViewerIntegration.init();
+
         // Asynchronously scan Fabric Mod JARs and tags in background at startup
         RecipeInspector.startJarScanAsync();
 

@@ -217,6 +217,8 @@ public class RecipeEditorScreen extends Screen {
         filteredItems.clear();
         String currentTabId = modTabs.get(selectedTabIdx).id;
         String query = searchField != null ? searchField.getText().trim().toLowerCase(Locale.ROOT) : "";
+        String flippedQuery = !query.isEmpty() ? RecipeInspector.flipKeyboardLayout(query).toLowerCase(Locale.ROOT) : "";
+        boolean hasFlipped = !flippedQuery.isEmpty() && !flippedQuery.equals(query);
         var world = this.client != null ? this.client.world : null;
 
         for (Item item : allItems) {
@@ -247,12 +249,11 @@ public class RecipeEditorScreen extends Screen {
 
             // Search query filter (matches item name, raw id, or any indexed multilingual name)
             if (!query.isEmpty()) {
-                String idStr = id.toString().toLowerCase(Locale.ROOT);
-                String nameStr = item.getName().getString().toLowerCase(Locale.ROOT);
-                String flippedQuery = RecipeInspector.flipKeyboardLayout(query).toLowerCase(Locale.ROOT);
+                String idStr = RecipeInspector.getItemIdLower(item);
+                String nameStr = RecipeInspector.getItemNameLower(item);
                 boolean matches = idStr.contains(query) || nameStr.contains(query)
-                        || (!flippedQuery.equals(query) && (idStr.contains(flippedQuery) || nameStr.contains(flippedQuery)))
-                        || RecipeInspector.matchesMultilingual(item, query);
+                        || (hasFlipped && (idStr.contains(flippedQuery) || nameStr.contains(flippedQuery)))
+                        || RecipeInspector.matchesMultilingual(item, query, flippedQuery, hasFlipped);
                 if (!matches) {
                     continue;
                 }
@@ -1454,11 +1455,11 @@ public class RecipeEditorScreen extends Screen {
             configCopy.addOrUpdateRecipe(recipe.copy());
             actual.addOrUpdateRecipe(recipe.copy());
             sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE, recipe.toJson());
+            com.recipeeditor.integration.RecipeViewerIntegration.updateRecipeInViewers(recipe, recipe.originalKey);
         }
         if (this.client != null && this.client.isInSingleplayer()) {
             actual.save();
         }
-        com.recipeeditor.integration.RecipeViewerIntegration.reloadRecipeViewers();
 
         sessionVariantsByType.clear();
         sessionVariantIndexByType.clear();
@@ -1509,7 +1510,9 @@ public class RecipeEditorScreen extends Screen {
             if (this.client != null && this.client.isInSingleplayer()) {
                 RecipeEditorConfig.getInstance().save();
             }
-            com.recipeeditor.integration.RecipeViewerIntegration.reloadRecipeViewers();
+            if (currentRecipe != null) {
+                com.recipeeditor.integration.RecipeViewerIntegration.removeRecipeFromViewers(currentRecipe.getKey());
+            }
         }
 
         notificationText = Text.translatable("recipeeditor.gui.variant_deleted").formatted(Formatting.RED, Formatting.BOLD);
@@ -1551,6 +1554,7 @@ public class RecipeEditorScreen extends Screen {
             configCopy.removeRecipe(r);
             RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
             actual.removeRecipe(r);
+            com.recipeeditor.integration.RecipeViewerIntegration.removeRecipeFromViewers(r.getKey());
         }
 
         Identifier targetId = Registries.ITEM.getId(targetItem);
@@ -1561,7 +1565,6 @@ public class RecipeEditorScreen extends Screen {
         if (this.client != null && this.client.isInSingleplayer()) {
             RecipeEditorConfig.getInstance().save();
         }
-        com.recipeeditor.integration.RecipeViewerIntegration.reloadRecipeViewers();
 
         notificationText = Text.translatable("recipeeditor.gui.craft_deleted").formatted(Formatting.RED, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
@@ -2081,6 +2084,22 @@ public class RecipeEditorScreen extends Screen {
                         context.drawTooltip(this.textRenderer, hoveredStack.getName(), mouseX, mouseY);
                     } catch (Throwable ignored) {}
                 }
+            } else if (shapelessToggleBtn != null && shapelessToggleBtn.visible && shapelessToggleBtn.isHovered()) {
+                boolean shapeless = currentRecipe != null && currentRecipe.isShapeless;
+                List<Text> lines = shapeless
+                        ? List.of(
+                                Text.translatable("recipeeditor.tooltip.shapeless_line1"),
+                                Text.translatable("recipeeditor.tooltip.shapeless_line2"),
+                                Text.translatable("recipeeditor.tooltip.shapeless_line3")
+                        )
+                        : List.of(
+                                Text.translatable("recipeeditor.tooltip.shaped_line1"),
+                                Text.translatable("recipeeditor.tooltip.shaped_line2"),
+                                Text.translatable("recipeeditor.tooltip.shaped_line3")
+                        );
+                try {
+                    context.drawTooltip(this.textRenderer, lines, mouseX, mouseY);
+                } catch (Throwable ignored) {}
             } else {
                 Text buttonTooltip = getHoveredButtonTooltip(scaledMouseX, scaledMouseY);
                 if (buttonTooltip != null) {
@@ -2157,12 +2176,6 @@ public class RecipeEditorScreen extends Screen {
                 float xp = currentRecipe != null ? currentRecipe.experience : 0.1f;
                 return Text.translatable("recipeeditor.tooltip.experience_field", String.format(Locale.ROOT, "%.1f", xp));
             }
-        }
-        if (shapelessToggleBtn != null && shapelessToggleBtn.visible && shapelessToggleBtn.isHovered()) {
-            boolean shapeless = currentRecipe != null && currentRecipe.isShapeless;
-            return shapeless
-                    ? Text.translatable("recipeeditor.tooltip.shapeless_desc")
-                    : Text.translatable("recipeeditor.tooltip.shaped_desc");
         }
         if (saveCraftBtn != null && saveCraftBtn.visible && saveCraftBtn.isHovered()) {
             return Text.translatable("recipeeditor.tooltip.save_craft");

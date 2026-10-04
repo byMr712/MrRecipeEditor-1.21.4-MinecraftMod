@@ -98,11 +98,15 @@ public class RecipeEditorMod implements ModInitializer {
 
                 RecipeEditorConfig config = RecipeEditorConfig.getInstance();
                 boolean changed = false;
+                boolean stonecutterChanged = false;
 
                 switch (payload.action()) {
                     case UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE -> {
                         CustomRecipeData data = CustomRecipeData.fromJson(payload.payload());
                         if (data != null && data.type != null && data.getResultItem() != net.minecraft.item.Items.AIR) {
+                            if (data.type == com.recipeeditor.config.RecipeTypeEnum.STONECUTTING) {
+                                stonecutterChanged = true;
+                            }
                             if (data.patternSlots == null || data.patternSlots.length != 9) {
                                 String[] newSlots = new String[9];
                                 java.util.Arrays.fill(newSlots, "minecraft:air");
@@ -124,9 +128,16 @@ public class RecipeEditorMod implements ModInitializer {
                     case UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE -> {
                         CustomRecipeData data = CustomRecipeData.fromJson(payload.payload());
                         if (data != null) {
+                            if (data.type == com.recipeeditor.config.RecipeTypeEnum.STONECUTTING) {
+                                stonecutterChanged = true;
+                            }
                             config.removeRecipe(data);
                             changed = true;
                         } else if (payload.payload() != null && !payload.payload().isEmpty()) {
+                            CustomRecipeData existing = config.recipes != null ? config.recipes.get(payload.payload()) : null;
+                            if (existing != null && existing.type == com.recipeeditor.config.RecipeTypeEnum.STONECUTTING) {
+                                stonecutterChanged = true;
+                            }
                             config.removeRecipeByKey(payload.payload());
                             changed = true;
                         }
@@ -138,6 +149,9 @@ public class RecipeEditorMod implements ModInitializer {
                             for (CustomRecipeData r : config.recipes.values()) {
                                 if (itemId.equals(r.resultItemId)) {
                                     toRemove.add(r);
+                                    if (r.type == com.recipeeditor.config.RecipeTypeEnum.STONECUTTING) {
+                                        stonecutterChanged = true;
+                                    }
                                 }
                             }
                             for (CustomRecipeData r : toRemove) {
@@ -151,10 +165,12 @@ public class RecipeEditorMod implements ModInitializer {
                     case UpdateRecipeC2SPacket.ACTION_RESET_DEFAULTS -> {
                         config.initDefaults();
                         changed = true;
+                        stonecutterChanged = true;
                     }
                     case UpdateRecipeC2SPacket.ACTION_TOGGLE_ENABLED -> {
                         config.modEnabled = Boolean.parseBoolean(payload.payload());
                         changed = true;
+                        stonecutterChanged = true;
                     }
                     default -> LOGGER.warn("Received unknown recipe packet action: {}", payload.action());
                 }
@@ -165,20 +181,41 @@ public class RecipeEditorMod implements ModInitializer {
                     for (ServerPlayerEntity p : context.server().getPlayerManager().getPlayerList()) {
                         ServerPlayNetworking.send(p, syncPacket);
                     }
-                    com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(context.server().getPlayerManager().getPlayerList());
 
-                    // Dynamically refresh stonecutter recipes for connected players
-                    try {
-                        var recipeManager = context.server().getRecipeManager();
-                        var stonecutterPacket = new net.minecraft.network.packet.s2c.play.SynchronizeRecipesS2CPacket(
-                                recipeManager.getPropertySets(),
-                                recipeManager.getStonecutterRecipeForSync()
+                    // Delta sync to client recipe books
+                    if (payload.action() == UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE) {
+                        CustomRecipeData data = CustomRecipeData.fromJson(payload.payload());
+                        com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeDeltaToPlayers(
+                                context.server().getPlayerManager().getPlayerList(),
+                                data,
+                                data != null ? data.originalKey : null
                         );
-                        for (ServerPlayerEntity p : context.server().getPlayerManager().getPlayerList()) {
-                            p.networkHandler.sendPacket(stonecutterPacket);
+                    } else if (payload.action() == UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE) {
+                        CustomRecipeData data = CustomRecipeData.fromJson(payload.payload());
+                        String remKey = data != null ? data.getKey() : payload.payload();
+                        com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeDeltaToPlayers(
+                                context.server().getPlayerManager().getPlayerList(),
+                                null,
+                                remKey
+                        );
+                    } else {
+                        com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(context.server().getPlayerManager().getPlayerList());
+                    }
+
+                    // Dynamically refresh stonecutter recipes ONLY if stonecutting recipe was affected!
+                    if (stonecutterChanged) {
+                        try {
+                            var recipeManager = context.server().getRecipeManager();
+                            var stonecutterPacket = new net.minecraft.network.packet.s2c.play.SynchronizeRecipesS2CPacket(
+                                    recipeManager.getPropertySets(),
+                                    recipeManager.getStonecutterRecipeForSync()
+                            );
+                            for (ServerPlayerEntity p : context.server().getPlayerManager().getPlayerList()) {
+                                p.networkHandler.sendPacket(stonecutterPacket);
+                            }
+                        } catch (Throwable t) {
+                            LOGGER.warn("Failed to synchronize stonecutter recipes: {}", t.getMessage());
                         }
-                    } catch (Throwable t) {
-                        LOGGER.warn("Failed to synchronize stonecutter recipes: {}", t.getMessage());
                     }
                 }
             });

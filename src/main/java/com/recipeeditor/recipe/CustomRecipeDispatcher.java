@@ -37,6 +37,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 public class CustomRecipeDispatcher {
     private static volatile Set<String> cachedOverriddenIds = null;
+    private static volatile Set<Identifier> cachedOverriddenIdentifiers = null;
     private static volatile int lastConfigVersion = -1;
 
     private static final Map<NetworkRecipeId, ServerRecipeManager.ServerRecipe> CUSTOM_SERVER_RECIPES = new ConcurrentHashMap<>();
@@ -51,31 +52,43 @@ public class CustomRecipeDispatcher {
 
     public static synchronized void invalidateOverriddenCache() {
         cachedOverriddenIds = null;
+        cachedOverriddenIdentifiers = null;
         lastConfigVersion = -1;
         invalidateRecipeBookCache();
     }
 
     private static synchronized void updateOverriddenCaches(RecipeEditorConfig config) {
         Set<String> ids = new HashSet<>();
+        Set<Identifier> identifiers = new HashSet<>();
         if (config != null && config.recipes != null) {
             for (CustomRecipeData recipeData : config.recipes.values()) {
                 if (!recipeData.enabled || !recipeData.overrideExisting) continue;
-                addIdVariants(ids, recipeData.overriddenId);
-                addIdVariants(ids, recipeData.overriddenKey);
-                addIdVariants(ids, recipeData.id);
-                addIdVariants(ids, recipeData.resultItemId);
+                addIdVariants(ids, identifiers, recipeData.overriddenId);
+                addIdVariants(ids, identifiers, recipeData.overriddenKey);
+                addIdVariants(ids, identifiers, recipeData.id);
+                addIdVariants(ids, identifiers, recipeData.resultItemId);
             }
         }
         cachedOverriddenIds = ids;
+        cachedOverriddenIdentifiers = identifiers;
     }
 
-    private static void addIdVariants(Set<String> ids, String id) {
+    private static void addIdVariants(Set<String> ids, Set<Identifier> identifiers, String id) {
         if (id == null || id.isEmpty()) return;
         ids.add(id);
+        Identifier parsed = Identifier.tryParse(id);
+        if (parsed != null) {
+            identifiers.add(parsed);
+        }
         if (id.startsWith("minecraft:")) {
-            ids.add(id.substring("minecraft:".length()));
-        } else {
+            String path = id.substring("minecraft:".length());
+            ids.add(path);
+            Identifier parsedPath = Identifier.tryParse("minecraft:" + path);
+            if (parsedPath != null) identifiers.add(parsedPath);
+        } else if (!id.contains(":")) {
             ids.add("minecraft:" + id);
+            Identifier parsedMc = Identifier.tryParse("minecraft:" + id);
+            if (parsedMc != null) identifiers.add(parsedMc);
         }
     }
 
@@ -95,18 +108,45 @@ public class CustomRecipeDispatcher {
             lastConfigVersion = currentVer;
         }
 
-        if (cachedOverriddenIds == null || cachedOverriddenIds.isEmpty()) {
+        if (cachedOverriddenIdentifiers == null || cachedOverriddenIdentifiers.isEmpty()) {
             return false;
         }
 
-        String fullId = entryId.toString();
-        if (cachedOverriddenIds.contains(fullId)) {
+        if (cachedOverriddenIdentifiers.contains(entryId)) {
             return true;
         }
 
         if ("minecraft".equals(entryId.getNamespace())) {
-            String path = entryId.getPath();
-            return cachedOverriddenIds.contains(path);
+            return cachedOverriddenIds.contains(entryId.getPath());
+        }
+
+        return false;
+    }
+
+    public static boolean isIdentifierOverridden(Identifier entryId) {
+        if (entryId == null || "recipeeditor".equals(entryId.getNamespace())) return false;
+
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
+            return false;
+        }
+
+        int currentVer = config.configVersion;
+        if (cachedOverriddenIds == null || lastConfigVersion != currentVer) {
+            updateOverriddenCaches(config);
+            lastConfigVersion = currentVer;
+        }
+
+        if (cachedOverriddenIdentifiers == null || cachedOverriddenIdentifiers.isEmpty()) {
+            return false;
+        }
+
+        if (cachedOverriddenIdentifiers.contains(entryId)) {
+            return true;
+        }
+
+        if ("minecraft".equals(entryId.getNamespace())) {
+            return cachedOverriddenIds.contains(entryId.getPath());
         }
 
         return false;
@@ -141,17 +181,37 @@ public class CustomRecipeDispatcher {
     }
 
     public static <I extends RecipeInput, T extends Recipe<I>> Optional<RecipeEntry<T>> getCustomMatch(RecipeType<T> type, I input, World world) {
-        List<RecipeEntry<T>> matches = getCustomMatches(type, input, world);
-        if (!matches.isEmpty()) {
-            return Optional.of(matches.get(0));
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty() || input == null || input.isEmpty()) {
+            return Optional.empty();
+        }
+
+        RecipeTypeEnum targetEnum = getEnumForType(type);
+        if (targetEnum == null) return Optional.empty();
+
+        for (CustomRecipeData recipeData : config.recipes.values()) {
+            if (!recipeData.enabled || recipeData.type != targetEnum) continue;
+
+            if (matchesInput(recipeData, targetEnum, input)) {
+                RecipeEntry<T> entry = getCachedSyntheticEntry(recipeData, targetEnum, type);
+                if (entry != null) {
+                    return Optional.of(entry);
+                }
+            }
         }
         return Optional.empty();
     }
 
     private static final java.util.Map<String, RecipeEntry<?>> SYNTHETIC_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static volatile CuttingRecipeDisplay.Grouping<StonecuttingRecipe> CACHED_CUSTOM_STONECUTTER_GROUPING = null;
+    private static volatile int lastCustomStonecutterVersion = -1;
 
     public static void clearSyntheticCache() {
         SYNTHETIC_CACHE.clear();
+        CACHED_ALL_CUSTOM_RECIPES = null;
+        lastCustomRecipesVersion = -1;
+        CACHED_CUSTOM_STONECUTTER_GROUPING = null;
+        lastCustomStonecutterVersion = -1;
         invalidateRecipeBookCache();
     }
 
@@ -219,6 +279,10 @@ public class CustomRecipeDispatcher {
             return CuttingRecipeDisplay.Grouping.empty();
         }
 
+        if (CACHED_CUSTOM_STONECUTTER_GROUPING != null && lastCustomStonecutterVersion == config.configVersion) {
+            return CACHED_CUSTOM_STONECUTTER_GROUPING;
+        }
+
         List<CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe>> entries = new ArrayList<>();
         for (CustomRecipeData recipeData : config.recipes.values()) {
             if (!recipeData.enabled || recipeData.type != RecipeTypeEnum.STONECUTTING) continue;
@@ -235,14 +299,23 @@ public class CustomRecipeDispatcher {
                 entries.add(new CuttingRecipeDisplay.GroupEntry<>(inputIng, display));
             }
         }
-        return new CuttingRecipeDisplay.Grouping<>(entries);
+        CACHED_CUSTOM_STONECUTTER_GROUPING = new CuttingRecipeDisplay.Grouping<>(entries);
+        lastCustomStonecutterVersion = config.configVersion;
+        return CACHED_CUSTOM_STONECUTTER_GROUPING;
     }
+
+    private static volatile List<RecipeEntry<?>> CACHED_ALL_CUSTOM_RECIPES = null;
+    private static volatile int lastCustomRecipesVersion = -1;
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     public static List<RecipeEntry<?>> getAllCustomRecipes() {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
             return Collections.emptyList();
+        }
+
+        if (CACHED_ALL_CUSTOM_RECIPES != null && lastCustomRecipesVersion == config.configVersion) {
+            return CACHED_ALL_CUSTOM_RECIPES;
         }
 
         List<RecipeEntry<?>> list = new ArrayList<>();
@@ -256,7 +329,9 @@ public class CustomRecipeDispatcher {
                 list.add(entry);
             }
         }
-        return list;
+        CACHED_ALL_CUSTOM_RECIPES = Collections.unmodifiableList(list);
+        lastCustomRecipesVersion = config.configVersion;
+        return CACHED_ALL_CUSTOM_RECIPES;
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -464,7 +539,6 @@ public class CustomRecipeDispatcher {
         CUSTOM_DISPLAY_PACKET_ENTRIES.clear();
 
         List<RecipeEntry<?>> customEntries = getAllCustomRecipes();
-        int idCounter = 1_000_000;
 
         for (RecipeEntry<?> entry : customEntries) {
             Recipe<?> recipe = entry.value();
@@ -493,9 +567,10 @@ public class CustomRecipeDispatcher {
             }
 
             if (displays != null) {
-                for (RecipeDisplay display : displays) {
-                    NetworkRecipeId netId = new NetworkRecipeId(idCounter++);
-                    RecipeDisplayEntry displayEntry = new RecipeDisplayEntry(netId, display, group, category, ingredients);
+                int baseNetId = getBaseNetworkId(entry.id().getValue().toString());
+                for (int d = 0; d < displays.size(); d++) {
+                    NetworkRecipeId netId = new NetworkRecipeId(baseNetId + d);
+                    RecipeDisplayEntry displayEntry = new RecipeDisplayEntry(netId, displays.get(d), group, category, ingredients);
                     ServerRecipeManager.ServerRecipe serverRecipe = new ServerRecipeManager.ServerRecipe(displayEntry, entry);
 
                     CUSTOM_SERVER_RECIPES.put(netId, serverRecipe);
@@ -506,6 +581,52 @@ public class CustomRecipeDispatcher {
             CUSTOM_SERVER_RECIPES_BY_KEY.put(entry.id(), list);
         }
         lastRecipeBookVersion = config.configVersion;
+    }
+
+    public static int getBaseNetworkId(String recipeKey) {
+        if (recipeKey == null) return 1_000_000;
+        return 1_000_000 + (Math.abs(recipeKey.hashCode() % 80_000_000) * 10);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public static List<RecipeDisplayEntry> createDisplayEntriesForRecipe(CustomRecipeData data) {
+        if (data == null || data.type == null) return Collections.emptyList();
+        RecipeType mcType = getMcTypeForEnum(data.type);
+        if (mcType == null) return Collections.emptyList();
+        RecipeEntry entry = getCachedSyntheticEntry(data, data.type, mcType);
+        if (entry == null || entry.value() == null) return Collections.emptyList();
+        Recipe<?> recipe = (Recipe<?>) entry.value();
+
+        OptionalInt group = recipe.getGroup().isEmpty() ? OptionalInt.empty() : OptionalInt.of(Math.abs(recipe.getGroup().hashCode() % 10000));
+        Optional<List<Ingredient>> ingredients;
+        try {
+            if (recipe.isIgnoredInRecipeBook()) {
+                ingredients = Optional.empty();
+            } else {
+                IngredientPlacement placement = recipe.getIngredientPlacement();
+                ingredients = placement != null ? Optional.of(placement.getIngredients()) : Optional.empty();
+            }
+        } catch (Throwable t) {
+            ingredients = Optional.empty();
+        }
+        RecipeBookCategory category = recipe.getRecipeBookCategory();
+
+        List<RecipeDisplay> displays = null;
+        try {
+            displays = recipe.getDisplays();
+        } catch (Throwable t) {
+            displays = Collections.emptyList();
+        }
+
+        if (displays == null || displays.isEmpty()) return Collections.emptyList();
+
+        int baseNetId = getBaseNetworkId(data.getKey());
+        List<RecipeDisplayEntry> result = new ArrayList<>();
+        for (int d = 0; d < displays.size(); d++) {
+            NetworkRecipeId netId = new NetworkRecipeId(baseNetId + d);
+            result.add(new RecipeDisplayEntry(netId, displays.get(d), group, category, ingredients));
+        }
+        return result;
     }
 
     public static ServerRecipeManager.ServerRecipe getCustomServerRecipe(NetworkRecipeId id) {
@@ -528,6 +649,46 @@ public class CustomRecipeDispatcher {
         ensureRecipeBookEntriesUpToDate();
         if (!CUSTOM_DISPLAY_PACKET_ENTRIES.isEmpty()) {
             player.networkHandler.sendPacket(new RecipeBookAddS2CPacket(new ArrayList<>(CUSTOM_DISPLAY_PACKET_ENTRIES), false));
+        }
+    }
+
+    public static synchronized void syncRecipeDeltaToPlayers(Iterable<ServerPlayerEntity> players, CustomRecipeData addedOrUpdated, String removedKey) {
+        invalidateRecipeBookCache();
+        ensureRecipeBookEntriesUpToDate();
+
+        List<NetworkRecipeId> toRemove = new ArrayList<>();
+        if (removedKey != null && !removedKey.isEmpty()) {
+            int oldBase = getBaseNetworkId(removedKey);
+            for (int i = 0; i < 10; i++) {
+                toRemove.add(new NetworkRecipeId(oldBase + i));
+            }
+        }
+        if (addedOrUpdated != null) {
+            int base = getBaseNetworkId(addedOrUpdated.getKey());
+            for (int i = 0; i < 10; i++) {
+                toRemove.add(new NetworkRecipeId(base + i));
+            }
+        }
+
+        List<RecipeBookAddS2CPacket.Entry> toAdd = new ArrayList<>();
+        if (addedOrUpdated != null) {
+            List<RecipeDisplayEntry> displayEntries = createDisplayEntriesForRecipe(addedOrUpdated);
+            for (RecipeDisplayEntry de : displayEntries) {
+                toAdd.add(new RecipeBookAddS2CPacket.Entry(de, false, false));
+            }
+        }
+
+        RecipeBookRemoveS2CPacket removePacket = !toRemove.isEmpty() ? new RecipeBookRemoveS2CPacket(toRemove) : null;
+        RecipeBookAddS2CPacket addPacket = !toAdd.isEmpty() ? new RecipeBookAddS2CPacket(toAdd, false) : null;
+
+        for (ServerPlayerEntity player : players) {
+            if (player == null || player.networkHandler == null) continue;
+            if (removePacket != null) {
+                player.networkHandler.sendPacket(removePacket);
+            }
+            if (addPacket != null) {
+                player.networkHandler.sendPacket(addPacket);
+            }
         }
     }
 

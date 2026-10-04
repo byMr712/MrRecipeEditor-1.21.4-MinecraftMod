@@ -21,7 +21,7 @@ public class ServerRecipeBookMixin {
                 cir.setReturnValue(true);
                 return;
             }
-            if (CustomRecipeDispatcher.isIdOverridden(key.getValue().toString())) {
+            if (CustomRecipeDispatcher.isIdentifierOverridden(key.getValue())) {
                 cir.setReturnValue(false);
                 return;
             }

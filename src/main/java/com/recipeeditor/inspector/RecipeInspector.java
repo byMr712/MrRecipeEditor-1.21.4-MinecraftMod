@@ -89,11 +89,14 @@ public class RecipeInspector {
         INGREDIENT_TO_ITEMS.clear();
         SYNTHETIC_ITEMS.clear();
         TagResolver.clearWorldCache();
+        clearItemNameCache();
         cacheInitialized = false;
     }
 
     public static void invalidateCache() {
-        invalidateWorldCache();
+        DECOMPILED_CACHE.clear();
+        DECOMPILED_VARIANTS.clear();
+        TagResolver.clearCache();
     }
 
     public static void clearAllCaches() {
@@ -104,6 +107,7 @@ public class RecipeInspector {
         DECOMPILED_VARIANTS.clear();
         ITEM_LANG_NAMES.clear();
         TagResolver.clearCache();
+        clearItemNameCache();
         cacheInitialized = false;
         jarsScanned = false;
         jarsScanning = false;
@@ -248,17 +252,43 @@ public class RecipeInspector {
         return sb.toString();
     }
 
+    private static final Map<Item, String> ITEM_NAME_LOWER_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Item, String> ITEM_ID_LOWER_CACHE = new ConcurrentHashMap<>();
+
+    public static String getItemNameLower(Item item) {
+        if (item == null) return "";
+        return ITEM_NAME_LOWER_CACHE.computeIfAbsent(item, it -> it.getName().getString().toLowerCase(Locale.ROOT));
+    }
+
+    public static String getItemIdLower(Item item) {
+        if (item == null) return "";
+        return ITEM_ID_LOWER_CACHE.computeIfAbsent(item, it -> {
+            Identifier id = Registries.ITEM.getId(it);
+            return id != null ? id.toString().toLowerCase(Locale.ROOT) : "";
+        });
+    }
+
+    public static void clearItemNameCache() {
+        ITEM_NAME_LOWER_CACHE.clear();
+        ITEM_ID_LOWER_CACHE.clear();
+    }
+
     /**
      * Returns true if the query matches any multilingual name for the given item.
      */
     public static boolean matchesMultilingual(Item item, String query) {
         if (query.isEmpty()) return true;
-        Set<String> names = ITEM_LANG_NAMES.get(item.getTranslationKey());
-        if (names == null) return false;
         String flipped = flipKeyboardLayout(query).toLowerCase(Locale.ROOT);
+        return matchesMultilingual(item, query, flipped, !flipped.equals(query));
+    }
+
+    public static boolean matchesMultilingual(Item item, String query, String flippedQuery, boolean hasFlipped) {
+        if (query.isEmpty()) return true;
+        Set<String> names = ITEM_LANG_NAMES.get(item.getTranslationKey());
+        if (names == null || names.isEmpty()) return false;
         for (String name : names) {
             if (name.contains(query)) return true;
-            if (!flipped.equals(query) && name.contains(flipped)) return true;
+            if (hasFlipped && name.contains(flippedQuery)) return true;
         }
         return false;
     }
@@ -677,7 +707,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        boolean hasEntry = RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || SYNTHETIC_ITEMS.contains(item);
+        boolean hasEntry = KNOWN_RECIPE_ITEMS.contains(item) || SYNTHETIC_ITEMS.contains(item);
         if (hasEntry) {
             return RecipeStatus.VANILLA_OR_MODDED;
         }
@@ -689,7 +719,7 @@ public class RecipeInspector {
         if (!cacheInitialized) {
             initializeCache(world);
         }
-        return RECIPE_ENTRIES.containsKey(item) || RECIPE_DISPLAYS.containsKey(item) || KNOWN_RECIPE_ITEMS.contains(item) || SYNTHETIC_ITEMS.contains(item);
+        return KNOWN_RECIPE_ITEMS.contains(item) || SYNTHETIC_ITEMS.contains(item);
     }
 
     public static List<CustomRecipeData> getAllRecipeVariants(Item targetItem, World world) {
@@ -1368,7 +1398,7 @@ public class RecipeInspector {
                 }
             }
         }
-        if (itemsToCheck.isEmpty()) {
+        if (itemsToCheck.isEmpty() && INGREDIENT_TO_ITEMS.isEmpty()) {
             itemsToCheck.addAll(KNOWN_RECIPE_ITEMS);
             itemsToCheck.addAll(RECIPE_ENTRIES.keySet());
             itemsToCheck.addAll(RECIPE_DISPLAYS.keySet());

@@ -108,10 +108,24 @@ public class ServerRecipeManagerMixin {
         }
     }
 
+    @org.spongepowered.asm.mixin.Unique
+    private CuttingRecipeDisplay.Grouping<StonecuttingRecipe> recipeeditor$cachedStonecutter = null;
+    @org.spongepowered.asm.mixin.Unique
+    private CuttingRecipeDisplay.Grouping<StonecuttingRecipe> recipeeditor$lastOriginalStonecutter = null;
+    @org.spongepowered.asm.mixin.Unique
+    private int recipeeditor$lastStonecutterVer = -1;
+
     @Inject(method = "getStonecutterRecipes", at = @At("RETURN"), cancellable = true)
     private void onGetStonecutterRecipes(CallbackInfoReturnable<CuttingRecipeDisplay.Grouping<StonecuttingRecipe>> cir) {
-        CuttingRecipeDisplay.Grouping<StonecuttingRecipe> custom = CustomRecipeDispatcher.getCustomStonecutterGrouping();
         CuttingRecipeDisplay.Grouping<StonecuttingRecipe> original = cir.getReturnValue();
+        com.recipeeditor.config.RecipeEditorConfig config = com.recipeeditor.config.RecipeEditorConfig.getInstance();
+        int currentVer = config != null ? config.configVersion : 0;
+        if (original == recipeeditor$lastOriginalStonecutter && recipeeditor$cachedStonecutter != null && recipeeditor$lastStonecutterVer == currentVer) {
+            cir.setReturnValue(recipeeditor$cachedStonecutter);
+            return;
+        }
+
+        CuttingRecipeDisplay.Grouping<StonecuttingRecipe> custom = CustomRecipeDispatcher.getCustomStonecutterGrouping();
         List<CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe>> combined = new ArrayList<>();
         if (custom != null && !custom.isEmpty()) {
             combined.addAll(custom.entries());
@@ -124,13 +138,31 @@ public class ServerRecipeManagerMixin {
                 combined.add(entry);
             }
         }
-        cir.setReturnValue(new CuttingRecipeDisplay.Grouping<>(combined));
+        CuttingRecipeDisplay.Grouping<StonecuttingRecipe> result = new CuttingRecipeDisplay.Grouping<>(combined);
+        recipeeditor$lastOriginalStonecutter = original;
+        recipeeditor$lastStonecutterVer = currentVer;
+        recipeeditor$cachedStonecutter = result;
+        cir.setReturnValue(result);
     }
+
+    @org.spongepowered.asm.mixin.Unique
+    private CuttingRecipeDisplay.Grouping<StonecuttingRecipe> recipeeditor$cachedStonecutterSync = null;
+    @org.spongepowered.asm.mixin.Unique
+    private CuttingRecipeDisplay.Grouping<StonecuttingRecipe> recipeeditor$lastOriginalStonecutterSync = null;
+    @org.spongepowered.asm.mixin.Unique
+    private int recipeeditor$lastStonecutterSyncVer = -1;
 
     @Inject(method = "getStonecutterRecipeForSync", at = @At("RETURN"), cancellable = true)
     private void onGetStonecutterRecipeForSync(CallbackInfoReturnable<CuttingRecipeDisplay.Grouping<StonecuttingRecipe>> cir) {
-        CuttingRecipeDisplay.Grouping<StonecuttingRecipe> custom = CustomRecipeDispatcher.getCustomStonecutterGrouping();
         CuttingRecipeDisplay.Grouping<StonecuttingRecipe> original = cir.getReturnValue();
+        com.recipeeditor.config.RecipeEditorConfig config = com.recipeeditor.config.RecipeEditorConfig.getInstance();
+        int currentVer = config != null ? config.configVersion : 0;
+        if (original == recipeeditor$lastOriginalStonecutterSync && recipeeditor$cachedStonecutterSync != null && recipeeditor$lastStonecutterSyncVer == currentVer) {
+            cir.setReturnValue(recipeeditor$cachedStonecutterSync);
+            return;
+        }
+
+        CuttingRecipeDisplay.Grouping<StonecuttingRecipe> custom = CustomRecipeDispatcher.getCustomStonecutterGrouping();
         List<CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe>> combined = new ArrayList<>();
         if (custom != null && !custom.isEmpty()) {
             combined.addAll(custom.entries());
@@ -143,12 +175,30 @@ public class ServerRecipeManagerMixin {
                 combined.add(entry);
             }
         }
-        cir.setReturnValue(new CuttingRecipeDisplay.Grouping<>(combined));
+        CuttingRecipeDisplay.Grouping<StonecuttingRecipe> result = new CuttingRecipeDisplay.Grouping<>(combined);
+        recipeeditor$lastOriginalStonecutterSync = original;
+        recipeeditor$lastStonecutterSyncVer = currentVer;
+        recipeeditor$cachedStonecutterSync = result;
+        cir.setReturnValue(result);
     }
+
+    @org.spongepowered.asm.mixin.Unique
+    private Collection<RecipeEntry<?>> recipeeditor$cachedValues = null;
+    @org.spongepowered.asm.mixin.Unique
+    private Collection<RecipeEntry<?>> recipeeditor$lastOriginalValues = null;
+    @org.spongepowered.asm.mixin.Unique
+    private int recipeeditor$lastConfigVer = -1;
 
     @Inject(method = "values", at = @At("RETURN"), cancellable = true)
     private void onValues(CallbackInfoReturnable<Collection<RecipeEntry<?>>> cir) {
         Collection<RecipeEntry<?>> original = cir.getReturnValue();
+        com.recipeeditor.config.RecipeEditorConfig config = com.recipeeditor.config.RecipeEditorConfig.getInstance();
+        int currentVer = config != null ? config.configVersion : 0;
+        if (original == recipeeditor$lastOriginalValues && recipeeditor$cachedValues != null && recipeeditor$lastConfigVer == currentVer) {
+            cir.setReturnValue(recipeeditor$cachedValues);
+            return;
+        }
+
         List<RecipeEntry<?>> filtered = new ArrayList<>();
         if (original != null) {
             for (RecipeEntry<?> entry : original) {
@@ -158,7 +208,10 @@ public class ServerRecipeManagerMixin {
             }
         }
         filtered.addAll(CustomRecipeDispatcher.getAllCustomRecipes());
-        cir.setReturnValue(filtered);
+        recipeeditor$lastOriginalValues = original;
+        recipeeditor$lastConfigVer = currentVer;
+        recipeeditor$cachedValues = java.util.Collections.unmodifiableList(filtered);
+        cir.setReturnValue(recipeeditor$cachedValues);
     }
 
     @Inject(method = "get(Lnet/minecraft/registry/RegistryKey;)Ljava/util/Optional;", at = @At("RETURN"), cancellable = true)
