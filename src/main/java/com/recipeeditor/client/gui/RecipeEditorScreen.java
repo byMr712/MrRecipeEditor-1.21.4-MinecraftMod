@@ -8,15 +8,16 @@ import com.recipeeditor.inspector.RecipeStatus;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.Element;
 import net.minecraft.client.gui.screen.ConfirmScreen;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
@@ -103,10 +104,11 @@ public class RecipeEditorScreen extends Screen {
     private int actionBtnY;
 
     // Widgets
-    private TextFieldWidget searchField;
-    private TextFieldWidget resultCountField;
-    private TextFieldWidget cookingTimeField;
-    private TextFieldWidget experienceField;
+    private SelectableTextFieldWidget searchField;
+    private ButtonWidget clearSearchBtn;
+    private SelectableTextFieldWidget resultCountField;
+    private SelectableTextFieldWidget cookingTimeField;
+    private SelectableTextFieldWidget experienceField;
     private ButtonWidget minusCountBtn;
     private ButtonWidget plusCountBtn;
     private ButtonWidget prevPageBtn;
@@ -136,7 +138,7 @@ public class RecipeEditorScreen extends Screen {
     // Variant Controls
     private ButtonWidget prevVariantBtn;
     private ButtonWidget nextVariantBtn;
-    private TextFieldWidget variantField;
+    private SelectableTextFieldWidget variantField;
     private boolean isUpdatingVariantField = false;
 
     // Drag and drop state
@@ -275,6 +277,7 @@ public class RecipeEditorScreen extends Screen {
     }
 
     public void selectTargetItem(Item item) {
+        if (!isLocalWorldCreator()) return;
         if (item == null || item == Items.AIR) return;
         this.sessionVariantsByType.clear();
         this.sessionVariantIndexByType.clear();
@@ -304,6 +307,7 @@ public class RecipeEditorScreen extends Screen {
     }
 
     private void startCreatingRecipeForTarget() {
+        if (!isLocalWorldCreator()) return;
         if (targetItem == null || targetItem == Items.AIR) return;
         this.showCustomDeleteButtons = false;
         activeCreatedTypes.add(selectedType);
@@ -313,6 +317,7 @@ public class RecipeEditorScreen extends Screen {
     }
 
     public void loadRecipeForTarget(Item item) {
+        if (!isLocalWorldCreator()) return;
         selectTargetItem(item);
         if (currentFilter == CatalogFilter.CUSTOM) {
             this.showCustomDeleteButtons = true;
@@ -508,7 +513,8 @@ public class RecipeEditorScreen extends Screen {
     }
 
     private void updateEditorWidgetsVisibility() {
-        boolean enabled = configCopy.modEnabled;
+        boolean isCreator = isLocalWorldCreator();
+        boolean enabled = configCopy.modEnabled && isCreator;
         boolean hasItem = enabled && (targetItem != null && targetItem != Items.AIR);
         boolean hasActiveCraft = hasItem && (currentRecipe != null);
         boolean isFurnaceMachine = hasActiveCraft && (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING ||
@@ -546,10 +552,6 @@ public class RecipeEditorScreen extends Screen {
         return shapeless
                 ? Text.translatable("recipeeditor.gui.shapeless_btn").formatted(Formatting.AQUA)
                 : Text.translatable("recipeeditor.gui.shaped_btn").formatted(Formatting.GRAY);
-    }
-
-    private void setEditorWidgetsVisible(boolean visible) {
-        updateEditorWidgetsVisibility();
     }
 
     private void updateUiScale() {
@@ -617,7 +619,7 @@ public class RecipeEditorScreen extends Screen {
                 .build();
         this.addDrawableChild(prevVariantBtn);
 
-        variantField = new TextFieldWidget(this.textRenderer, leftPaneX + 24, variantBarY, 26, 16, Text.literal("Variant"));
+        variantField = new SelectableTextFieldWidget(this.textRenderer, leftPaneX + 24, variantBarY, 26, 16, Text.literal("Variant"));
         variantField.setText(String.valueOf(currentVariantIndex + 1));
         variantField.setMaxLength(3);
         variantField.setChangedListener(text -> {
@@ -667,7 +669,7 @@ public class RecipeEditorScreen extends Screen {
                 .build();
         this.addDrawableChild(minusCountBtn);
 
-        resultCountField = new TextFieldWidget(this.textRenderer, countStartX + 16, countY, 28, 16, Text.literal("Count"));
+        resultCountField = new SelectableTextFieldWidget(this.textRenderer, countStartX + 16, countY, 28, 16, Text.literal("Count"));
         resultCountField.setText(String.valueOf(currentRecipe != null ? currentRecipe.getResultCountForType(selectedType) : 1));
         resultCountField.setMaxLength(4);
         resultCountField.setChangedListener(text -> {
@@ -716,7 +718,7 @@ public class RecipeEditorScreen extends Screen {
 
         // Furnace Cooking Time & Experience controls (under input slot: gridStartX + 4)
         int furnaceControlsY = countY;
-        cookingTimeField = new TextFieldWidget(this.textRenderer, gridStartX + 2, furnaceControlsY, 34, 16, Text.translatable("recipeeditor.gui.label_time"));
+        cookingTimeField = new SelectableTextFieldWidget(this.textRenderer, gridStartX + 2, furnaceControlsY, 34, 16, Text.translatable("recipeeditor.gui.label_time"));
         cookingTimeField.setText(String.valueOf(currentRecipe != null ? currentRecipe.cookingTime : 200));
         cookingTimeField.setMaxLength(5);
         cookingTimeField.setChangedListener(text -> {
@@ -734,7 +736,7 @@ public class RecipeEditorScreen extends Screen {
         });
         this.addDrawableChild(cookingTimeField);
 
-        experienceField = new TextFieldWidget(this.textRenderer, gridStartX + 39, furnaceControlsY, 33, 16, Text.translatable("recipeeditor.gui.label_exp"));
+        experienceField = new SelectableTextFieldWidget(this.textRenderer, gridStartX + 39, furnaceControlsY, 33, 16, Text.translatable("recipeeditor.gui.label_exp"));
         experienceField.setText(String.format(Locale.ROOT, "%.1f", currentRecipe != null ? currentRecipe.experience : 0.1f));
         experienceField.setMaxLength(5);
         experienceField.setChangedListener(text -> {
@@ -799,13 +801,30 @@ public class RecipeEditorScreen extends Screen {
         this.addDrawableChild(nextTabBtn);
         rebuildTabButtons(rightPaneX + 22, tabY);
 
-        // Search Field
+        // Search Field & Clear Button
         String previousSearch = searchField != null ? searchField.getText() : "";
-        searchField = new TextFieldWidget(this.textRenderer, rightPaneX, searchY, searchWidth, 18, Text.literal("Search"));
+        searchField = new SelectableTextFieldWidget(this.textRenderer, rightPaneX, searchY, searchWidth, 18, Text.literal("Search"));
         searchField.setText(previousSearch);
         searchField.setPlaceholder(Text.translatable("recipeeditor.gui.search_placeholder").formatted(Formatting.GRAY));
-        searchField.setChangedListener(query -> refreshFilteredItemsResetPage());
+        searchField.setChangedListener(query -> {
+            updateSearchClearButtonState();
+            refreshFilteredItemsResetPage();
+        });
         this.addDrawableChild(searchField);
+
+        int clearBtnSize = 18;
+        int clearBtnX = rightPaneX + searchWidth - clearBtnSize;
+        int clearBtnY = searchY;
+        clearSearchBtn = ButtonWidget.builder(Text.literal("✕").formatted(Formatting.RED), btn -> {
+            if (searchField != null) {
+                searchField.setText("");
+                searchField.setFocused(true);
+                updateSearchClearButtonState();
+                refreshFilteredItemsResetPage();
+            }
+        }).dimensions(clearBtnX, clearBtnY, clearBtnSize, clearBtnSize).build();
+        this.addDrawableChild(clearSearchBtn);
+        updateSearchClearButtonState();
 
         // Catalog Pagination Buttons
         int pageBtnY = catalogGridY + (catalogRows * SLOT_SIZE) + 4;
@@ -880,7 +899,7 @@ public class RecipeEditorScreen extends Screen {
                     }
                     this.client.setScreen(this);
                 },
-                Text.translatable("recipeeditor.gui.reset_confirm_title"),
+                Text.translatable("recipeeditor.gui.reset_confirm_title").formatted(Formatting.RED, Formatting.BOLD),
                 Text.translatable("recipeeditor.gui.reset_confirm_msg")
         ));
     }
@@ -894,7 +913,7 @@ public class RecipeEditorScreen extends Screen {
                     }
                     this.client.setScreen(this);
                 },
-                Text.translatable("recipeeditor.gui.delete_variant_confirm_title"),
+                Text.translatable("recipeeditor.gui.delete_variant_confirm_title").formatted(Formatting.RED, Formatting.BOLD),
                 Text.translatable("recipeeditor.gui.delete_variant_confirm_msg")
         ));
     }
@@ -908,7 +927,7 @@ public class RecipeEditorScreen extends Screen {
                     }
                     this.client.setScreen(this);
                 },
-                Text.translatable("recipeeditor.gui.delete_confirm_title"),
+                Text.translatable("recipeeditor.gui.delete_confirm_title").formatted(Formatting.RED, Formatting.BOLD),
                 Text.translatable("recipeeditor.gui.delete_confirm_msg")
         ));
     }
@@ -995,15 +1014,31 @@ public class RecipeEditorScreen extends Screen {
         return false;
     }
 
+    public boolean isLocalWorldCreator() {
+        if (this.client == null) return false;
+        // In the Main Menu (no active world/player), editing local client configuration is always permitted
+        if (this.client.world == null || this.client.player == null) {
+            return true;
+        }
+        // In a loaded world: allow only if in singleplayer or hosting an integrated server (LAN host)
+        if (this.client.getServer() != null && this.client.isIntegratedServerRunning()) {
+            return this.client.getServer().isHost(this.client.player.getGameProfile()) || this.client.isInSingleplayer();
+        }
+        return false;
+    }
+
     public boolean hasEditPermission() {
-        if (this.client == null) return true;
-        if (this.client.isInSingleplayer() || this.client.getServer() != null) return true;
-        return this.client.player != null && this.client.player.hasPermissionLevel(2);
+        return isLocalWorldCreator();
     }
 
     private void updateButtonStates() {
-        boolean enabled = configCopy.modEnabled;
-        boolean canEdit = enabled && hasEditPermission();
+        boolean isCreator = isLocalWorldCreator();
+        boolean enabled = configCopy.modEnabled && isCreator;
+        boolean canEdit = enabled;
+
+        if (toggleEnabledBtn != null) {
+            toggleEnabledBtn.active = isCreator;
+        }
 
         if (deleteVariantBtn != null) {
             deleteVariantBtn.active = canEdit && targetItem != null && currentRecipe != null && configCopy.hasCustomRecipe(targetItem);
@@ -1074,6 +1109,7 @@ public class RecipeEditorScreen extends Screen {
         if (searchField != null) {
             searchField.setEditable(enabled);
         }
+        updateSearchClearButtonState();
         if (prevPageBtn != null) {
             prevPageBtn.active = enabled && catalogPage > 0;
         }
@@ -1086,6 +1122,19 @@ public class RecipeEditorScreen extends Screen {
         }
         if (toggleHintsBtn != null) {
             toggleHintsBtn.active = enabled;
+        }
+    }
+
+    private void updateSearchClearButtonState() {
+        if (clearSearchBtn == null || searchField == null) return;
+        boolean hasText = !searchField.getText().isEmpty();
+        boolean enabled = configCopy.modEnabled && isLocalWorldCreator();
+        clearSearchBtn.visible = hasText;
+        clearSearchBtn.active = hasText && enabled;
+        if (hasText) {
+            searchField.setWidth(searchWidth - 20);
+        } else {
+            searchField.setWidth(searchWidth);
         }
     }
 
@@ -1254,22 +1303,29 @@ public class RecipeEditorScreen extends Screen {
         if (toggleEnabledBtn != null) {
             this.remove(toggleEnabledBtn);
         }
+        boolean isCreator = isLocalWorldCreator();
         boolean enabled = configCopy.modEnabled;
         Text toggleText = enabled
                 ? Text.translatable("recipeeditor.gui.recipe_enabled").formatted(Formatting.GREEN, Formatting.BOLD)
                 : Text.translatable("recipeeditor.gui.recipe_disabled").formatted(Formatting.RED, Formatting.BOLD);
 
         toggleEnabledBtn = ButtonWidget.builder(toggleText, btn -> {
+            if (!isLocalWorldCreator()) return;
             configCopy.modEnabled = !configCopy.modEnabled;
             RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
             actual.modEnabled = configCopy.modEnabled;
             actual.save();
-            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_TOGGLE_ENABLED, String.valueOf(configCopy.modEnabled));
+            actual.invalidateAllRecipeCaches();
+            if (this.client != null && this.client.getServer() != null) {
+                com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(this.client.getServer().getPlayerManager().getPlayerList());
+                syncStonecutterRecipes();
+            }
             updateToggleBtn(x, y);
             refreshFilteredItems();
             updateButtonStates();
             updateEditorWidgetsVisibility();
         }).dimensions(x, y, leftPaneWidth, 18).build();
+        toggleEnabledBtn.active = isCreator;
         this.addDrawableChild(toggleEnabledBtn);
     }
 
@@ -1317,40 +1373,18 @@ public class RecipeEditorScreen extends Screen {
         updateButtonStates();
     }
 
-    private void sendNetworkUpdate(int action, String payload) {
-        try {
-            if (net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.canSend(com.recipeeditor.network.UpdateRecipeC2SPacket.ID)) {
-                net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.send(new com.recipeeditor.network.UpdateRecipeC2SPacket(action, payload));
-            }
-        } catch (Exception ignored) {}
-    }
-
-    public void onServerConfigSynced(RecipeEditorConfig synced) {
-        if (synced == null) return;
-        this.configCopy.modEnabled = synced.modEnabled;
-        this.configCopy.recipes.clear();
-        if (synced.recipes != null) {
-            for (Map.Entry<String, CustomRecipeData> e : synced.recipes.entrySet()) {
-                this.configCopy.recipes.put(e.getKey(), e.getValue().copy());
-            }
-        }
-        this.configCopy.rebuildEnabledCache();
-        String curSig = currentRecipe != null ? currentRecipe.getPatternSignature() : null;
-        if (targetItem != null) {
-            refreshTypeVariants(selectedType, false);
-            if (curSig != null) {
-                for (int i = 0; i < typeVariants.size(); i++) {
-                    if (curSig.equals(typeVariants.get(i).getPatternSignature())) {
-                        currentVariantIndex = i;
-                        currentRecipe = typeVariants.get(i);
-                        break;
-                    }
+    private void syncStonecutterRecipes() {
+        if (this.client != null && this.client.getServer() != null) {
+            try {
+                var recipeManager = this.client.getServer().getRecipeManager();
+                var stonecutterPacket = new net.minecraft.network.packet.s2c.play.SynchronizeRecipesS2CPacket(
+                        recipeManager.getPropertySets(),
+                        recipeManager.getStonecutterRecipeForSync());
+                for (ServerPlayerEntity p : this.client.getServer().getPlayerManager().getPlayerList()) {
+                    p.networkHandler.sendPacket(stonecutterPacket);
                 }
-            }
+            } catch (Throwable ignored) {}
         }
-        refreshFilteredItems();
-        updateButtonStates();
-        rebuildFilterButtons();
     }
 
     private void promptClearAllSlots() {
@@ -1410,7 +1444,6 @@ public class RecipeEditorScreen extends Screen {
                         if (info.conflictingRecipeKey != null && !info.conflictingRecipeKey.isEmpty()) {
                             configCopy.removeRecipeByKey(info.conflictingRecipeKey);
                             actual.removeRecipeByKey(info.conflictingRecipeKey);
-                            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, info.conflictingRecipeKey);
                         }
                     }
 
@@ -1441,24 +1474,35 @@ public class RecipeEditorScreen extends Screen {
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
         String savedSig = currentRecipe != null ? currentRecipe.getPatternSignature() : null;
 
+        boolean stonecutterChanged = false;
         for (CustomRecipeData recipe : toSave) {
             if (recipe.overriddenKey != null || recipe.overriddenId != null) {
                 recipe.overrideExisting = true;
             }
             if (recipe.originalKey != null && !recipe.originalKey.equals(recipe.getKey())) {
+                CustomRecipeData old = configCopy.recipes.get(recipe.originalKey);
+                if (old != null && old.type == RecipeTypeEnum.STONECUTTING) {
+                    stonecutterChanged = true;
+                }
                 configCopy.removeRecipeByKey(recipe.originalKey);
                 actual.removeRecipeByKey(recipe.originalKey);
-                sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, recipe.originalKey);
+            }
+            if (recipe.type == RecipeTypeEnum.STONECUTTING) {
+                stonecutterChanged = true;
             }
             recipe.originalKey = recipe.getKey();
 
             configCopy.addOrUpdateRecipe(recipe.copy());
             actual.addOrUpdateRecipe(recipe.copy());
-            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_SAVE_RECIPE, recipe.toJson());
             com.recipeeditor.integration.RecipeViewerIntegration.updateRecipeInViewers(recipe, recipe.originalKey);
         }
-        if (this.client != null && this.client.isInSingleplayer()) {
-            actual.save();
+        actual.save();
+        actual.invalidateAllRecipeCaches();
+        if (this.client != null && this.client.getServer() != null) {
+            com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(this.client.getServer().getPlayerManager().getPlayerList());
+            if (stonecutterChanged) {
+                syncStonecutterRecipes();
+            }
         }
 
         sessionVariantsByType.clear();
@@ -1491,24 +1535,35 @@ public class RecipeEditorScreen extends Screen {
         sessionVariantIndexByType.clear();
 
         boolean deleted = false;
+        boolean stonecutterChanged = false;
         if (currentRecipe.originalKey != null && !currentRecipe.originalKey.isEmpty()) {
+            CustomRecipeData old = configCopy.recipes.get(currentRecipe.originalKey);
+            if (old != null && old.type == RecipeTypeEnum.STONECUTTING) {
+                stonecutterChanged = true;
+            }
             configCopy.removeRecipeByKey(currentRecipe.originalKey);
             RecipeEditorConfig.getInstance().removeRecipeByKey(currentRecipe.originalKey);
-            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, currentRecipe.originalKey);
             deleted = true;
         }
 
         String currentKey = currentRecipe.getKey();
         if (!currentKey.equals(currentRecipe.originalKey) && (configCopy.recipes.containsKey(currentKey) || configCopy.hasCustomRecipe(targetItem))) {
+            if (currentRecipe.type == RecipeTypeEnum.STONECUTTING) {
+                stonecutterChanged = true;
+            }
             configCopy.removeRecipe(currentRecipe);
             RecipeEditorConfig.getInstance().removeRecipe(currentRecipe);
-            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_RECIPE, currentRecipe.toJson());
             deleted = true;
         }
 
         if (deleted) {
-            if (this.client != null && this.client.isInSingleplayer()) {
-                RecipeEditorConfig.getInstance().save();
+            RecipeEditorConfig.getInstance().save();
+            RecipeEditorConfig.getInstance().invalidateAllRecipeCaches();
+            if (this.client != null && this.client.getServer() != null) {
+                com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(this.client.getServer().getPlayerManager().getPlayerList());
+                if (stonecutterChanged) {
+                    syncStonecutterRecipes();
+                }
             }
             if (currentRecipe != null) {
                 com.recipeeditor.integration.RecipeViewerIntegration.removeRecipeFromViewers(currentRecipe.getKey());
@@ -1549,21 +1604,25 @@ public class RecipeEditorScreen extends Screen {
         sessionVariantsByType.clear();
         sessionVariantIndexByType.clear();
 
+        boolean stonecutterChanged = false;
         List<CustomRecipeData> toDelete = new ArrayList<>(configCopy.getRecipesFor(targetItem));
         for (CustomRecipeData r : toDelete) {
+            if (r.type == RecipeTypeEnum.STONECUTTING) {
+                stonecutterChanged = true;
+            }
             configCopy.removeRecipe(r);
             RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
             actual.removeRecipe(r);
             com.recipeeditor.integration.RecipeViewerIntegration.removeRecipeFromViewers(r.getKey());
         }
 
-        Identifier targetId = Registries.ITEM.getId(targetItem);
-        if (targetId != null) {
-            sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_DELETE_ALL_FOR_ITEM, targetId.toString());
-        }
-
-        if (this.client != null && this.client.isInSingleplayer()) {
-            RecipeEditorConfig.getInstance().save();
+        RecipeEditorConfig.getInstance().save();
+        RecipeEditorConfig.getInstance().invalidateAllRecipeCaches();
+        if (this.client != null && this.client.getServer() != null) {
+            com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(this.client.getServer().getPlayerManager().getPlayerList());
+            if (stonecutterChanged) {
+                syncStonecutterRecipes();
+            }
         }
 
         notificationText = Text.translatable("recipeeditor.gui.craft_deleted").formatted(Formatting.RED, Formatting.BOLD);
@@ -1607,7 +1666,11 @@ public class RecipeEditorScreen extends Screen {
         RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
         actual.initDefaults();
         actual.save();
-        sendNetworkUpdate(com.recipeeditor.network.UpdateRecipeC2SPacket.ACTION_RESET_DEFAULTS, "");
+        actual.invalidateAllRecipeCaches();
+        if (this.client != null && this.client.getServer() != null) {
+            com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(this.client.getServer().getPlayerManager().getPlayerList());
+            syncStonecutterRecipes();
+        }
 
         this.targetItem = null;
         this.currentRecipe = null;
@@ -1706,7 +1769,7 @@ public class RecipeEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        if (!configCopy.modEnabled) {
+        if (!configCopy.modEnabled || !isLocalWorldCreator()) {
             return false;
         }
         double sX = mouseX / uiScale;
@@ -1761,12 +1824,24 @@ public class RecipeEditorScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        // Suppress default background rendering during super.render(),
+        // because super.render() is executed under scaled matrices.
+        // The background is rendered unscaled at native 1.0x in render().
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        // 1. Render native unscaled background (panorama in main menu / world darkening in game)
+        if (this.client != null) {
+            super.renderBackground(context, mouseX, mouseY, delta);
+        }
+
+        // 2. Mod's semi-transparent dark overlay across the entire unscaled screen
+        context.fill(0, 0, this.width, this.height, 0x90000000);
+
         int scaledMouseX = (int) (mouseX / uiScale);
         int scaledMouseY = (int) (mouseY / uiScale);
-
-        // Semi-transparent background
-        context.fill(0, 0, this.width, this.height, 0x90000000);
 
         context.getMatrices().push();
         context.getMatrices().scale(uiScale, uiScale, 1.0f);
@@ -1782,7 +1857,14 @@ public class RecipeEditorScreen extends Screen {
         int hoveredCraftingSlot = getCraftingSlotAt(scaledMouseX, scaledMouseY);
 
         // --- LEFT PANE RENDERING ---
-        if (!configCopy.modEnabled) {
+        if (!isLocalWorldCreator()) {
+            // Main prompt replaced with red text on non-local / non-creator servers
+            int pCenterX = leftPaneX + (leftPaneWidth / 2);
+            int pStartY = contentY + 36;
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.remote_server_hint_1").formatted(Formatting.RED, Formatting.BOLD), pCenterX, pStartY, 0xFFFF5555);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.remote_server_hint_2").formatted(Formatting.RED, Formatting.BOLD), pCenterX, pStartY + 12, 0xFFFF5555);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.remote_server_hint_3").formatted(Formatting.RED, Formatting.BOLD), pCenterX, pStartY + 24, 0xFFFF5555);
+        } else if (!configCopy.modEnabled) {
             // Message when mod is disabled (red title + gray/white prompt)
             int pCenterX = leftPaneX + (leftPaneWidth / 2);
             int pStartY = contentY + 36;
@@ -2217,6 +2299,9 @@ public class RecipeEditorScreen extends Screen {
                 }
             }
         }
+        if (clearSearchBtn != null && clearSearchBtn.visible && clearSearchBtn.isHovered()) {
+            return Text.translatable("recipeeditor.tooltip.clear_search");
+        }
         if (searchField != null && searchField.isVisible() && searchField.isMouseOver(scaledMouseX, scaledMouseY)) {
             return Text.translatable("recipeeditor.tooltip.search");
         }
@@ -2258,7 +2343,7 @@ public class RecipeEditorScreen extends Screen {
 
     private void drawItemInScreen(DrawContext context, ItemStack stack, int x, int y) {
         if (stack == null || stack.isEmpty()) return;
-        if (!configCopy.modEnabled) {
+        if (!configCopy.modEnabled || !isLocalWorldCreator()) {
             com.mojang.blaze3d.systems.RenderSystem.setShaderColor(0.4f, 0.4f, 0.4f, 0.8f);
             context.drawItem(stack, x, y);
             com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
@@ -2273,6 +2358,13 @@ public class RecipeEditorScreen extends Screen {
         double sX = mouseX / uiScale;
         double sY = mouseY / uiScale;
 
+        if (!isLocalWorldCreator()) {
+            if (exitBtn != null && exitBtn.visible && exitBtn.isMouseOver(sX, sY)) {
+                return exitBtn.mouseClicked(sX, sY, button);
+            }
+            return false;
+        }
+
         if (!configCopy.modEnabled) {
             if (toggleEnabledBtn != null && toggleEnabledBtn.visible && toggleEnabledBtn.isMouseOver(sX, sY)) {
                 return toggleEnabledBtn.mouseClicked(sX, sY, button);
@@ -2281,6 +2373,10 @@ public class RecipeEditorScreen extends Screen {
                 return exitBtn.mouseClicked(sX, sY, button);
             }
             return false;
+        }
+
+        if (clearSearchBtn != null && clearSearchBtn.visible && clearSearchBtn.isMouseOver(sX, sY)) {
+            return clearSearchBtn.mouseClicked(sX, sY, button);
         }
 
         if (super.mouseClicked(sX, sY, button)) {
@@ -2345,11 +2441,16 @@ public class RecipeEditorScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (!configCopy.modEnabled) {
+        if (!configCopy.modEnabled || !isLocalWorldCreator()) {
             return false;
         }
         double sX = mouseX / uiScale;
         double sY = mouseY / uiScale;
+
+        Element focused = this.getFocused();
+        if (focused instanceof SelectableTextFieldWidget textField && button == 0) {
+            textField.handleMouseReleased(sX, sY, button);
+        }
 
         if (button == 0 && draggedItem != null) {
             int targetSlot = getCraftingSlotAt(sX, sY);
@@ -2454,7 +2555,7 @@ public class RecipeEditorScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (!configCopy.modEnabled) {
+        if (!configCopy.modEnabled || !isLocalWorldCreator()) {
             return false;
         }
         if (draggedItem != null) {
@@ -2462,6 +2563,14 @@ public class RecipeEditorScreen extends Screen {
         }
         double sX = mouseX / uiScale;
         double sY = mouseY / uiScale;
+
+        Element focused = this.getFocused();
+        if (focused instanceof SelectableTextFieldWidget textField && button == 0) {
+            if (textField.handleMouseDragged(sX, sY, button)) {
+                return true;
+            }
+        }
+
         return super.mouseDragged(sX, sY, button, deltaX / uiScale, deltaY / uiScale);
     }
 
@@ -2477,7 +2586,7 @@ public class RecipeEditorScreen extends Screen {
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
 
-        if (!configCopy.modEnabled) {
+        if (!configCopy.modEnabled || !isLocalWorldCreator()) {
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
 

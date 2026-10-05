@@ -3,7 +3,6 @@ package com.recipeeditor.inspector;
 import com.recipeeditor.config.CustomRecipeData;
 import com.recipeeditor.config.RecipeTypeEnum;
 import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
 
 public class RecipeConflictInfo {
@@ -30,6 +29,6 @@ public class RecipeConflictInfo {
 
     public Text getConflictingItemName() {
         if (conflictingItem == null) return Text.literal("Unknown");
-        return new ItemStack(conflictingItem).getName();
+        return conflictingItem.getName();
     }
 }

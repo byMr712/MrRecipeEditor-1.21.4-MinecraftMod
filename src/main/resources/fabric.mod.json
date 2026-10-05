@@ -22,6 +22,9 @@
     ],
     "modmenu": [
       "com.recipeeditor.integration.ModMenuIntegration"
+    ],
+    "rei_client": [
+      "com.recipeeditor.integration.rei.RecipeEditorReiClientPlugin"
     ]
   },
   "mixins": [
@@ -31,10 +34,10 @@
     "fabricloader": ">=0.16.0",
     "minecraft": "~1.21.4",
     "java": ">=21",
-    "modmenu": "*"
+    "modmenu": "*",
+	"fabric-api": "*"
   },
   "suggests": {
-    "fabric-api": "*"
+    "roughlyenoughitems": "*"
   }
-
 }

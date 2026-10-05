@@ -39,6 +39,9 @@ public class CampfireBlockMixin {
             BlockHitResult hit,
             CallbackInfoReturnable<ActionResult> cir
     ) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
+            return;
+        }
         if (!state.get(CampfireBlock.LIT)) {
             return;
         }

@@ -9,6 +9,9 @@
     "AbstractFurnaceScreenHandlerMixin",
     "ServerRecipeBookMixin"
   ],
+  "client": [
+    "client.TextFieldWidgetAccessor"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

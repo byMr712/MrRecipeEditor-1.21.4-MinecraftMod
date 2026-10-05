@@ -25,6 +25,9 @@ public class AbstractFurnaceScreenHandlerMixin {
 
     @Inject(method = "isSmeltable", at = @At("RETURN"), cancellable = true)
     private void onIsSmeltable(ItemStack itemStack, CallbackInfoReturnable<Boolean> cir) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
+            return;
+        }
         if (!itemStack.isEmpty() && this.recipeType != null && this.world != null) {
             boolean hasCustomMatch = CustomRecipeDispatcher.getCustomMatch(this.recipeType, new SingleStackRecipeInput(itemStack), this.world).isPresent();
             if (hasCustomMatch) {
@@ -39,7 +42,7 @@ public class AbstractFurnaceScreenHandlerMixin {
                     if (match.isEmpty()) {
                         cir.setReturnValue(false);
                     }
-                } else {
+                } else if (net.fabricmc.loader.api.FabricLoader.getInstance().getEnvironmentType() == net.fabricmc.api.EnvType.CLIENT) {
                     RecipeTypeEnum typeEnum = RecipeTypeEnum.fromRecipeType(this.recipeType);
                     if (typeEnum != null && RecipeInspector.isCookingInputOverridden(typeEnum, itemStack.getItem(), this.world)) {
                         cir.setReturnValue(false);

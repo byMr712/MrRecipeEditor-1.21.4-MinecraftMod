@@ -1,7 +1,6 @@
 package com.recipeeditor.config;
 
 import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.recipe.Ingredient;
 import net.minecraft.recipe.RawShapedRecipe;
@@ -32,6 +31,13 @@ public class CustomRecipeData {
     private transient int cachedHash = 0;
     private transient Ingredient[] cachedIngredients = null;
     private transient int cachedPatternHash = 0;
+    private transient List<Ingredient> cachedNonEmptyIngredients = null;
+    private transient int patternBoundsHash = 0;
+    private transient int patternWidth = -1;
+    private transient int patternHeight = -1;
+    private transient int minRow = -1;
+    private transient int minCol = -1;
+    private transient int maxCol = -1;
 
     public String getKey() {
         String res = resultItemId != null ? resultItemId : "minecraft:air";
@@ -87,6 +93,13 @@ public class CustomRecipeData {
         cachedHash = 0;
         cachedIngredients = null;
         cachedPatternHash = 0;
+        cachedNonEmptyIngredients = null;
+        patternBoundsHash = 0;
+        patternWidth = -1;
+        patternHeight = -1;
+        minRow = -1;
+        minCol = -1;
+        maxCol = -1;
     }
 
     public Item getResultItem() {
@@ -171,17 +184,72 @@ public class CustomRecipeData {
             }
             cachedIngredients = temp;
             cachedPatternHash = currentHash;
-        } else if (cachedIngredients[slot] == null || (cachedIngredients[slot].isEmpty() && getSlotString(slot).startsWith("#"))) {
+        } else if (cachedIngredients[slot] != null && cachedIngredients[slot].isEmpty()) {
             // If previously resolved to empty for a tag before registry was ready, retry now
             String slotStr = getSlotString(slot);
             if (slotStr != null && slotStr.startsWith("#")) {
                 Ingredient retry = computeIngredientForSlot(slot);
                 if (retry != null && !retry.isEmpty()) {
                     cachedIngredients[slot] = retry;
+                    cachedNonEmptyIngredients = null;
                 }
             }
         }
         return cachedIngredients[slot];
+    }
+
+    public synchronized void computePatternBounds() {
+        int currentHash = Arrays.hashCode(patternSlots);
+        if (patternBoundsHash == currentHash && minRow != -1) return;
+        int rMin = 3, rMax = -1, cMin = 3, cMax = -1;
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                int slot = r * 3 + c;
+                String s = patternSlots != null ? patternSlots[slot] : null;
+                if (s != null && !s.isEmpty() && !s.equals("minecraft:air")) {
+                    if (r < rMin) rMin = r;
+                    if (r > rMax) rMax = r;
+                    if (c < cMin) cMin = c;
+                    if (c > cMax) cMax = c;
+                }
+            }
+        }
+        minRow = rMin;
+        maxCol = cMax;
+        minCol = cMin;
+        if (rMax == -1) {
+            patternWidth = 0;
+            patternHeight = 0;
+        } else {
+            patternWidth = cMax - cMin + 1;
+            patternHeight = rMax - rMin + 1;
+        }
+        patternBoundsHash = currentHash;
+    }
+
+    public synchronized int getPatternWidth() {
+        if (minRow == -1 || patternBoundsHash != Arrays.hashCode(patternSlots)) computePatternBounds();
+        return patternWidth;
+    }
+
+    public synchronized int getPatternHeight() {
+        if (minRow == -1 || patternBoundsHash != Arrays.hashCode(patternSlots)) computePatternBounds();
+        return patternHeight;
+    }
+
+    public synchronized int getMinRow() {
+        if (minRow == -1 || patternBoundsHash != Arrays.hashCode(patternSlots)) computePatternBounds();
+        return minRow;
+    }
+
+    public synchronized int getMinCol() {
+        if (minRow == -1 || patternBoundsHash != Arrays.hashCode(patternSlots)) computePatternBounds();
+        return minCol;
+    }
+
+    public synchronized int getMaxCol() {
+        if (minRow == -1 || patternBoundsHash != Arrays.hashCode(patternSlots)) computePatternBounds();
+        return maxCol;
     }
 
     public Ingredient computeIngredientForSlot(int slot) {
@@ -214,36 +282,22 @@ public class CustomRecipeData {
         return ing != null ? Optional.of(ing) : Optional.empty();
     }
 
-    public RawShapedRecipe getRawRecipe() {
+    public synchronized RawShapedRecipe getRawRecipe() {
         int hash = Arrays.hashCode(patternSlots);
         if (cachedRawRecipe == null || cachedHash != hash) {
-            int minRow = 3, maxRow = -1, minCol = 3, maxCol = -1;
-            for (int r = 0; r < 3; r++) {
-                for (int c = 0; c < 3; c++) {
-                    int slot = r * 3 + c;
-                    String s = patternSlots != null ? patternSlots[slot] : null;
-                    if (s != null && !s.isEmpty() && !s.equals("minecraft:air")) {
-                        if (r < minRow) minRow = r;
-                        if (r > maxRow) maxRow = r;
-                        if (c < minCol) minCol = c;
-                        if (c > maxCol) maxCol = c;
-                    }
-                }
-            }
-
-            if (maxRow == -1) {
+            computePatternBounds();
+            if (patternWidth == 0 || patternHeight == 0) {
                 // Completely empty
                 cachedRawRecipe = new RawShapedRecipe(1, 1, List.of(Optional.empty()), Optional.empty());
             } else {
-                int patternW = maxCol - minCol + 1;
-                int patternH = maxRow - minRow + 1;
-                List<Optional<Ingredient>> ingredients = new ArrayList<>(patternW * patternH);
+                int maxRow = minRow + patternHeight - 1;
+                List<Optional<Ingredient>> ingredients = new ArrayList<>(patternWidth * patternHeight);
                 for (int r = minRow; r <= maxRow; r++) {
                     for (int c = minCol; c <= maxCol; c++) {
                         ingredients.add(createIngredientForSlot(r * 3 + c));
                     }
                 }
-                cachedRawRecipe = new RawShapedRecipe(patternW, patternH, ingredients, Optional.empty());
+                cachedRawRecipe = new RawShapedRecipe(patternWidth, patternHeight, ingredients, Optional.empty());
             }
             cachedHash = hash;
         }
@@ -271,15 +325,18 @@ public class CustomRecipeData {
         return copy;
     }
 
-    public List<Ingredient> getNonEmptyIngredients() {
-        List<Ingredient> list = new ArrayList<>();
-        for (int i = 0; i < 9; i++) {
-            Ingredient ing = getIngredientAt(i);
-            if (ing != null) {
-                list.add(ing);
+    public synchronized List<Ingredient> getNonEmptyIngredients() {
+        if (cachedNonEmptyIngredients == null) {
+            List<Ingredient> list = new ArrayList<>();
+            for (int i = 0; i < 9; i++) {
+                Ingredient ing = getIngredientAt(i);
+                if (ing != null && !ing.isEmpty()) {
+                    list.add(ing);
+                }
             }
+            cachedNonEmptyIngredients = Collections.unmodifiableList(list);
         }
-        return list;
+        return cachedNonEmptyIngredients;
     }
 
     private static final com.google.gson.Gson GSON = new com.google.gson.Gson();
@@ -289,7 +346,7 @@ public class CustomRecipeData {
     }
 
     public static CustomRecipeData fromJson(String json) {
-        if (json == null || json.isEmpty()) return null;
+        if (json == null || json.isEmpty() || !json.trim().startsWith("{")) return null;
         try {
             return GSON.fromJson(json, CustomRecipeData.class);
         } catch (Exception e) {

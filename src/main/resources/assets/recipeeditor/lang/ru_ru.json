@@ -49,6 +49,9 @@
   "recipeeditor.gui.mod_disabled_hint_1": "Мод отключён!",
   "recipeeditor.gui.mod_disabled_hint_2": "Для взаимодействия с крафтами",
   "recipeeditor.gui.mod_disabled_hint_3": "включите его по кнопке выше",
+  "recipeeditor.gui.remote_server_hint_1": "Вы можете менять крафты",
+  "recipeeditor.gui.remote_server_hint_2": "только на локальных серверах,",
+  "recipeeditor.gui.remote_server_hint_3": "если являетесь его создателем",
   "recipeeditor.gui.hint_1": "💡 ПКМ — загрузить крафт предмета",
   "recipeeditor.gui.hint_1_sub": "    из окна предметов",
   "recipeeditor.gui.hint_2": "💡 ЛКМ — перетащить предмет в",
@@ -122,5 +125,6 @@
   "recipeeditor.tooltip.toggle_hints": "Показать или скрыть блок помощи",
   "recipeeditor.tooltip.reset_defaults": "Сбросить и удалить все созданные кастомные крафты",
   "recipeeditor.tooltip.exit": "Закрыть редактор рецептов",
+  "recipeeditor.tooltip.clear_search": "Очистить строку поиска",
   "recipeeditor.gui.scanning_recipes": "⏳ Сканирование рецептов..."
 }

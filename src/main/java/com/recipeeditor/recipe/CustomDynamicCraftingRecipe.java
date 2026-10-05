@@ -58,22 +58,36 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         return RecipeBookCategories.CRAFTING_MISC;
     }
 
-    private CustomRecipeData findMatchingRecipe(CraftingRecipeInput input) {
+    private static volatile CraftingRecipeInput lastInput = null;
+    private static volatile CustomRecipeData lastMatchedRecipe = null;
+    private static volatile int lastInputConfigVersion = -1;
+
+    private static synchronized CustomRecipeData findMatchingRecipe(CraftingRecipeInput input) {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty() || input.isEmpty()) {
             return null;
         }
 
-        for (CustomRecipeData recipeData : config.recipes.values()) {
-            if (!recipeData.enabled) continue;
+        int currentVer = config.configVersion;
+        CraftingRecipeInput prevInput = lastInput;
+        if (prevInput != null && lastInputConfigVersion == currentVer && input.equals(prevInput)) {
+            return lastMatchedRecipe;
+        }
 
-            if (recipeData.type == RecipeTypeEnum.SHAPED_CRAFTING) {
-                if (matchesCrafting(input, recipeData)) {
-                    return recipeData;
-                }
+        CustomRecipeData matched = null;
+        List<CustomRecipeData> craftingRecipes = config.getSortedCraftingRecipes();
+        for (int i = 0; i < craftingRecipes.size(); i++) {
+            CustomRecipeData recipeData = craftingRecipes.get(i);
+            if (matchesCrafting(input, recipeData)) {
+                matched = recipeData;
+                break;
             }
         }
-        return null;
+
+        lastInput = input;
+        lastMatchedRecipe = matched;
+        lastInputConfigVersion = currentVer;
+        return matched;
     }
 
     public static boolean matchesCrafting(CraftingRecipeInput input, CustomRecipeData recipeData) {
@@ -131,28 +145,11 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
     public static boolean matchesShaped(CraftingRecipeInput input, CustomRecipeData recipeData) {
         if (input.isEmpty()) return false;
 
-        // 1. Determine bounding box of non-empty slots in recipe
-        int minRow = 3, maxRow = -1, minCol = 3, maxCol = -1;
-        for (int r = 0; r < 3; r++) {
-            for (int c = 0; c < 3; c++) {
-                int slotIdx = r * 3 + c;
-                Ingredient ing = recipeData.getIngredientAt(slotIdx);
-                if (ing != null) {
-                    if (r < minRow) minRow = r;
-                    if (r > maxRow) maxRow = r;
-                    if (c < minCol) minCol = c;
-                    if (c > maxCol) maxCol = c;
-                }
-            }
-        }
-
-        if (maxRow == -1) {
-            // Recipe is completely empty
+        int patternW = recipeData.getPatternWidth();
+        int patternH = recipeData.getPatternHeight();
+        if (patternW == 0 || patternH == 0) {
             return false;
         }
-
-        int patternW = maxCol - minCol + 1;
-        int patternH = maxRow - minRow + 1;
 
         int inputW = input.getWidth();
         int inputH = input.getHeight();
@@ -160,6 +157,10 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         if (inputW < patternW || inputH < patternH) {
             return false;
         }
+
+        int minRow = recipeData.getMinRow();
+        int minCol = recipeData.getMinCol();
+        int maxCol = recipeData.getMaxCol();
 
         // Test all possible positions (dx, dy) where pattern can fit in the crafting input grid
         for (int dx = 0; dx <= inputW - patternW; dx++) {
@@ -236,6 +237,9 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
 
     public static void invalidateDisplayCache() {
         DISPLAY_VERSION.incrementAndGet();
+        lastInput = null;
+        lastMatchedRecipe = null;
+        lastInputConfigVersion = -1;
     }
 
     private volatile List<RecipeDisplay> cachedDisplays = null;
@@ -249,7 +253,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         }
 
         int version = DISPLAY_VERSION.get();
-        int configHash = (config.recipes != null ? config.recipes.hashCode() : 0) ^ (config.modEnabled ? 1 : 0) ^ version;
+        int configHash = config.configVersion ^ (config.modEnabled ? 1 : 0) ^ version;
         List<RecipeDisplay> cached = cachedDisplays;
         if (cached != null && cachedDisplaysHash == configHash) {
             return cached;

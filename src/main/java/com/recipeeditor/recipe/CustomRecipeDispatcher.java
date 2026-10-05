@@ -18,7 +18,6 @@ import net.minecraft.recipe.display.SlotDisplay;
 import net.minecraft.recipe.input.RecipeInput;
 import net.minecraft.recipe.input.SingleStackRecipeInput;
 import net.minecraft.recipe.input.SmithingRecipeInput;
-import net.minecraft.registry.Registries;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -93,6 +92,7 @@ public class CustomRecipeDispatcher {
     }
 
     public static boolean isRecipeOverridden(RecipeEntry<?> entry) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return false;
         if (entry == null || entry.id() == null) return false;
         Identifier entryId = entry.id().getValue();
         if (entryId == null || "recipeeditor".equals(entryId.getNamespace())) return false;
@@ -124,6 +124,7 @@ public class CustomRecipeDispatcher {
     }
 
     public static boolean isIdentifierOverridden(Identifier entryId) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return false;
         if (entryId == null || "recipeeditor".equals(entryId.getNamespace())) return false;
 
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
@@ -153,6 +154,7 @@ public class CustomRecipeDispatcher {
     }
 
     public static boolean isIdOverridden(String fullOrShortId) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return false;
         if (fullOrShortId == null || fullOrShortId.isEmpty()) return false;
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
@@ -181,6 +183,7 @@ public class CustomRecipeDispatcher {
     }
 
     public static <I extends RecipeInput, T extends Recipe<I>> Optional<RecipeEntry<T>> getCustomMatch(RecipeType<T> type, I input, World world) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return Optional.empty();
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty() || input == null || input.isEmpty()) {
             return Optional.empty();
@@ -356,9 +359,9 @@ public class CustomRecipeDispatcher {
         return Optional.empty();
     }
 
-    private static Identifier getRecipeIdentifier(CustomRecipeData recipeData) {
+    public static Identifier getRecipeIdentifier(CustomRecipeData recipeData) {
         String base = sanitizeId(recipeData.id);
-        String sigHash = Integer.toHexString(Math.abs(recipeData.getKey().hashCode()));
+        String sigHash = Integer.toHexString(recipeData.getKey().hashCode() & 0x7FFFFFFF);
         return Identifier.of("recipeeditor", "dynamic_" + base + "_" + sigHash);
     }
 
@@ -368,28 +371,12 @@ public class CustomRecipeDispatcher {
     }
 
     public static RecipeTypeEnum getEnumForType(RecipeType<?> type) {
-        if (type == RecipeType.CRAFTING) return RecipeTypeEnum.SHAPED_CRAFTING;
-        if (type == RecipeType.SMELTING) return RecipeTypeEnum.SMELTING;
-        if (type == RecipeType.BLASTING) return RecipeTypeEnum.BLASTING;
-        if (type == RecipeType.SMOKING) return RecipeTypeEnum.SMOKING;
-        if (type == RecipeType.STONECUTTING) return RecipeTypeEnum.STONECUTTING;
-        if (type == RecipeType.SMITHING) return RecipeTypeEnum.SMITHING;
-        if (type == RecipeType.CAMPFIRE_COOKING) return RecipeTypeEnum.CAMPFIRE_COOKING;
-        return null;
+        return RecipeTypeEnum.fromRecipeType(type);
     }
 
     public static RecipeType<?> getMcTypeForEnum(RecipeTypeEnum typeEnum) {
         if (typeEnum == null) return null;
-        return switch (typeEnum) {
-            case SHAPED_CRAFTING -> RecipeType.CRAFTING;
-            case SMELTING -> RecipeType.SMELTING;
-            case BLASTING -> RecipeType.BLASTING;
-            case SMOKING -> RecipeType.SMOKING;
-            case STONECUTTING -> RecipeType.STONECUTTING;
-            case SMITHING -> RecipeType.SMITHING;
-            case CAMPFIRE_COOKING -> RecipeType.CAMPFIRE_COOKING;
-            default -> null;
-        };
+        return typeEnum.toRecipeType();
     }
 
     private static boolean matchesInput(CustomRecipeData data, RecipeTypeEnum typeEnum, RecipeInput input) {
@@ -521,6 +508,7 @@ public class CustomRecipeDispatcher {
     }
 
     public static synchronized void ensureRecipeBookEntriesUpToDate() {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
             CUSTOM_SERVER_RECIPES.clear();
@@ -530,7 +518,7 @@ public class CustomRecipeDispatcher {
             return;
         }
 
-        if (lastRecipeBookVersion == config.configVersion && !CUSTOM_SERVER_RECIPES.isEmpty()) {
+        if (lastRecipeBookVersion == config.configVersion) {
             return;
         }
 
@@ -538,13 +526,17 @@ public class CustomRecipeDispatcher {
         CUSTOM_SERVER_RECIPES_BY_KEY.clear();
         CUSTOM_DISPLAY_PACKET_ENTRIES.clear();
 
-        List<RecipeEntry<?>> customEntries = getAllCustomRecipes();
+        for (CustomRecipeData recipeData : config.recipes.values()) {
+            if (!recipeData.enabled) continue;
+            RecipeType<?> mcType = getMcTypeForEnum(recipeData.type);
+            if (mcType == null) continue;
 
-        for (RecipeEntry<?> entry : customEntries) {
+            @SuppressWarnings({"rawtypes", "unchecked"})
+            RecipeEntry<?> entry = getCachedSyntheticEntry(recipeData, recipeData.type, (RecipeType) mcType);
+            if (entry == null || entry.value() == null) continue;
+
             Recipe<?> recipe = entry.value();
-            if (recipe == null) continue;
-
-            OptionalInt group = recipe.getGroup().isEmpty() ? OptionalInt.empty() : OptionalInt.of(Math.abs(recipe.getGroup().hashCode() % 10000));
+            OptionalInt group = recipe.getGroup().isEmpty() ? OptionalInt.empty() : OptionalInt.of((recipe.getGroup().hashCode() & 0x7FFFFFFF) % 10000);
             Optional<List<Ingredient>> ingredients;
             try {
                 if (recipe.isIgnoredInRecipeBook()) {
@@ -567,7 +559,7 @@ public class CustomRecipeDispatcher {
             }
 
             if (displays != null) {
-                int baseNetId = getBaseNetworkId(entry.id().getValue().toString());
+                int baseNetId = getBaseNetworkId(recipeData.getKey());
                 for (int d = 0; d < displays.size(); d++) {
                     NetworkRecipeId netId = new NetworkRecipeId(baseNetId + d);
                     RecipeDisplayEntry displayEntry = new RecipeDisplayEntry(netId, displays.get(d), group, category, ingredients);
@@ -585,7 +577,7 @@ public class CustomRecipeDispatcher {
 
     public static int getBaseNetworkId(String recipeKey) {
         if (recipeKey == null) return 1_000_000;
-        return 1_000_000 + (Math.abs(recipeKey.hashCode() % 80_000_000) * 10);
+        return 1_000_000 + ((recipeKey.hashCode() & 0x7FFFFFFF) % 80_000_000) * 10;
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -597,7 +589,7 @@ public class CustomRecipeDispatcher {
         if (entry == null || entry.value() == null) return Collections.emptyList();
         Recipe<?> recipe = (Recipe<?>) entry.value();
 
-        OptionalInt group = recipe.getGroup().isEmpty() ? OptionalInt.empty() : OptionalInt.of(Math.abs(recipe.getGroup().hashCode() % 10000));
+        OptionalInt group = recipe.getGroup().isEmpty() ? OptionalInt.empty() : OptionalInt.of((recipe.getGroup().hashCode() & 0x7FFFFFFF) % 10000);
         Optional<List<Ingredient>> ingredients;
         try {
             if (recipe.isIgnoredInRecipeBook()) {
@@ -645,6 +637,7 @@ public class CustomRecipeDispatcher {
     }
 
     public static void sendCustomRecipeBookEntries(ServerPlayerEntity player) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         if (player == null || player.networkHandler == null) return;
         ensureRecipeBookEntriesUpToDate();
         if (!CUSTOM_DISPLAY_PACKET_ENTRIES.isEmpty()) {
@@ -652,47 +645,8 @@ public class CustomRecipeDispatcher {
         }
     }
 
-    public static synchronized void syncRecipeDeltaToPlayers(Iterable<ServerPlayerEntity> players, CustomRecipeData addedOrUpdated, String removedKey) {
-        invalidateRecipeBookCache();
-        ensureRecipeBookEntriesUpToDate();
-
-        List<NetworkRecipeId> toRemove = new ArrayList<>();
-        if (removedKey != null && !removedKey.isEmpty()) {
-            int oldBase = getBaseNetworkId(removedKey);
-            for (int i = 0; i < 10; i++) {
-                toRemove.add(new NetworkRecipeId(oldBase + i));
-            }
-        }
-        if (addedOrUpdated != null) {
-            int base = getBaseNetworkId(addedOrUpdated.getKey());
-            for (int i = 0; i < 10; i++) {
-                toRemove.add(new NetworkRecipeId(base + i));
-            }
-        }
-
-        List<RecipeBookAddS2CPacket.Entry> toAdd = new ArrayList<>();
-        if (addedOrUpdated != null) {
-            List<RecipeDisplayEntry> displayEntries = createDisplayEntriesForRecipe(addedOrUpdated);
-            for (RecipeDisplayEntry de : displayEntries) {
-                toAdd.add(new RecipeBookAddS2CPacket.Entry(de, false, false));
-            }
-        }
-
-        RecipeBookRemoveS2CPacket removePacket = !toRemove.isEmpty() ? new RecipeBookRemoveS2CPacket(toRemove) : null;
-        RecipeBookAddS2CPacket addPacket = !toAdd.isEmpty() ? new RecipeBookAddS2CPacket(toAdd, false) : null;
-
-        for (ServerPlayerEntity player : players) {
-            if (player == null || player.networkHandler == null) continue;
-            if (removePacket != null) {
-                player.networkHandler.sendPacket(removePacket);
-            }
-            if (addPacket != null) {
-                player.networkHandler.sendPacket(addPacket);
-            }
-        }
-    }
-
     public static synchronized void syncRecipeBookToPlayers(Iterable<ServerPlayerEntity> players) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         List<NetworkRecipeId> oldIds = new ArrayList<>(PREVIOUS_NETWORK_IDS);
 
         invalidateRecipeBookCache();

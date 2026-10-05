@@ -232,18 +232,6 @@ public class RecipeViewerIntegration {
         } else {
             isReloading.set(false);
         }
-
-        if (FabricLoader.getInstance().isModLoaded("emi")) {
-            try {
-                Class<?> emiReloadManager = Class.forName("dev.emi.emi.runtime.EmiReloadManager");
-                emiReloadManager.getMethod("reload").invoke(null);
-            } catch (Throwable ignored) {
-                try {
-                    Class<?> emiRecipes = Class.forName("dev.emi.emi.registry.EmiRecipes");
-                    emiRecipes.getMethod("bake").invoke(null);
-                } catch (Throwable ignored2) {}
-            }
-        }
     }
 
     private static boolean isAnyViewerReloading() {
@@ -263,24 +251,6 @@ public class RecipeViewerIntegration {
                         if (res instanceof Boolean b && b) return true;
                     }
                 }
-            } catch (Throwable ignored) {}
-        }
-
-        if (FabricLoader.getInstance().isModLoaded("emi")) {
-            try {
-                Class<?> emiReloadManager = Class.forName("dev.emi.emi.runtime.EmiReloadManager");
-                try {
-                    Method isReloadingMethod = emiReloadManager.getMethod("isReloading");
-                    Object res = isReloadingMethod.invoke(null);
-                    if (res instanceof Boolean b && b) return true;
-                } catch (NoSuchMethodException ignored) {}
-                try {
-                    Method getStatusMethod = emiReloadManager.getMethod("getStatus");
-                    Object status = getStatusMethod.invoke(null);
-                    if (status != null && status.toString().toUpperCase().contains("RELOAD")) {
-                        return true;
-                    }
-                } catch (NoSuchMethodException ignored) {}
             } catch (Throwable ignored) {}
         }
 

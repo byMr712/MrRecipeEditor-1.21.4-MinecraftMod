@@ -49,6 +49,9 @@
   "recipeeditor.gui.mod_disabled_hint_1": "Mod is disabled!",
   "recipeeditor.gui.mod_disabled_hint_2": "To interact with recipes,",
   "recipeeditor.gui.mod_disabled_hint_3": "enable it using the button above",
+  "recipeeditor.gui.remote_server_hint_1": "You can only edit recipes",
+  "recipeeditor.gui.remote_server_hint_2": "on local servers,",
+  "recipeeditor.gui.remote_server_hint_3": "if you are its creator",
   "recipeeditor.gui.hint_1": "💡 RMB — Load item craft",
   "recipeeditor.gui.hint_1_sub": "    from the catalog window",
   "recipeeditor.gui.hint_2": "💡 LMB — Drag item to",
@@ -122,5 +125,6 @@
   "recipeeditor.tooltip.toggle_hints": "Show or hide help block",
   "recipeeditor.tooltip.reset_defaults": "Reset and delete all custom configured recipes",
   "recipeeditor.tooltip.exit": "Close recipe editor",
+  "recipeeditor.tooltip.clear_search": "Clear search query",
   "recipeeditor.gui.scanning_recipes": "⏳ Scanning recipes..."
 }

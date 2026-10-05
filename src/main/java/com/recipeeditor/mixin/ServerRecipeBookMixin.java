@@ -16,6 +16,9 @@ public class ServerRecipeBookMixin {
 
     @Inject(method = "isUnlocked", at = @At("HEAD"), cancellable = true)
     private void onIsUnlocked(RegistryKey<Recipe<?>> key, CallbackInfoReturnable<Boolean> cir) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
+            return;
+        }
         if (key != null && key.getValue() != null) {
             if ("recipeeditor".equals(key.getValue().getNamespace())) {
                 cir.setReturnValue(true);
@@ -30,6 +33,9 @@ public class ServerRecipeBookMixin {
 
     @Inject(method = "sendInitRecipesPacket", at = @At("RETURN"))
     private void onSendInitRecipesPacket(ServerPlayerEntity player, CallbackInfo ci) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
+            return;
+        }
         CustomRecipeDispatcher.sendCustomRecipeBookEntries(player);
     }
 }

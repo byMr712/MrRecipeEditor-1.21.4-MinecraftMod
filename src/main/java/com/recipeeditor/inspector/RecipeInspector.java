@@ -9,11 +9,10 @@ import com.recipeeditor.config.CustomRecipeData;
 import com.recipeeditor.config.RecipeEditorConfig;
 import com.recipeeditor.config.RecipeTypeEnum;
 import com.recipeeditor.recipe.CustomRecipeDispatcher;
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.recipebook.RecipeResultCollection;
-import net.minecraft.client.recipebook.ClientRecipeBook;
 import net.minecraft.item.Item;
 import net.minecraft.item.Items;
 import net.minecraft.recipe.*;
@@ -37,8 +36,8 @@ public class RecipeInspector {
     private static final Map<Item, List<RecipeEntry<?>>> RECIPE_ENTRIES = new ConcurrentHashMap<>();
     private static final Map<Item, List<RecipeDisplay>> RECIPE_DISPLAYS = new ConcurrentHashMap<>();
     private static final Set<Item> KNOWN_RECIPE_ITEMS = ConcurrentHashMap.newKeySet();
-    private static final Map<Item, CustomRecipeData> DECOMPILED_CACHE = new ConcurrentHashMap<>();
     private static final Map<Item, List<CustomRecipeData>> DECOMPILED_VARIANTS = new ConcurrentHashMap<>();
+    private static final Map<Item, List<CustomRecipeData>> CACHED_ITEM_VARIANTS = new ConcurrentHashMap<>();
     private static final Set<Item> SYNTHETIC_ITEMS = ConcurrentHashMap.newKeySet();
     private static final Map<Item, Set<Item>> INGREDIENT_TO_ITEMS = new ConcurrentHashMap<>();
     /** Multilingual item name index: translationKey -> Set of lowercase names from all scanned lang files */
@@ -47,19 +46,19 @@ public class RecipeInspector {
     private static volatile boolean jarsScanned = false;
     private static volatile boolean jarsScanning = false;
     private static volatile boolean langIndexedViaRM = false;
-    private static java.util.concurrent.CompletableFuture<Void> scanFuture = null;
-
 
     public static synchronized void startJarScanAsync() {
         if (jarsScanned || jarsScanning) return;
         jarsScanning = true;
-        scanFuture = java.util.concurrent.CompletableFuture.runAsync(() -> {
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
                 scanFabricModJars();
-                indexDiskAssetLanguages();
+                if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
+                    ClientLangHelper.indexDiskAssetLanguages();
+                }
                 indexCurrentLanguage();
                 jarsScanned = true;
-            } catch (Exception ignored) {
+            } catch (Throwable ignored) {
             } finally {
                 jarsScanning = false;
             }
@@ -72,20 +71,21 @@ public class RecipeInspector {
 
     /** Indexes all launcher disk assets and ResourceManager translation storages async. */
     public static synchronized void startLangIndexViaRMAsync() {
+        if (FabricLoader.getInstance().getEnvironmentType() != EnvType.CLIENT) return;
         if (langIndexedViaRM) return;
         langIndexedViaRM = true;
         java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
-                indexDiskAssetLanguages();
-                indexResourceManagerLanguages();
-            } catch (Exception ignored) {}
+                ClientLangHelper.indexDiskAssetLanguages();
+                ClientLangHelper.indexResourceManagerLanguages();
+            } catch (Throwable ignored) {}
         });
     }
 
     public static void invalidateWorldCache() {
         RECIPE_ENTRIES.clear();
         RECIPE_DISPLAYS.clear();
-        DECOMPILED_CACHE.clear();
+        CACHED_ITEM_VARIANTS.clear();
         INGREDIENT_TO_ITEMS.clear();
         SYNTHETIC_ITEMS.clear();
         TagResolver.clearWorldCache();
@@ -94,7 +94,7 @@ public class RecipeInspector {
     }
 
     public static void invalidateCache() {
-        DECOMPILED_CACHE.clear();
+        CACHED_ITEM_VARIANTS.clear();
         DECOMPILED_VARIANTS.clear();
         TagResolver.clearCache();
     }
@@ -103,7 +103,7 @@ public class RecipeInspector {
         RECIPE_ENTRIES.clear();
         RECIPE_DISPLAYS.clear();
         KNOWN_RECIPE_ITEMS.clear();
-        DECOMPILED_CACHE.clear();
+        CACHED_ITEM_VARIANTS.clear();
         DECOMPILED_VARIANTS.clear();
         ITEM_LANG_NAMES.clear();
         TagResolver.clearCache();
@@ -112,23 +112,21 @@ public class RecipeInspector {
         jarsScanned = false;
         jarsScanning = false;
         langIndexedViaRM = false;
-        scanFuture = null;
     }
 
     public static void initializeCache(World world) {
         RECIPE_ENTRIES.clear();
         RECIPE_DISPLAYS.clear();
-        DECOMPILED_CACHE.clear();
-        MinecraftClient client = MinecraftClient.getInstance();
+        CACHED_ITEM_VARIANTS.clear();
 
         // 1. Scan Fabric Mod & Vanilla JARs asynchronously if not already scanned or scanning
         if (!jarsScanned && !jarsScanning) {
             startJarScanAsync();
         }
 
-        // 2. Scan active Server Recipe Manager (if in singleplayer / integrated server)
-        if (client != null) {
-            MinecraftServer server = client.getServer();
+        // 2. Scan active Server Recipe Manager (if ServerWorld available)
+        if (world instanceof net.minecraft.server.world.ServerWorld sw) {
+            MinecraftServer server = sw.getServer();
             if (server != null && server.getRecipeManager() != null) {
                 for (RecipeEntry<?> entry : server.getRecipeManager().values()) {
                     indexRecipeEntry(entry);
@@ -136,28 +134,11 @@ public class RecipeInspector {
                 finishCacheInitialization();
                 return;
             }
+        }
 
-            // 3. Scan Client Recipe Book (if on dedicated server / client)
-            if (client.player != null) {
-                ClientRecipeBook recipeBook = client.player.getRecipeBook();
-                if (recipeBook != null) {
-                    for (RecipeResultCollection collection : recipeBook.getOrderedResults()) {
-                        for (RecipeDisplayEntry entry : collection.getAllRecipes()) {
-                            if (entry.id().toString().contains("recipeeditor")) {
-                                continue;
-                            }
-                            RecipeDisplay display = entry.display();
-                            Set<Item> resultItems = getAllItemsFromSlotDisplay(display.result());
-                            for (Item resultItem : resultItems) {
-                                if (resultItem != Items.AIR) {
-                                    RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(display);
-                                    KNOWN_RECIPE_ITEMS.add(resultItem);
-                                    indexDisplayIngredients(display, resultItem);
-                                }
-                            }
-                        }
-                    }
-                }
+        // 3. Scan Client Recipe Book / Integrated server (if on Client)
+        if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
+            if (ClientLangHelper.initFromClient(world)) {
                 finishCacheInitialization();
                 return;
             }
@@ -317,81 +298,8 @@ public class RecipeInspector {
      * Guarantees vanilla translations load even when Minecraft is set to English!
      */
     public static void indexDiskAssetLanguages() {
-        try {
-            MinecraftClient client = MinecraftClient.getInstance();
-            List<Path> candidateDirs = new ArrayList<>();
-            if (client != null && client.runDirectory != null) {
-                Path run = client.runDirectory.toPath().toAbsolutePath();
-                candidateDirs.add(run.resolve("assets"));
-                if (run.getParent() != null) {
-                    candidateDirs.add(run.getParent().resolve("assets"));
-                    if (run.getParent().getParent() != null) {
-                        candidateDirs.add(run.getParent().getParent().resolve("assets"));
-                    }
-                }
-            }
-            String appData = System.getenv("APPDATA");
-            if (appData != null) {
-                candidateDirs.add(Path.of(appData, ".minecraft", "assets"));
-            }
-            String userHome = System.getProperty("user.home");
-            if (userHome != null) {
-                candidateDirs.add(Path.of(userHome, ".minecraft", "assets"));
-            }
-
-            for (Path assetDir : candidateDirs) {
-                Path indexesDir = assetDir.resolve("indexes");
-                Path objectsDir = assetDir.resolve("objects");
-                if (Files.isDirectory(indexesDir) && Files.isDirectory(objectsDir)) {
-                    try (Stream<Path> stream = Files.list(indexesDir)) {
-                        List<Path> indexFiles = stream.filter(p -> p.toString().endsWith(".json"))
-                                .sorted((a, b) -> Long.compare(b.toFile().length(), a.toFile().length()))
-                                .toList();
-                        for (Path indexFile : indexFiles) {
-                            if (parseAssetIndexForLanguages(indexFile, objectsDir)) {
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception ignored) {}
-    }
-
-    private static boolean parseAssetIndexForLanguages(Path indexFile, Path objectsDir) {
-        try (BufferedReader reader = Files.newBufferedReader(indexFile)) {
-            JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-            JsonObject objects = root.has("objects") && root.get("objects").isJsonObject()
-                    ? root.getAsJsonObject("objects") : null;
-            if (objects == null) return false;
-
-            String[] targetLangs = {"ru_ru", "uk_ua", "be_by"};
-            boolean loadedAny = false;
-            for (String lang : targetLangs) {
-                String targetKey = "minecraft/lang/" + lang + ".json";
-                if (objects.has(targetKey) && objects.get(targetKey).isJsonObject()) {
-                    JsonObject entry = objects.getAsJsonObject(targetKey);
-                    if (entry.has("hash") && entry.get("hash").isJsonPrimitive()) {
-                        String hash = entry.get("hash").getAsString();
-                        if (hash != null && hash.length() >= 2) {
-                            Path objPath = objectsDir.resolve(hash.substring(0, 2)).resolve(hash);
-                            if (Files.isRegularFile(objPath)) {
-                                try (InputStream is = Files.newInputStream(objPath)) {
-                                    net.minecraft.util.Language.load(is, (key, value) -> {
-                                        if (!key.startsWith("item.") && !key.startsWith("block.")) return;
-                                        ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
-                                                .add(value.toLowerCase(Locale.ROOT));
-                                    });
-                                    loadedAny = true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            return loadedAny;
-        } catch (Exception ignored) {
-            return false;
+        if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
+            ClientLangHelper.indexDiskAssetLanguages();
         }
     }
 
@@ -399,23 +307,147 @@ public class RecipeInspector {
      * Loads translations via Minecraft TranslationStorage when client ResourceManager is active.
      */
     public static void indexResourceManagerLanguages() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null) return;
-        net.minecraft.resource.ResourceManager rm = client.getResourceManager();
-        if (rm == null) return;
-        try {
-            net.minecraft.client.resource.language.TranslationStorage storage =
-                    net.minecraft.client.resource.language.TranslationStorage.load(rm, List.of("ru_ru"), false);
-            for (Item item : Registries.ITEM) {
-                if (item == Items.AIR) continue;
-                String key = item.getTranslationKey();
-                String name = storage.get(key, null);
-                if (name != null && !name.equals(key)) {
-                    ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
-                            .add(name.toLowerCase(Locale.ROOT));
+        if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
+            ClientLangHelper.indexResourceManagerLanguages();
+        }
+    }
+
+    @Environment(EnvType.CLIENT)
+    private static class ClientLangHelper {
+        static boolean initFromClient(World world) {
+            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+            if (client == null) return false;
+            MinecraftServer server = client.getServer();
+            if (server != null && server.getRecipeManager() != null) {
+                for (RecipeEntry<?> entry : server.getRecipeManager().values()) {
+                    indexRecipeEntry(entry);
                 }
+                return true;
             }
-        } catch (Exception ignored) {}
+
+            if (client.player != null) {
+                net.minecraft.client.recipebook.ClientRecipeBook recipeBook = client.player.getRecipeBook();
+                if (recipeBook != null) {
+                    for (net.minecraft.client.gui.screen.recipebook.RecipeResultCollection collection : recipeBook.getOrderedResults()) {
+                        for (RecipeDisplayEntry entry : collection.getAllRecipes()) {
+                            if (entry.id().toString().contains("recipeeditor")) {
+                                continue;
+                            }
+                            RecipeDisplay display = entry.display();
+                            Set<Item> resultItems = getAllItemsFromSlotDisplay(display.result());
+                            for (Item resultItem : resultItems) {
+                                if (resultItem != Items.AIR) {
+                                    RECIPE_DISPLAYS.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(display);
+                                    KNOWN_RECIPE_ITEMS.add(resultItem);
+                                    indexDisplayIngredients(display, resultItem);
+                                }
+                            }
+                        }
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
+
+        static void indexDiskAssetLanguages() {
+            try {
+                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                List<Path> candidateDirs = new ArrayList<>();
+                if (client != null && client.runDirectory != null) {
+                    Path run = client.runDirectory.toPath().toAbsolutePath();
+                    candidateDirs.add(run.resolve("assets"));
+                    if (run.getParent() != null) {
+                        candidateDirs.add(run.getParent().resolve("assets"));
+                        if (run.getParent().getParent() != null) {
+                            candidateDirs.add(run.getParent().getParent().resolve("assets"));
+                        }
+                    }
+                }
+                String appData = System.getenv("APPDATA");
+                if (appData != null) {
+                    candidateDirs.add(Path.of(appData, ".minecraft", "assets"));
+                }
+                String userHome = System.getProperty("user.home");
+                if (userHome != null) {
+                    candidateDirs.add(Path.of(userHome, ".minecraft", "assets"));
+                }
+
+                for (Path assetDir : candidateDirs) {
+                    Path indexesDir = assetDir.resolve("indexes");
+                    Path objectsDir = assetDir.resolve("objects");
+                    if (Files.isDirectory(indexesDir) && Files.isDirectory(objectsDir)) {
+                        try (Stream<Path> stream = Files.list(indexesDir)) {
+                            List<Path> indexFiles = stream.filter(p -> p.toString().endsWith(".json"))
+                                    .sorted((a, b) -> Long.compare(b.toFile().length(), a.toFile().length()))
+                                    .toList();
+                            for (Path indexFile : indexFiles) {
+                                if (parseAssetIndexForLanguages(indexFile, objectsDir)) {
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        static void indexResourceManagerLanguages() {
+            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+            if (client == null) return;
+            net.minecraft.resource.ResourceManager rm = client.getResourceManager();
+            if (rm == null) return;
+            try {
+                net.minecraft.client.resource.language.TranslationStorage storage =
+                        net.minecraft.client.resource.language.TranslationStorage.load(rm, List.of("ru_ru"), false);
+                for (Item item : Registries.ITEM) {
+                    if (item == Items.AIR) continue;
+                    String key = item.getTranslationKey();
+                    String name = storage.get(key, null);
+                    if (name != null && !name.equals(key)) {
+                        ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+                                .add(name.toLowerCase(Locale.ROOT));
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        private static boolean parseAssetIndexForLanguages(Path indexFile, Path objectsDir) {
+            try (BufferedReader reader = Files.newBufferedReader(indexFile)) {
+                JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
+                JsonObject objects = root.has("objects") && root.get("objects").isJsonObject()
+                        ? root.getAsJsonObject("objects") : null;
+                if (objects == null) return false;
+
+                String[] targetLangs = {"ru_ru", "uk_ua", "be_by"};
+                boolean loadedAny = false;
+                for (String lang : targetLangs) {
+                    String targetKey = "minecraft/lang/" + lang + ".json";
+                    if (objects.has(targetKey) && objects.get(targetKey).isJsonObject()) {
+                        JsonObject entry = objects.getAsJsonObject(targetKey);
+                        if (entry.has("hash") && entry.get("hash").isJsonPrimitive()) {
+                            String hash = entry.get("hash").getAsString();
+                            if (hash != null && hash.length() >= 2) {
+                                Path objPath = objectsDir.resolve(hash.substring(0, 2)).resolve(hash);
+                                if (Files.isRegularFile(objPath)) {
+                                    try (InputStream is = Files.newInputStream(objPath)) {
+                                        net.minecraft.util.Language.load(is, (key, value) -> {
+                                            if (!key.startsWith("item.") && !key.startsWith("block.")) return;
+                                            ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+                                                    .add(value.toLowerCase(Locale.ROOT));
+                                        });
+                                        loadedAny = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return loadedAny;
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
     }
 
 
@@ -476,9 +508,6 @@ public class RecipeInspector {
                 CustomRecipeData decompiled = buildDecompiledRecipeFromJson(obj, resultItem, count, recipeIdStr);
                 if (decompiled != null) {
                     DECOMPILED_VARIANTS.computeIfAbsent(resultItem, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(decompiled);
-                    if (!DECOMPILED_CACHE.containsKey(resultItem)) {
-                        DECOMPILED_CACHE.put(resultItem, decompiled);
-                    }
                     indexDecompiledIngredients(decompiled, resultItem);
                 }
             }
@@ -728,6 +757,11 @@ public class RecipeInspector {
             initializeCache(world);
         }
 
+        List<CustomRecipeData> cached = CACHED_ITEM_VARIANTS.get(targetItem);
+        if (cached != null) {
+            return cached;
+        }
+
         List<CustomRecipeData> variants = new ArrayList<>();
         Set<String> seenSignatures = new HashSet<>();
 
@@ -771,57 +805,22 @@ public class RecipeInspector {
             adder.accept(syn);
         }
 
-        return variants;
+        List<CustomRecipeData> unmodifiable = Collections.unmodifiableList(variants);
+        CACHED_ITEM_VARIANTS.put(targetItem, unmodifiable);
+        return unmodifiable;
     }
 
     public static List<CustomRecipeData> getAllRecipeVariantsOfType(Item targetItem, RecipeTypeEnum type, World world) {
         if (targetItem == null || targetItem == Items.AIR || type == null) return Collections.emptyList();
-        if (!cacheInitialized) {
-            initializeCache(world);
-        }
-
-        List<CustomRecipeData> variants = new ArrayList<>();
-        Set<String> seenSignatures = new HashSet<>();
-
-        java.util.function.Consumer<CustomRecipeData> adder = d -> {
-            if (d == null || d.type != type) return;
-            List<CustomRecipeData> expanded = expandRecipeTags(d);
-            for (CustomRecipeData exp : expanded) {
-                if (exp.type == type && seenSignatures.add(getRecipeSignature(exp))) {
-                    variants.add(exp);
-                }
-            }
-        };
-
-        List<RecipeEntry<?>> entries = RECIPE_ENTRIES.get(targetItem);
-        if (entries != null) {
-            for (RecipeEntry<?> entry : entries) {
-                adder.accept(decompileFromEntry(entry, targetItem));
+        List<CustomRecipeData> all = getAllRecipeVariants(targetItem, world);
+        if (all.isEmpty()) return Collections.emptyList();
+        List<CustomRecipeData> filtered = new ArrayList<>();
+        for (CustomRecipeData d : all) {
+            if (d.type == type) {
+                filtered.add(d);
             }
         }
-
-        List<RecipeDisplay> displays = RECIPE_DISPLAYS.get(targetItem);
-        if (displays != null) {
-            for (RecipeDisplay disp : displays) {
-                adder.accept(decompileFromDisplay(disp, targetItem));
-            }
-        }
-
-        List<CustomRecipeData> fromJars = DECOMPILED_VARIANTS.get(targetItem);
-        if (fromJars != null) {
-            for (CustomRecipeData d : fromJars) {
-                adder.accept(d);
-            }
-        }
-
-        if (type == RecipeTypeEnum.SHAPED_CRAFTING || type == RecipeTypeEnum.SMITHING) {
-            List<CustomRecipeData> synthetics = getSyntheticDynamicRecipes(targetItem);
-            for (CustomRecipeData syn : synthetics) {
-                adder.accept(syn);
-            }
-        }
-
-        return variants;
+        return filtered;
     }
 
     public static boolean isCookingInputOverridden(RecipeTypeEnum typeEnum, Item inputItem, World world) {
@@ -1175,7 +1174,7 @@ public class RecipeInspector {
                 }
             }
             result = data;
-        } else if (recipe instanceof ShapelessRecipe shapeless) {
+        } else if (recipe instanceof ShapelessRecipe) {
             data.type = RecipeTypeEnum.SHAPED_CRAFTING;
             data.isShapeless = true;
             List<RecipeDisplay> displays = recipe.getDisplays();

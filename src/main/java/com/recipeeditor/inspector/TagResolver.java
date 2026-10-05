@@ -1,8 +1,8 @@
 package com.recipeeditor.inspector;
 
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.item.Item;
 import net.minecraft.item.Items;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.tag.TagKey;
@@ -12,6 +12,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
+import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.Reader;
 import java.nio.file.Files;
@@ -154,25 +158,10 @@ public class TagResolver {
         String tagId = tagString.startsWith("#") ? tagString.substring(1) : tagString;
         Set<Item> items = new LinkedHashSet<>();
 
-        // 1. World dynamic registry entries (if in-world)
-        try {
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (client != null && client.world != null) {
-                Identifier id = Identifier.tryParse(tagId);
-                if (id != null) {
-                    TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
-                    var entryList = client.world.getRegistryManager().getOrThrow(RegistryKeys.ITEM).getOptional(tagKey);
-                    if (entryList.isPresent()) {
-                        for (var entry : entryList.get()) {
-                            Item item = entry.value();
-                            if (item != null && item != Items.AIR) {
-                                items.add(item);
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception ignored) {}
+        // 1. World dynamic registry entries (if in-world on client)
+        if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
+            ClientTagHelper.queryClientWorldTags(tagId, items);
+        }
 
         // 2. Static Registries.ITEM
         try {
@@ -312,23 +301,13 @@ public class TagResolver {
         if (visited.contains(tagId)) return Items.AIR;
         visited.add(tagId);
 
-        // 1. Try world registry (when inside active world)
-        try {
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (client != null && client.world != null) {
-                Identifier id = Identifier.tryParse(tagId);
-                if (id != null) {
-                    TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
-                    var entryList = client.world.getRegistryManager().getOrThrow(RegistryKeys.ITEM).getOptional(tagKey);
-                    if (entryList.isPresent() && entryList.get().size() > 0) {
-                        Item item = entryList.get().get(0).value();
-                        if (item != null && item != Items.AIR) {
-                            return item;
-                        }
-                    }
-                }
+        // 1. Try world registry (when inside active world on client)
+        if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
+            Item clientItem = ClientTagHelper.queryClientWorldTag(tagId);
+            if (clientItem != Items.AIR) {
+                return clientItem;
             }
-        } catch (Exception ignored) {}
+        }
 
         // 2. Try static Registries.ITEM if entries are available
         try {
@@ -424,5 +403,51 @@ public class TagResolver {
         if (s.contains("ore")) return Items.IRON_ORE;
 
         return Items.AIR;
+    }
+
+    @Environment(EnvType.CLIENT)
+    private static class ClientTagHelper {
+        static void queryClientWorldTags(String tagId, Set<Item> outItems) {
+            try {
+                MinecraftClient client = MinecraftClient.getInstance();
+                if (client != null && client.world != null) {
+                    Identifier id = Identifier.tryParse(tagId);
+                    if (id != null) {
+                        TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
+                        var entryList = client.world.getRegistryManager().getOrThrow(RegistryKeys.ITEM).getOptional(tagKey);
+                        if (entryList.isPresent()) {
+                            for (var entry : entryList.get()) {
+                                Item item = entry.value();
+                                if (item != null && item != Items.AIR) {
+                                    outItems.add(item);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        static Item queryClientWorldTag(String tagId) {
+            try {
+                MinecraftClient client = MinecraftClient.getInstance();
+                if (client != null && client.world != null) {
+                    Identifier id = Identifier.tryParse(tagId);
+                    if (id != null) {
+                        TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
+                        var entryList = client.world.getRegistryManager().getOrThrow(RegistryKeys.ITEM).getOptional(tagKey);
+                        if (entryList.isPresent()) {
+                            for (var entry : entryList.get()) {
+                                Item item = entry.value();
+                                if (item != null && item != Items.AIR) {
+                                    return item;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+            return Items.AIR;
+        }
     }
 }

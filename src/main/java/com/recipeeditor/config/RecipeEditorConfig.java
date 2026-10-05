@@ -10,8 +10,6 @@ import net.minecraft.registry.Registries;
 import net.minecraft.util.Identifier;
 
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
@@ -23,8 +21,10 @@ public class RecipeEditorConfig {
 
     public volatile boolean modEnabled = true;
     public volatile int configVersion = 0;
-    public Map<String, CustomRecipeData> recipes = Collections.synchronizedMap(new LinkedHashMap<>());
+    public Map<String, CustomRecipeData> recipes = new ConcurrentHashMap<>();
     private transient final Set<String> enabledResultIds = ConcurrentHashMap.newKeySet();
+    private transient volatile List<CustomRecipeData> sortedCraftingRecipes = null;
+    private transient volatile int sortedCraftingRecipesVersion = -1;
 
     public static RecipeEditorConfig getInstance() {
         RecipeEditorConfig instance = INSTANCE;
@@ -90,12 +90,12 @@ public class RecipeEditorConfig {
 
     public void rebuildEnabledCache() {
         enabledResultIds.clear();
+        sortedCraftingRecipes = null;
+        sortedCraftingRecipesVersion = -1;
         if (recipes != null) {
-            synchronized (recipes) {
-                for (CustomRecipeData r : recipes.values()) {
-                    if (r.enabled && r.resultItemId != null && !r.resultItemId.isEmpty()) {
-                        enabledResultIds.add(r.resultItemId);
-                    }
+            for (CustomRecipeData r : recipes.values()) {
+                if (r.enabled && r.resultItemId != null && !r.resultItemId.isEmpty()) {
+                    enabledResultIds.add(r.resultItemId);
                 }
             }
         }
@@ -103,23 +103,21 @@ public class RecipeEditorConfig {
 
     public void validate() {
         if (recipes == null) {
-            recipes = Collections.synchronizedMap(new LinkedHashMap<>());
+            recipes = new ConcurrentHashMap<>();
         }
-        Map<String, CustomRecipeData> rekeyed = Collections.synchronizedMap(new LinkedHashMap<>());
-        synchronized (recipes) {
-            for (CustomRecipeData recipe : recipes.values()) {
-                if (recipe.patternSlots == null || recipe.patternSlots.length != 9) {
-                    recipe.patternSlots = new String[9];
-                    Arrays.fill(recipe.patternSlots, "minecraft:air");
-                }
-                if (recipe.resultCount < 1) recipe.resultCount = 1;
-                if (recipe.resultCount > 1000) recipe.resultCount = 1000;
-                if (recipe.type == null) recipe.type = RecipeTypeEnum.SHAPED_CRAFTING;
-                if (recipe.typeCounts == null) {
-                    recipe.typeCounts = new HashMap<>();
-                }
-                rekeyed.put(recipe.getKey(), recipe);
+        Map<String, CustomRecipeData> rekeyed = new ConcurrentHashMap<>();
+        for (CustomRecipeData recipe : recipes.values()) {
+            if (recipe.patternSlots == null || recipe.patternSlots.length != 9) {
+                recipe.patternSlots = new String[9];
+                Arrays.fill(recipe.patternSlots, "minecraft:air");
             }
+            if (recipe.resultCount < 1) recipe.resultCount = 1;
+            if (recipe.resultCount > 1000) recipe.resultCount = 1000;
+            if (recipe.type == null) recipe.type = RecipeTypeEnum.SHAPED_CRAFTING;
+            if (recipe.typeCounts == null) {
+                recipe.typeCounts = new HashMap<>();
+            }
+            rekeyed.put(recipe.getKey(), recipe);
         }
         this.recipes = rekeyed;
         rebuildEnabledCache();
@@ -156,12 +154,11 @@ public class RecipeEditorConfig {
     public void invalidateAllRecipeCaches() {
         configVersion++;
         if (recipes != null) {
-            synchronized (recipes) {
-                for (CustomRecipeData r : recipes.values()) {
-                    r.invalidateCache();
-                }
+            for (CustomRecipeData r : recipes.values()) {
+                r.invalidateCache();
             }
         }
+        rebuildEnabledCache();
         com.recipeeditor.recipe.CustomDynamicCraftingRecipe.invalidateDisplayCache();
         com.recipeeditor.recipe.CustomRecipeDispatcher.clearSyntheticCache();
         com.recipeeditor.recipe.CustomRecipeDispatcher.invalidateOverriddenCache();
@@ -190,11 +187,9 @@ public class RecipeEditorConfig {
 
         List<CustomRecipeData> result = new ArrayList<>();
         if (recipes != null) {
-            synchronized (recipes) {
-                for (CustomRecipeData r : recipes.values()) {
-                    if (targetId.equals(r.resultItemId)) {
-                        result.add(r.copy());
-                    }
+            for (CustomRecipeData r : recipes.values()) {
+                if (targetId.equals(r.resultItemId)) {
+                    result.add(r.copy());
                 }
             }
         }
@@ -218,10 +213,47 @@ public class RecipeEditorConfig {
         return !list.isEmpty() ? list.get(0) : null;
     }
 
+    public List<CustomRecipeData> getSortedCraftingRecipes() {
+        if (!modEnabled || recipes == null || recipes.isEmpty()) {
+            return Collections.emptyList();
+        }
+        int curVer = configVersion;
+        List<CustomRecipeData> cached = sortedCraftingRecipes;
+        if (cached != null && sortedCraftingRecipesVersion == curVer) {
+            return cached;
+        }
+        List<CustomRecipeData> list = new ArrayList<>();
+        for (CustomRecipeData r : recipes.values()) {
+            if (r.enabled && r.type == RecipeTypeEnum.SHAPED_CRAFTING) {
+                list.add(r);
+            }
+        }
+        list.sort((a, b) -> {
+            // 1. Shaped recipes before Shapeless recipes
+            if (a.isShapeless != b.isShapeless) {
+                return a.isShapeless ? 1 : -1;
+            }
+            // 2. For shapeless recipes: larger non-empty ingredient count first (more specific)
+            if (a.isShapeless) {
+                int countA = a.getNonEmptyIngredients().size();
+                int countB = b.getNonEmptyIngredients().size();
+                if (countA != countB) {
+                    return Integer.compare(countB, countA);
+                }
+            }
+            // 3. Deterministic key comparison
+            return a.getKey().compareTo(b.getKey());
+        });
+        List<CustomRecipeData> unmodifiable = Collections.unmodifiableList(list);
+        sortedCraftingRecipes = unmodifiable;
+        sortedCraftingRecipesVersion = curVer;
+        return unmodifiable;
+    }
+
     public void addOrUpdateRecipe(CustomRecipeData recipe) {
         if (recipe != null && recipe.resultItemId != null && !recipe.resultItemId.isEmpty() && !recipe.resultItemId.equals("minecraft:air")) {
             if (recipes == null) {
-                recipes = Collections.synchronizedMap(new LinkedHashMap<>());
+                recipes = new ConcurrentHashMap<>();
             }
             recipes.put(recipe.getKey(), recipe);
             configVersion++;
@@ -257,20 +289,19 @@ public class RecipeEditorConfig {
         Identifier id = Registries.ITEM.getId(item);
         if (id == null) return;
         String targetId = id.toString();
-        synchronized (recipes) {
-            recipes.values().removeIf(r -> targetId.equals(r.resultItemId));
-        }
+        recipes.values().removeIf(r -> targetId.equals(r.resultItemId));
+        configVersion++;
         rebuildEnabledCache();
+        com.recipeeditor.recipe.CustomRecipeDispatcher.invalidateOverriddenCache();
     }
 
     public RecipeEditorConfig copy() {
         RecipeEditorConfig copy = new RecipeEditorConfig();
         copy.modEnabled = this.modEnabled;
+        copy.configVersion = this.configVersion;
         if (this.recipes != null) {
-            synchronized (this.recipes) {
-                for (Map.Entry<String, CustomRecipeData> entry : this.recipes.entrySet()) {
-                    copy.recipes.put(entry.getKey(), entry.getValue().copy());
-                }
+            for (Map.Entry<String, CustomRecipeData> entry : this.recipes.entrySet()) {
+                copy.recipes.put(entry.getKey(), entry.getValue().copy());
             }
         }
         copy.rebuildEnabledCache();
@@ -282,7 +313,7 @@ public class RecipeEditorConfig {
     }
 
     public static RecipeEditorConfig fromJson(String json) {
-        if (json == null || json.isEmpty()) return null;
+        if (json == null || json.isEmpty() || !json.trim().startsWith("{")) return null;
         try {
             RecipeEditorConfig config = GSON.fromJson(json, RecipeEditorConfig.class);
             if (config != null) {
