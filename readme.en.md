@@ -36,7 +36,7 @@
 - **Mouse Drag & Drop:** Hold Left Mouse Button (LMB) on any item in the catalog to drag into crafting slots.
 - **Recipe Inspector:** Right Mouse Button (RMB) on any catalog item instantly loads its existing recipe.
 - **Override & Restore Original Recipes:** Modifying an existing recipe cleanly overrides the original craft in-game without creating duplicate variants. Deleting a custom recipe from "My Crafts" instantly restores the original vanilla or modded recipe in both the game and editor!
-- **Multiple Recipe Variants:** Create alternative ways to craft your favorite items using the `+` button and switch between them with arrows or by scrolling the mouse wheel directly over the crafting grid.
+- **Multiple recipe variants:** create alternative ways to craft your favorite item using the `+` button and easily switch between them using the arrow keys or your mouse wheel right above the crafting window (both methods work in-game).
 - **Clear Slots:** Right-click a crafting slot or press the `Delete` key.
 - **Recipe Conflict Protection:** Alerts you if a crafting shape is already occupied by another item.
 - **Fast Search & Catalog:** Filter by All, Uncraftable, Craftable, or My Crafts with instant search in any language and mod tabs scrollable by mouse wheel.
