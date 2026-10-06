@@ -12,7 +12,6 @@ import net.minecraft.client.gui.Element;
 import net.minecraft.client.gui.screen.ConfirmScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
@@ -281,7 +280,7 @@ public class RecipeEditorScreen extends Screen {
         if (item == null || item == Items.AIR) return;
         this.sessionVariantsByType.clear();
         this.sessionVariantIndexByType.clear();
-        this.showCustomDeleteButtons = false;
+        this.showCustomDeleteButtons = (currentFilter == CatalogFilter.CUSTOM);
         this.targetItem = item;
         this.activeCreatedTypes.clear();
         this.currentRecipe = null;
@@ -541,7 +540,8 @@ public class RecipeEditorScreen extends Screen {
             shapelessToggleBtn.active = enabled && hasEditPermission();
             shapelessToggleBtn.setMessage(getShapelessBtnText());
         }
-        boolean showDelete = showCustomDeleteButtons && (currentFilter == CatalogFilter.CUSTOM) && (hasActiveCraft) && configCopy.hasCustomRecipe(targetItem);
+        boolean isCustomCraft = targetItem != null && configCopy.hasCustomRecipe(targetItem);
+        boolean showDelete = (currentFilter == CatalogFilter.CUSTOM || showCustomDeleteButtons) && (hasActiveCraft) && isCustomCraft;
         if (deleteVariantBtn != null) deleteVariantBtn.visible = showDelete;
         if (deleteRecipeBtn != null) deleteRecipeBtn.visible = showDelete;
         if (createRecipeBtn != null) createRecipeBtn.visible = (hasItem && !hasActiveCraft);
@@ -1162,10 +1162,19 @@ public class RecipeEditorScreen extends Screen {
 
             ButtonWidget btn = ButtonWidget.builder(label, b -> {
                 if (currentFilter != f) {
-                    showCustomDeleteButtons = false;
+                    showCustomDeleteButtons = (f == CatalogFilter.CUSTOM);
                 }
                 currentFilter = f;
                 refreshFilteredItemsResetPage();
+                if (f == CatalogFilter.CUSTOM) {
+                    if (targetItem == null || !configCopy.hasCustomRecipe(targetItem)) {
+                        if (!filteredItems.isEmpty()) {
+                            loadRecipeForTarget(filteredItems.get(0));
+                        }
+                    } else {
+                        loadRecipeForTarget(targetItem);
+                    }
+                }
                 updateEditorWidgetsVisibility();
                 updateButtonStates();
                 rebuildFilterButtons(startX, startY);
@@ -1281,13 +1290,13 @@ public class RecipeEditorScreen extends Screen {
                 label = label.substring(0, maxChars - 1) + "…";
             }
             Text tabText = isSelected
-                    ? Text.literal(label).formatted(Formatting.YELLOW, Formatting.BOLD)
+                    ? Text.literal(label).formatted(Formatting.YELLOW)
                     : Text.literal(label).formatted(Formatting.GRAY);
 
             final int chosenIdx = tabIndex;
             ButtonWidget btn = ButtonWidget.builder(tabText, b -> {
                 selectedTabIdx = chosenIdx;
-                showCustomDeleteButtons = false;
+                showCustomDeleteButtons = (currentFilter == CatalogFilter.CUSTOM);
                 updateEditorWidgetsVisibility();
                 updateButtonStates();
                 refreshFilteredItemsResetPage();
@@ -1870,7 +1879,7 @@ public class RecipeEditorScreen extends Screen {
             int pStartY = contentY + 36;
             context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_1").formatted(Formatting.RED, Formatting.BOLD), pCenterX, pStartY, 0xFFFF5555);
             context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_2").formatted(Formatting.GRAY), pCenterX, pStartY + 14, 0xFFAAAAAA);
-            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_3").formatted(Formatting.WHITE), pCenterX, pStartY + 26, 0xFFFFFFFF);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_3").formatted(Formatting.GRAY), pCenterX, pStartY + 26, 0xFFAAAAAA);
         } else if (targetItem == null) {
             // Placeholder when no item is selected yet (green, 3 lines, centered)
             int pCenterX = leftPaneX + (leftPaneWidth / 2);
@@ -2138,7 +2147,7 @@ public class RecipeEditorScreen extends Screen {
             int pStartY = contentY + 36;
             context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_1").formatted(Formatting.RED, Formatting.BOLD), pCenterX, pStartY, 0xFFFF5555);
             context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_2").formatted(Formatting.GRAY), pCenterX, pStartY + 14, 0xFFAAAAAA);
-            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_3").formatted(Formatting.WHITE), pCenterX, pStartY + 26, 0xFFFFFFFF);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_3").formatted(Formatting.GRAY), pCenterX, pStartY + 26, 0xFFAAAAAA);
         }
 
         context.getMatrices().pop();
@@ -2539,8 +2548,10 @@ public class RecipeEditorScreen extends Screen {
                 }
             } else {
                 double distSq = (sX - dragStartX) * (sX - dragStartX) + (sY - dragStartY) * (sY - dragStartY);
-                if (dragSourceSlot == -1 && distSq < 36 && currentRecipe != null) {
-                    if (selectedSlot >= 0 && selectedSlot < 9) {
+                if (dragSourceSlot == -1 && distSq < 36) {
+                    if (currentFilter == CatalogFilter.CUSTOM && (currentRecipe == null || selectedSlot == RESULT_SLOT || getCatalogItemAt(sX, sY) != null)) {
+                        loadRecipeForTarget(draggedItem);
+                    } else if (currentRecipe != null && selectedSlot >= 0 && selectedSlot < 9) {
                         currentRecipe.setItemAt(selectedSlot, draggedItem);
                     }
                 }

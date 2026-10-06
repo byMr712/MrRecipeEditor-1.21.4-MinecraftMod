@@ -209,13 +209,80 @@ public class CustomRecipeDispatcher {
     private static volatile CuttingRecipeDisplay.Grouping<StonecuttingRecipe> CACHED_CUSTOM_STONECUTTER_GROUPING = null;
     private static volatile int lastCustomStonecutterVersion = -1;
 
+    private static volatile int cachedSmithingVersion = -1;
+    private static final List<Ingredient> CACHED_SMITHING_TEMPLATES = new CopyOnWriteArrayList<>();
+    private static final List<Ingredient> CACHED_SMITHING_BASES = new CopyOnWriteArrayList<>();
+    private static final List<Ingredient> CACHED_SMITHING_ADDITIONS = new CopyOnWriteArrayList<>();
+
     public static void clearSyntheticCache() {
         SYNTHETIC_CACHE.clear();
         CACHED_ALL_CUSTOM_RECIPES = null;
         lastCustomRecipesVersion = -1;
         CACHED_CUSTOM_STONECUTTER_GROUPING = null;
         lastCustomStonecutterVersion = -1;
+        cachedSmithingVersion = -1;
+        CACHED_SMITHING_TEMPLATES.clear();
+        CACHED_SMITHING_BASES.clear();
+        CACHED_SMITHING_ADDITIONS.clear();
         invalidateRecipeBookCache();
+    }
+
+    private static void updateSmithingSlotCaches(RecipeEditorConfig config) {
+        List<Ingredient> templates = new ArrayList<>();
+        List<Ingredient> bases = new ArrayList<>();
+        List<Ingredient> additions = new ArrayList<>();
+        if (config != null && config.modEnabled && config.recipes != null) {
+            for (CustomRecipeData recipe : config.recipes.values()) {
+                if (!recipe.enabled || recipe.type != RecipeTypeEnum.SMITHING) continue;
+                Ingredient t = recipe.getIngredientAt(0);
+                if (t != null && !t.isEmpty()) templates.add(t);
+                Ingredient b = recipe.getIngredientAt(1);
+                if (b != null && !b.isEmpty()) bases.add(b);
+                Ingredient a = recipe.getIngredientAt(2);
+                if (a != null && !a.isEmpty()) additions.add(a);
+            }
+        }
+        CACHED_SMITHING_TEMPLATES.clear();
+        CACHED_SMITHING_TEMPLATES.addAll(templates);
+        CACHED_SMITHING_BASES.clear();
+        CACHED_SMITHING_BASES.addAll(bases);
+        CACHED_SMITHING_ADDITIONS.clear();
+        CACHED_SMITHING_ADDITIONS.addAll(additions);
+        cachedSmithingVersion = config != null ? config.configVersion : 0;
+    }
+
+    public static boolean isCustomSmithingSlotMatch(int slot, ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) return false;
+
+        if (cachedSmithingVersion != config.configVersion) {
+            updateSmithingSlotCaches(config);
+        }
+
+        List<Ingredient> list = switch (slot) {
+            case 0 -> CACHED_SMITHING_TEMPLATES;
+            case 1 -> CACHED_SMITHING_BASES;
+            case 2 -> CACHED_SMITHING_ADDITIONS;
+            default -> Collections.emptyList();
+        };
+
+        for (Ingredient ing : list) {
+            if (ing.test(stack)) return true;
+        }
+        return false;
+    }
+
+    public static boolean isCustomSmithingTemplate(ItemStack stack) {
+        return isCustomSmithingSlotMatch(0, stack);
+    }
+
+    public static boolean isCustomSmithingBase(ItemStack stack) {
+        return isCustomSmithingSlotMatch(1, stack);
+    }
+
+    public static boolean isCustomSmithingAddition(ItemStack stack) {
+        return isCustomSmithingSlotMatch(2, stack);
     }
 
     @SuppressWarnings("unchecked")
@@ -501,7 +568,7 @@ public class CustomRecipeDispatcher {
             Optional<Ingredient> template = data.createIngredientForSlot(0);
             Optional<Ingredient> base = data.createIngredientForSlot(1);
             Optional<Ingredient> addition = data.createIngredientForSlot(2);
-            return (T) new SmithingTransformRecipe(template, base, addition, new net.minecraft.item.ItemStack(resultItem, safeCount));
+            return (T) new CustomDynamicSmithingRecipe(group, template, base, addition, new net.minecraft.item.ItemStack(resultItem, safeCount));
         }
 
         return null;

@@ -100,7 +100,7 @@ Configuration file is saved at: `config/mrrecipeeditor.json`.
    ```bash
    ./gradlew build
    ```
-3. The built file will be located at `build/libs/MrRecipeEditor-Fabric-1.21.4-byMr712-v1.jar`.
+3. The built file will be located at `build/libs/MrRecipeEditor-Fabric-1.21.4-byMr712-v1.3.jar`.
 
 ## Credits & License
 

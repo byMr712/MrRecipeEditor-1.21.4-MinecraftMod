@@ -100,7 +100,7 @@
    ```bash
    ./gradlew build
    ```
-3. Собранный файл находится в `build/libs/MrRecipeEditor-Fabric-1.21.4-byMr712-v1.jar`.
+3. Собранный файл находится в `build/libs/MrRecipeEditor-Fabric-1.21.4-byMr712-v1.3.jar`.
 
 ## Авторы и лицензия
 

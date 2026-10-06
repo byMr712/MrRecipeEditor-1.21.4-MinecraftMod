@@ -1,62 +1,62 @@
-# Архитектурный чертёж и техническая спецификация мода [MR] Recipe Editor (Minecraft 1.21.4 Fabric)
+# Architectural Blueprint and Technical Specification for [MR] Recipe Editor (Minecraft 1.21.4 Fabric)
 
-Данный документ представляет собой исчерпывающий технический чертёж и архитектурный манифест модификации **[MR] Recipe Editor** для Minecraft 1.21.4 (Fabric). Документ предназначен для AI-агентов, системных архитекторов и разработчиков, которым необходимо понимать каждый нюанс реализации мода: от внутреннего устройства структур данных и алгоритмов сопоставления рецептов до тонкостей сетевой синхронизации, интеграции с просмотрщиками рецептов (REI) и низкоуровневых миксинов.
+This document provides a comprehensive technical blueprint and architectural specification for the **[MR] Recipe Editor** modification for Minecraft 1.21.4 (Fabric). It is designed for AI agents, system architects, and software engineers who require an exhaustive understanding of every implementation detail: from internal data structures and pattern-matching algorithms to network synchronization, Roughly Enough Items (REI) integration, and low-level bytecode mixins.
 
 ---
 
-## 1. Концепция, окружение и философия проекта
+## 1. Concept, Environment, and Philosophy
 
-### 1.1. Главная цель
-Предоставление игроку и администратору локального сервера универсального внутриигрового инструмента для создания, просмотра, модификации и удаления рецептов любых предметов (как ванильного Minecraft, так и предметов из любых установленных модификаций) непосредственно во время игры через графический интерфейс, без необходимости ручного создания датапаков или перезапуска игрового клиента.
+### 1.1. Core Objective
+Provide players and local server administrators with a universal, in-game utility to view, create, modify, and delete recipes for any item (vanilla Minecraft items as well as items from any installed modifications) live in-game through an interactive graphical interface, eliminating the need for manual datapack creation or client restarts.
 
-### 1.2. Философия «Чистого старта» (Clean Slate)
-Мод принципиально **не добавляет** в игру никаких предустановленных пользовательских крафтов по умолчанию.
-* При первом запуске словарь кастомных рецептов пуст (`recipes.isEmpty()`).
-* При открытии графического редактора сетка крафта чиста; никакой рецепт не навязывается игроку.
-* Все ванильные механики работают в неизменном виде до тех пор, пока пользователь явно не сохранит новый рецепт или не переопределит существующий.
+### 1.2. "Clean Slate" Philosophy
+The mod fundamentally **does not bundle or inject** any preconfigured custom recipes by default:
+* On first launch, the custom recipe registry is completely empty (`recipes.isEmpty()`).
+* When opening the editor GUI, the crafting grid is blank; no recipe is imposed on the user.
+* All vanilla and modded mechanics remain completely untouched until the user explicitly saves a new custom recipe or overrides an existing one.
 
-### 1.3. Целевая платформа и зависимости
+### 1.3. Target Platform and Dependencies
 * **Minecraft:** 1.21.4.
 * **Java:** 21 (LTS).
 * **Fabric Loader:** `>= 0.16.0`.
 * **Fabric API:** `0.115.0+1.21.4`.
-* **Mod Menu:** `13.0.1` (обязательная зависимость в секции `depends` файла `fabric.mod.json`).
-* **Roughly Enough Items (REI):** `18.0.815` (рекомендуемая зависимость `suggests`, официальная API-интеграция).
-* **Среда выполнения:** Клиент и интегрированный сервер (Singleplayer / LAN).
-* **Политика выделенного сервера (Dedicated Server Safety):** Выделенный сервер обнаруживается методом `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. При запуске на Dedicated Server мод выводит понятный баннер в консоль и безопасно отключает свою работу без сбоев или блокировки запуска сервера.
+* **Mod Menu:** `13.0.1` (declared dependency in `depends` within `fabric.mod.json`).
+* **Roughly Enough Items (REI):** `18.0.815` (declared dependency in `suggests`, official API integration).
+* **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
+* **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
 
 ---
 
-## 2. Общая архитектура системы
+## 2. High-Level System Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Client["Клиентский уровень (Client & UI)"]
+    subgraph Client["Client & UI Layer"]
         GUI["RecipeEditorScreen (Studio GUI: 460x380, uiScale)"]
-        ConflictGUI["RecipeConflictScreen (Разрешение коллизий крафтов)"]
-        Scanner["RecipeInspector (Асинхронный скан JAR, тегов и локализаций)"]
-        TagRes["TagResolver (5-уровневый транслятор тегов в предметы)"]
+        ConflictGUI["RecipeConflictScreen (Recipe Collision Resolution)"]
+        Scanner["RecipeInspector (Async JAR, Tag & Locale Scanner)"]
+        TagRes["TagResolver (5-Tier Item Tag Resolver)"]
     end
 
-    subgraph Storage["Конфигурация и данные (Config & Data Layer)"]
+    subgraph Storage["Config & Data Layer"]
         Cfg["RecipeEditorConfig (mrrecipeeditor.json, configVersion)"]
-        Model["CustomRecipeData (Составные ключи, слоты, кэш границ)"]
-        Enum["RecipeTypeEnum (7 типов поддерживаемых станков)"]
+        Model["CustomRecipeData (Composite Keys, Pattern Slots, Bounding Cache)"]
+        Enum["RecipeTypeEnum (7 Supported Workstations)"]
     end
 
-    subgraph Engine["Движок рецептов и диспетчер (Dynamic Engine)"]
-        Dispatcher["CustomRecipeDispatcher (Синтетические рецепты, ID pool 1M+)"]
-        DynCraft["CustomDynamicCraftingRecipe (Sliding Window & Backtrack)"]
+    subgraph Engine["Dynamic Recipe Engine & Dispatcher"]
+        Dispatcher["CustomRecipeDispatcher (Synthetic Recipes, ID Pool 1M+)"]
+        DynCraft["CustomDynamicCraftingRecipe (Sliding Window & Backtracking)"]
     end
 
-    subgraph Mixins["Инжекции и перехваты (Bytecode Hooks)"]
+    subgraph Mixins["Bytecode Hooks & Injections"]
         MixSRM["ServerRecipeManagerMixin (priority 500: getFirstMatch, values, get)"]
-        MixSRB["ServerRecipeBookMixin (Авторазблокировка, init packets)"]
-        MixFurnace["AbstractFurnaceScreenHandlerMixin (isSmeltable check)"]
-        MixCampfire["CampfireBlockMixin (onUseWithItem check)"]
+        MixSRB["ServerRecipeBookMixin (Auto-Unlock, Init Packets)"]
+        MixFurnace["AbstractFurnaceScreenHandlerMixin (isSmeltable Check)"]
+        MixCampfire["CampfireBlockMixin (onUseWithItem Check)"]
     end
 
-    subgraph Viewers["Интеграция с просмотрщиками (REI Integration)"]
+    subgraph Viewers["Recipe Viewer Integration (REI)"]
         REIPlugin["RecipeEditorReiClientPlugin"]
         REIGen["RecipeEditorDynamicDisplayGenerator (Live Displays)"]
         REIViewer["RecipeViewerIntegration (Workstation Guard, 350ms Debounce)"]
@@ -78,331 +78,329 @@ flowchart TD
 
 ---
 
-## 3. Модели данных и конфигурация (`com.recipeeditor.config`)
+## 3. Data Models and Configuration (`com.recipeeditor.config`)
 
-### 3.1. Типы поддерживаемых станков (`RecipeTypeEnum`)
-Перечисление описывает 7 категорий станков:
-1. `SHAPED_CRAFTING` — верстак (сетка 3x3 с поддержкой как рецептов с формой, так и бесформенных). Трансляция: `block.minecraft.crafting_table`.
-2. `SMITHING` — кузнечный стол (улучшение снаряжения по 3 слотам: шаблон, основа, материал). Трансляция: `block.minecraft.smithing_table`.
-3. `SMELTING` — обычная печь (плавка руды и приготовление ресурсов, 1 входящий слот, тики и опыт). Трансляция: `block.minecraft.furnace`.
-4. `BLASTING` — плавильня (быстрая переплавка металлов, 1 слот). Трансляция: `block.minecraft.blast_furnace`.
-5. `SMOKING` — коптильня (быстрая готовка пищи, 1 слот). Трансляция: `block.minecraft.smoker`.
-6. `STONECUTTING` — камнерез (обработка камня, 1 слот). Трансляция: `block.minecraft.stonecutter`.
-7. `CAMPFIRE_COOKING` — костёр (жарка на открытом огне без топлива, 1 слот). Трансляция: `block.minecraft.campfire`.
+### 3.1. Supported Workstation Types (`RecipeTypeEnum`)
+An enumeration defining 7 workstation categories:
+1. `SHAPED_CRAFTING` — Crafting Table (3x3 grid supporting both shaped and shapeless crafts). Translation: `block.minecraft.crafting_table`.
+2. `SMITHING` — Smithing Table (gear upgrade via 3 slots: template, base, addition). Translation: `block.minecraft.smithing_table`.
+3. `SMELTING` — Regular Furnace (resource & food smelting, 1 input slot, cook time and XP). Translation: `block.minecraft.furnace`.
+4. `BLASTING` — Blast Furnace (rapid ore and metal smelting, 1 input slot). Translation: `block.minecraft.blast_furnace`.
+5. `SMOKING` — Smoker (rapid food cooking, 1 input slot). Translation: `block.minecraft.smoker`.
+6. `STONECUTTING` — Stonecutter (stone and block precision carving, 1 input slot). Translation: `block.minecraft.stonecutter`.
+7. `CAMPFIRE_COOKING` — Campfire (open-flame fuel-less cooking, 1 input slot). Translation: `block.minecraft.campfire`.
 
-Методы `fromRecipeType(RecipeType<?>)` и `toRecipeType()` обеспечивают двусторонний маппинг в ванильные типы реестра Minecraft.
+Methods `fromRecipeType(RecipeType<?>)` and `toRecipeType()` provide bidirectional mapping between mod enums and vanilla registry types.
 
-### 3.2. Модель рецепта (`CustomRecipeData`)
-Класс представляет универсальную сериализуемую модель рецепта:
-* `id` (`String`): системный идентификатор крафта.
-* `resultItemId` (`String`): идентификатор выходного предмета (например, `minecraft:totem_of_undying`).
-* `resultCount` (`int`): количество выходных предметов (ограничено диапазоном от 1 до 1000).
-* `type` (`RecipeTypeEnum`): тип станка.
-* `patternSlots` (`String[9]`): массив из 9 строк для ингредиентов сетки. Пустые слоты содержат `"minecraft:air"`. Поддерживаются идентификаторы предметов (`minecraft:iron_ingot`) и теги (`#minecraft:planks`, `#c:iron_ingots`).
-  * Для 1-слотовых станков (печи, камнерез, костер) используется только `patternSlots[0]`.
-  * Для кузнечного стола используются: `patternSlots[0]` (шаблон), `patternSlots[1]` (основа), `patternSlots[2]` (дополнительный материал).
-  * Для верстака задействованы все 9 слотов (построчно слева направо, сверху вниз).
-* `experience` (`float`): опыт, выдаваемый за готовку в печи.
-* `cookingTime` (`int`): время приготовления в тактах (тиках).
-* `enabled` (`boolean`): активность рецепта в игре.
-* `overrideExisting` (`boolean`): флаг подавления оригинального ванильного/модового рецепта с аналогичной формой или идентификатором.
-* `overriddenId` (`String`): идентификатор подавляемого рецепта.
-* `overriddenKey` (`String`): сигнатурный ключ подавляемого рецепта.
-* `isShapeless` (`boolean`): признак бесформенного крафта на верстаке.
-* `typeCounts` (`Map<String, Integer>`): кэш запоминания количества выходных предметов индивидуально для каждого типа станка при переключении кнопок в GUI.
+### 3.2. Recipe Data Model (`CustomRecipeData`)
+The core serializable recipe model:
+* `id` (`String`): System identifier for the craft.
+* `resultItemId` (`String`): Identifier of the output item (e.g., `minecraft:totem_of_undying`).
+* `resultCount` (`int`): Quantity of output items (clamped between 1 and 1000).
+* `type` (`RecipeTypeEnum`): Target workstation type.
+* `patternSlots` (`String[9]`): Array of 9 strings representing grid ingredients. Empty slots contain `"minecraft:air"`. Supports both item identifiers (`minecraft:iron_ingot`) and tag keys (`#minecraft:planks`, `#c:iron_ingots`).
+  * 1-slot workstations (Furnace, Blast Furnace, Smoker, Stonecutter, Campfire) use only `patternSlots[0]`.
+  * Smithing Table uses: `patternSlots[0]` (template), `patternSlots[1]` (base), `patternSlots[2]` (addition).
+  * Crafting Table uses all 9 slots (row-major order from top-left to bottom-right).
+* `experience` (`float`): Experience points rewarded upon cooking.
+* `cookingTime` (`int`): Cooking duration in game ticks (20 ticks = 1 second).
+* `enabled` (`boolean`): Active state of the recipe.
+* `overrideExisting` (`boolean`): Flag to suppress an existing vanilla or modded recipe with identical pattern or identifier.
+* `overriddenId` (`String`): Identifier of the overridden recipe.
+* `overriddenKey` (`String`): Signature key of the overridden recipe.
+* `isShapeless` (`boolean`): Indicates shapeless crafting behavior on the crafting table.
+* `typeCounts` (`Map<String, Integer>`): Remembers output item counts individually per workstation type when switching tabs in the GUI.
 
-#### Составные уникальные ключи и сигнатуры:
-* `getPatternSignature()`: возвращает строку из 9 элементов, разделенных запятыми (`"slot0,slot1,...,slot8"`).
-* `getKey()`: формирует уникальный ключ рецепта по формуле:
+#### Composite Keys and Signatures:
+* `getPatternSignature()`: Returns a comma-separated string of all 9 slots (`"slot0,slot1,...,slot8"`).
+* `getKey()`: Computes a unique compound key:
   `resultItemId + "#" + type.name() + (isShapeless ? "#SL#" : "#") + getPatternSignature()`.
-  Это гарантирует бесконфликтное хранение нескольких вариантов крафта одного и того же предмета даже в пределах одного типа станка.
+  This allows multiple recipe variants for the same item to coexist without collisions.
 
-#### Расчет ограничивающего прямоугольника (Pattern Bounds):
-Метод `computePatternBounds()` производит поиск минимальных и максимальных индексов строк и столбцов (`minRow`, `minCol`, `maxRow`, `maxCol`), вычисляя фактическую ширину `patternWidth` и высоту `patternHeight`. Значения кэшируются и сбрасываются через `invalidateCache()` при любом изменении слотов.
+#### Bounding Box Calculation (`computePatternBounds`):
+Calculates the minimal bounding coordinates (`minRow`, `minCol`, `maxRow`, `maxCol`), determining `patternWidth` and `patternHeight`. Computed dimensions are cached and invalidated via `invalidateCache()` whenever grid contents change.
 
-#### Безопасное разрешение ингредиентов тегов:
-Метод `computeIngredientForSlot(int slot)` при обнаружении тега запрашивает `TagKey` из `Registries.ITEM`. **Критическое ухищрение:** если тег отсутствует в реестре (например, мир еще не загружен или мод удален), метод возвращает `Ingredient.ofItems()` (пустой несовпадающий ингредиент), а **не `null`**! Если бы возвращался `null`, незагруженный тег трактовался бы движком как воздух (`AIR`), и крафт случайно срабатывал бы от пустых ячеек верстака.
+#### Safe Tag Ingredient Resolution:
+Method `computeIngredientForSlot(int slot)` queries `TagKey` from `Registries.ITEM`. **Critical Design Safeguard:** If a tag is not yet present in the registry (e.g., world not loaded yet or mod removed), it returns `Ingredient.ofItems()` (an unmatchable empty ingredient), **never `null`**! Returning `null` would cause the engine to interpret the missing tag as `AIR`, resulting in accidental crafts triggering on empty crafting table slots.
 
-### 3.3. Менеджер конфигурации (`RecipeEditorConfig`)
-* **Потокобезопасность:** Рецепты хранятся в `ConcurrentHashMap<String, CustomRecipeData> recipes`.
-* **Быстрый кэш проверки:** Коллекция `Set<String> enabledResultIds = ConcurrentHashMap.newKeySet()` позволяет за $O(1)$ проверять наличие кастомного крафта у любого предмета в `hasCustomRecipe(String itemId)`.
-* **Монотонное версионирование (`configVersion`):** Вместо хрупкого вычисления `hashCode()`, каждый вызов `save()`, `addOrUpdateRecipe()` или `removeRecipe()` инкрементирует целочисленный счетчик `configVersion++`. Все внешние компоненты, миксины и дисплеи инвалидируют свои кэши, сверяясь с этим числом.
-* **Атомарное сохранение файла конфигурации (`save()`):**
-  1. Файл сериализуется через Gson с отступами во временный файл `config/mrrecipeeditor.json.tmp`.
-  2. Выполняется атомарная замена `Files.move(tmpPath, configPath, ATOMIC_MOVE, REPLACE_EXISTING)`.
-  3. При возникновении `AtomicMoveNotSupportedException` выполняется безопасный fallback на стандартное перемещение с перезаписью.
-  4. Автоматическая миграция: если существует устаревший файл `config/recipeeditor.json`, а новый `mrrecipeeditor.json` отсутствует, файл копируется автоматически.
-* **Сортировка рецептов верстака (`getSortedCraftingRecipes()`):**
-  Рецепты верстака кэшируются в отсортированном виде со следующими приоритетами:
-  1. Рецепты с формой (`Shaped`) всегда проверяются **раньше**, чем бесформенные (`Shapeless`).
-  2. Среди бесформенных рецептов первыми проверяются те, у которых **больше ингредиентов** (более специфичные рецепты имеют приоритет, что исключает ложное срабатывание рецепта из 2 ингредиентов при выкладывании 4).
-  3. Для детерминизма одинаковые рецепты сортируются лексикографически по `getKey()`.
+### 3.3. Configuration Management (`RecipeEditorConfig`)
+* **Thread Safety:** Recipes are stored in a `ConcurrentHashMap<String, CustomRecipeData> recipes`.
+* **$O(1)$ Fast Check Cache:** `Set<String> enabledResultIds = ConcurrentHashMap.newKeySet()` enables instantaneous existence checks in `hasCustomRecipe(String itemId)`.
+* **Monotonic Version Counter (`configVersion`):** Rather than relying on fragile hash codes, every mutation (`save()`, `addOrUpdateRecipe()`, `removeRecipe()`) increments `configVersion++`. All mixins, caches, and displays check this counter to determine staleness.
+* **Atomic File Persistence (`save()`):**
+  1. Serializes formatted JSON via Gson into a temporary file `config/mrrecipeeditor.json.tmp`.
+  2. Executes an atomic file move `Files.move(tmpPath, configPath, ATOMIC_MOVE, REPLACE_EXISTING)`.
+  3. Catches `AtomicMoveNotSupportedException` with a graceful fallback to standard replacement.
+  4. Automatic migration: if legacy `config/recipeeditor.json` exists while `mrrecipeeditor.json` does not, it is automatically migrated.
+* **Crafting Recipe Sorting (`getSortedCraftingRecipes()`):**
+  Crafting table recipes are cached in deterministic order with the following precedence:
+  1. Shaped recipes are evaluated **before** shapeless recipes.
+  2. Among shapeless recipes, those with **more non-empty ingredients** are evaluated first (prevents a 2-ingredient recipe from preempting a 4-ingredient recipe).
+  3. Tied recipes are ordered lexicographically by `getKey()`.
 
 ---
 
-## 4. Динамический движок рецептов (`com.recipeeditor.recipe`)
+## 4. Dynamic Recipe Engine (`com.recipeeditor.recipe`)
 
-### 4.1. Универсальный рецепт верстака (`CustomDynamicCraftingRecipe`)
-Класс наследуется от ванильного `ShapedRecipe`, регистрируется через собственный сериализатор `custom_crafting` в реестре `Registries.RECIPE_SERIALIZER` и подменяет стандартную логику проверки совпадений:
+### 4.1. Universal Crafting Recipe (`CustomDynamicCraftingRecipe`)
+Inherits from vanilla `ShapedRecipe`, registers under serializer `custom_crafting` in `Registries.RECIPE_SERIALIZER`, and overrides matching routines:
 
-#### Алгоритм скользящего окна (`matchesShaped`):
-Позволяет рецептам с размерами меньше $3 \times 3$ (например, $2 \times 2$ или $1 \times 2$) собираться в абсолютно любом месте сетки верстака:
-1. Вычисляются размеры шаблона `patternW` и `patternH`.
-2. Если размеры входной сетки верстака `inputW` или `inputH` меньше размеров шаблона, возвращается `false`.
-3. Запускаются циклы смещения `dx` (от 0 до `inputW - patternW`) и `dy` (от 0 до `inputH - patternH`).
-4. Для каждого смещения `(dx, dy)` проверяется как прямое расположение, так и **горизонтально зеркальное** (`mirrored = true`).
-5. Вспомогательный метод `checkMatchAt` проверяет:
-   * Ячейки внутри окна шаблона должны удовлетворять `expectedIngredient.test(actualStack)`.
-   * Все ячейки входной сетки **за пределами** текущего окна шаблона обязаны быть строго пустыми (`actual.isEmpty()`).
+#### Sliding Window Algorithm (`matchesShaped`):
+Enables patterns smaller than $3 \times 3$ (e.g., $2 \times 2$ or $1 \times 2$) to match anywhere inside the 3x3 crafting grid:
+1. Resolves `patternW` and `patternH`.
+2. Returns `false` if grid dimensions `inputW` or `inputH` are smaller than pattern dimensions.
+3. Iterates displacement offsets `dx` ($0 \dots \text{inputW} - \text{patternW}$) and `dy` ($0 \dots \text{inputH} - \text{patternH}$).
+4. Tests both direct orientation and **horizontally mirrored** orientation (`mirrored = true`).
+5. In `checkMatchAt`:
+   * Cells inside the pattern window must satisfy `expectedIngredient.test(actualStack)`.
+   * All grid cells **outside** the pattern window must be strictly empty (`actual.isEmpty()`).
 
-#### Алгоритм поиска с возвратом для бесформенных крафтов (`matchesShapeless`):
-1. Проверяется точное совпадение количества непустых предметов на верстаке с количеством требуемых ингредиентов.
-2. Метод `matchShapelessBacktrack` выполняет рекурсивное сопоставление предметов со списком ингредиентов с использованием массива флагов `usedIngs`, находя максимальное паросочетание без создания избыточных перестановок.
+#### Recursive Backtracking for Shapeless Crafts (`matchesShapeless`):
+1. Verifies that the count of non-empty items in the grid exactly equals the required ingredient count.
+2. `matchShapelessBacktrack` performs recursive bipartite matching using a boolean array `usedIngs`, resolving complex ingredient permutations without allocating extra collections.
 
-#### Мемоизация последнего ввода (Input Cache):
-Метод `findMatchingRecipe` запоминает `lastInput`, `lastMatchedRecipe` и `lastInputConfigVersion`. Если игрок не менял предметы на верстаке, повторная проверка сотен рецептов пропускается, возвращая мгновенный результат за $O(1)$.
+#### Memoized Input Caching:
+Method `findMatchingRecipe` memoizes `lastInput`, `lastMatchedRecipe`, and `lastInputConfigVersion`. If the player has not changed grid contents, expensive iterations across hundreds of recipes are bypassed, returning results in $O(1)$.
 
-#### Защита от потери предметов при Shift-клике (`craft()`):
-В методе `craft()` размер результирующего стака строго ограничивается максимальным размером пачки самого предмета:
+#### Shift-Click Stack Loss Protection (`craft()`):
+In `craft()`, the output stack size is clamped to the item's maximum stack size:
 ```java
 int safeCount = Math.min(resultItem.getMaxCount(), Math.max(1, matched.getResultCountForType(matched.type)));
 return new ItemStack(resultItem, safeCount);
 ```
-Это предотвращает баги с уничтожением предметов при быстром заборе через Shift, даже если в конфигураторе было задано количество до 1000 единиц.
+This prevents item deletion bugs when shift-clicking outputs, even if configured up to 1000 items in the GUI.
 
-### 4.2. Центральный диспетчер рецептов (`CustomRecipeDispatcher`)
-Класс объединяет все типы станков, генерирует синтетические ванильные рецепты и управляет синхронизацией книги рецептов Minecraft 1.21.4.
+### 4.2. Central Recipe Dispatcher (`CustomRecipeDispatcher`)
+Bridges all 7 workstation types, generates synthetic vanilla recipe instances, and synchronizes the Minecraft 1.21.4 recipe book.
 
-#### Синтетическая фабрика рецептов (`createSyntheticRecipe`):
-Создает полноценные объекты ванильных классов Minecraft на лету:
-* `ShapedRecipe` / `ShapelessRecipe` (верстак).
-* `SmeltingRecipe` (печь).
-* `BlastingRecipe` (плавильня).
-* `SmokingRecipe` (коптильня).
-* `CampfireCookingRecipe` (костёр).
-* `StonecuttingRecipe` (камнерез).
-* `SmithingTransformRecipe` (кузнечный стол).
+#### Synthetic Recipe Factory (`createSyntheticRecipe`):
+Constructs real vanilla recipe instances dynamically:
+* `ShapedRecipe` / `ShapelessRecipe` (Crafting Table).
+* `SmeltingRecipe` (Furnace).
+* `BlastingRecipe` (Blast Furnace).
+* `SmokingRecipe` (Smoker).
+* `CampfireCookingRecipe` (Campfire).
+* `StonecuttingRecipe` (Stonecutter).
+* `SmithingTransformRecipe` (Smithing Table).
 
-#### Автоматическая категоризация предметов:
-Для корректной фильтрации в ванильной книге рецептов реализованы методы:
-* `getCraftingCategory(Item)`: анализирует класс предмета. Оружие, броня, щиты, луки, булавы классифицируются как `EQUIPMENT`; блоки редстоуна, поршни, воронки, дропперы и автокрафтеры — как `REDSTONE`; остальные блоки — как `BUILDING`; прочее — как `MISC`.
-* `getCookingCategory(Item)`: еда классифицируется как `FOOD`, блоки — как `BLOCKS`.
+#### Category Heuristics:
+Enables correct tab organization inside the vanilla recipe book:
+* `getCraftingCategory(Item)`: classifies weapons, tools, armor, bows, shields, maces as `EQUIPMENT`; redstone blocks, hoppers, droppers, pistons, crafters as `REDSTONE`; blocks as `BUILDING`; other items as `MISC`.
+* `getCookingCategory(Item)`: classifies food items as `FOOD`, blocks as `BLOCKS`, other items as `MISC`.
 
-#### Механизм подавления оригинальных рецептов (Overrides):
-Методы `isRecipeOverridden(RecipeEntry<?>)`, `isIdentifierOverridden(Identifier)` и `isIdOverridden(String)` используют кэшированные множества `cachedOverriddenIds` и `cachedOverriddenIdentifiers`. Они проверяют точные совпадения идентификаторов датапаков (`minecraft:iron_sword`), короткие имена путей (`iron_sword`) и сигнатуры, полностью блокируя выполнение ванильного крафта, если пользователь переопределил его в моде.
+#### Recipe Overrides Mechanism:
+Methods `isRecipeOverridden(RecipeEntry<?>)`, `isIdentifierOverridden(Identifier)`, and `isIdOverridden(String)` use cached sets `cachedOverriddenIds` and `cachedOverriddenIdentifiers`. They check exact datapack IDs (`minecraft:iron_sword`), short path names (`iron_sword`), and signatures, suppressing vanilla/modded crafts when marked as overridden in the editor.
 
 ---
 
-## 5. Ванильная книга рецептов 1.21.4 и сетевая синхронизация
+## 5. Minecraft 1.21.4 Recipe Book and Network Synchronization
 
-В Minecraft 1.21.4 архитектура книги рецептов претерпела кардинальные изменения: рецепты на клиенте и сервере идентифицируются структурой `NetworkRecipeId`, а их графическое представление оформляется через `RecipeDisplayEntry` и `RecipeDisplay`.
+In Minecraft 1.21.4, recipe identification is powered by `NetworkRecipeId`, with visual rendering governed by `RecipeDisplayEntry` and `RecipeDisplay`.
 
-### 5.1. Пул динамических идентификаторов `NetworkRecipeId`
-Чтобы кастомные рецепты мода не конфликтовали с системными ванильными рецептами (имеющими малые порядковые индексы $0..999\,999$), диспетчер мода выделяет независимый изолированный диапазон индексов от одного миллиона:
+### 5.1. Dynamic Network ID Pool (`NetworkRecipeId`)
+To prevent conflicts with vanilla recipes (which occupy lower indices $0 \dots 999\,999$), the dispatcher allocates an isolated range starting at 1,000,000:
 ```java
 public static int getBaseNetworkId(String recipeKey) {
     if (recipeKey == null) return 1_000_000;
     return 1_000_000 + ((recipeKey.hashCode() & 0x7FFFFFFF) % 80_000_000) * 10;
 }
 ```
-Каждый дисплей рецепта получает свой уникальный `NetworkRecipeId(baseNetId + d)`.
+Each recipe display receives a unique `NetworkRecipeId(baseNetId + d)`.
 
-### 5.2. Сетевые пакеты синхронизации книги рецептов
-* **Подключение игрока к миру (`ServerPlayConnectionEvents.JOIN`):**
-  Метод `sendCustomRecipeBookEntries` генерирует для подключившегося игрока пакет `RecipeBookAddS2CPacket` со списком всех кастомных `RecipeDisplayEntry`.
-* **Синхронизация на лету при изменении конфигурации (`syncRecipeBookToPlayers`):**
-  Диспетчер вычисляет разность (дельту) между ранее отправленными `PREVIOUS_NETWORK_IDS` и новым набором:
-  1. Для удаленных рецептов рассылается пакет `RecipeBookRemoveS2CPacket(oldIds)`.
-  2. Для добавленных рецептов рассылается пакет `RecipeBookAddS2CPacket(entries, false)`.
-  3. Книга рецептов у всех игроков обновляется мгновенно, без переподключения к серверу.
+### 5.2. Network Synchronization Packets
+* **Player Connection (`ServerPlayConnectionEvents.JOIN`):**
+  Sends `RecipeBookAddS2CPacket` containing all custom `RecipeDisplayEntry` records to joining players.
+* **On-the-Fly Sync (`syncRecipeBookToPlayers`):**
+  Computes the delta between `PREVIOUS_NETWORK_IDS` and current IDs:
+  1. Broadcasts `RecipeBookRemoveS2CPacket(oldIds)` for deleted recipes.
+  2. Broadcasts `RecipeBookAddS2CPacket(entries, false)` for added recipes.
+  3. Client recipe books update instantly without reconnecting.
 
-### 5.3. Автозаполнение сетки верстака из книги рецептов (`CraftRequestC2SPacket`)
-Когда игрок кликает по рецепту в ванильной книге, клиент отправляет пакет запроса автозаполнения с указанием `NetworkRecipeId`. На сервере ванильный `ServerRecipeManager.get(NetworkRecipeId)` перехватывается миксином `ServerRecipeManagerMixin`, который возвращает зарегистрированный в диспетчере `ServerRecipeManager.ServerRecipe`. В результате ванильный алгоритм раскладывает предметы из инвентаря в сетку верстака без единой ошибки.
+### 5.3. Recipe Book Auto-Fill (`CraftRequestC2SPacket`)
+When clicking a custom recipe in the recipe book, the client transmits a `CraftRequestC2SPacket` containing the `NetworkRecipeId`. `ServerRecipeManagerMixin` intercepts `ServerRecipeManager.get(NetworkRecipeId)` and returns the associated `ServerRecipe`, allowing vanilla crafting table auto-fill logic to distribute items cleanly across the grid.
 
 ---
 
-## 6. Система инжекций байткода (`com.recipeeditor.mixin`)
+## 6. Bytecode Injection Pipeline (`com.recipeeditor.mixin`)
 
-Мод использует библиотеку Mixin с повышенным приоритетом (`priority = 500`), что гарантирует корректную работу в связке с оптимизаторами рецептов (FastSuite, Recipe Essentials и др.).
+Mixins operate with elevated priority (`priority = 500`), guaranteeing clean coexistence with recipe optimizers such as FastSuite or Recipe Essentials.
 
 ### 6.1. `ServerRecipeManagerMixin`
-Центральная точка перехвата серверной рецептурной логики:
-1. `@Inject getFirstMatch` (все три сигнатуры: обычная, с последним рецептом, по ключу реестра):
-   * На входе (`HEAD`): запрашивает у `CustomRecipeDispatcher` кастомный рецепт. Если найден — отменяет оригинальный поиск и возвращает кастомный.
-   * На выходе (`RETURN`): если ванильный рецепт найден, но помечен как переопределенный (`isRecipeOverridden`), возвращаемое значение подменяется на `Optional.empty()`.
-2. `@Inject getStonecutterRecipes` и `getStonecutterRecipeForSync`:
-   * Перехватывает списки рецептов камнереза, объединяет ванильные и кастомные группы `CuttingRecipeDisplay.Grouping<StonecuttingRecipe>`, фильтруя подавленные.
+Core interception point for server-side recipe resolution:
+1. `@Inject getFirstMatch` (all three overloads):
+   * `HEAD`: Queries `CustomRecipeDispatcher`. If a match is found, immediately returns it.
+   * `RETURN`: If a vanilla recipe matched but is marked as overridden (`isRecipeOverridden`), replaces return value with `Optional.empty()`.
+2. `@Inject getStonecutterRecipes` and `getStonecutterRecipeForSync`:
+   * Combines custom stonecutter grouping entries with vanilla groupings, excluding overridden entries.
 3. `@Inject values()`:
-   * Фильтрует коллекцию всех рецептов сервера, удаляя переопределенные ванильные и подмешивая сгенерированные кастомные синтетические рецепты.
+   * Filters out overridden entries and appends all synthetic custom recipes.
 4. `@Inject get(RegistryKey)`:
-   * Обеспечивает извлечение синтетического рецепта мода по его динамическому ключу реестра.
+   * Resolves synthetic custom recipe entries when queried by key.
 5. `@Inject get(NetworkRecipeId)`:
-   * При индексах $\ge 1\,000\,000$ возвращает кастомный `ServerRecipe` для штатной обработки автокрафта.
+   * For IDs $\ge 1\,000\,000$, returns custom `ServerRecipe` to facilitate recipe book auto-filling.
 6. `@Inject forEachRecipeDisplay`:
-   * Рассылает дисплеи для ключей рецептов пространства имен `recipeeditor` и блокирует вызовы для переопределенных рецептов.
+   * Dispatches displays for `recipeeditor` recipes while suppressing overridden entries.
 
 ### 6.2. `ServerRecipeBookMixin`
 * `@Inject isUnlocked`:
-  * Для любых рецептов с namespace `recipeeditor` немедленно возвращает `true`, снимая требование получения ачивок.
-  * Для подавленных ванильных рецептов немедленно возвращает `false`, скрывая их из интерфейса книги.
+  * Returns `true` immediately for any key under namespace `recipeeditor`, bypassing advancement checks.
+  * Returns `false` for overridden recipes, hiding them from the book interface.
 * `@Inject sendInitRecipesPacket`:
-  * При отправке базового пакета книги рецептов клиенту гарантированно отправляет записи мода через `CustomRecipeDispatcher.sendCustomRecipeBookEntries`.
+  * Transmits custom displays via `CustomRecipeDispatcher.sendCustomRecipeBookEntries`.
 
 ### 6.3. `AbstractFurnaceScreenHandlerMixin`
 * `@Inject isSmeltable`:
-  * Перехватывает проверку возможности плавки предмета в плавильнях, коптилках и обычных печах.
-  * Если для предмета зарегистрирован кастомный рецепт плавки — возвращает `true`.
-  * Если ванильный крафт плавки подавлен в моде — возвращает `false` (как на сервере, так и на клиенте).
+  * Intercepts item insertion validation for furnaces, smokers, and blast furnaces.
+  * Returns `true` if a custom cooking recipe exists for the item.
+  * Returns `false` if the vanilla cooking recipe is overridden.
 
 ### 6.4. `CampfireBlockMixin`
 * `@Inject onUseWithItem`:
-  * Перехватывает клик правой кнопкой мыши с предметом по костру.
-  * При обнаружении кастомного рецепта костра корректно укладывает предмет в `CampfireBlockEntity` на сервере или потребляет анимацию на клиенте.
+  * Intercepts right-clicks on campfires.
+  * When a custom campfire recipe matches, places the item onto the campfire block entity on the server or consumes animation on the client.
 
 ### 6.5. `TextFieldWidgetAccessor`
-Клиентский интерфейс доступа (Accessor), открывающий защищенное ванильное поле `firstCharacterIndex` у `TextFieldWidget`, необходимое для посимвольного выделения текста мышью в кастомных полях ввода.
+Accessor exposing `firstCharacterIndex` from vanilla `TextFieldWidget`, enabling accurate character selection and mouse dragging in text input fields.
 
 ---
 
-## 7. Интеграция с просмотрщиками рецептов (Roughly Enough Items / REI)
+## 7. Recipe Viewer Integration (Roughly Enough Items / REI)
 
-Интеграция реализована через официальное Fabric API Roughly Enough Items (`com.recipeeditor.integration.rei` и `com.recipeeditor.integration`).
+Integrated via the official REI Fabric API (`com.recipeeditor.integration.rei` and `com.recipeeditor.integration`).
 
-### 7.1. Официальный клиентский плагин (`RecipeEditorReiClientPlugin`)
-Реализует интерфейс `REIClientPlugin` с точкой входа `rei_client` в `fabric.mod.json`:
-* `registry.registerGlobalDisplayGenerator(new RecipeEditorDynamicDisplayGenerator())` — регистрирует динамический генератор дисплеев, обеспечивающий мгновенный поиск рецептов и применений на лету.
-* `registry.registerVisibilityPredicate(...)` — регистрирует предикат видимости, скрывающий оригинальные рецепты ванильного Minecraft или других модов, если они были переопределены в редакторе.
+### 7.1. Official Client Plugin (`RecipeEditorReiClientPlugin`)
+Implements `REIClientPlugin` with entrypoint `rei_client`:
+* Registers `RecipeEditorDynamicDisplayGenerator` as a global dynamic display generator.
+* Registers a `DisplayVisibilityPredicate` to hide vanilla or modded displays when overridden by custom editor recipes.
 
-### 7.2. Динамический генератор дисплеев (`RecipeEditorDynamicDisplayGenerator`)
-Реализует интерфейс `DynamicDisplayGenerator<Display>` и обрабатывает три сценария:
-1. `getRecipeFor(EntryStack)` — игрок нажал клавишу просмотра рецепта (по умолчанию 'R') на предмете.
-2. `getUsageFor(EntryStack)` — игрок нажал клавишу просмотра применений (по умолчанию 'U') на ингредиенте.
-3. `generate(ViewSearchBuilder)` — игрок просматривает общие категории станков в REI.
+### 7.2. Dynamic Display Generator (`RecipeEditorDynamicDisplayGenerator`)
+Implements `DynamicDisplayGenerator<Display>` across three access paths:
+1. `getRecipeFor(EntryStack)` — user presses 'R' on an item.
+2. `getUsageFor(EntryStack)` — user presses 'U' on an item.
+3. `generate(ViewSearchBuilder)` — user browses workstation categories.
 
-Генератор динамически конструирует нативные дисплеи REI:
-* `DefaultCustomShapedDisplay` и `DefaultCustomShapelessDisplay` для верстака.
-* `DefaultSmeltingDisplay`, `DefaultBlastingDisplay`, `DefaultSmokingDisplay` для печей.
-* `DefaultStoneCuttingDisplay` для камнереза.
-* `DefaultCampfireDisplay` для костра.
-* `DefaultSmithingDisplay` для кузнечного стола.
+Builds native REI displays dynamically:
+* `DefaultCustomShapedDisplay` & `DefaultCustomShapelessDisplay` for Crafting Table.
+* `DefaultSmeltingDisplay`, `DefaultBlastingDisplay`, `DefaultSmokingDisplay` for Furnaces.
+* `DefaultStoneCuttingDisplay` for Stonecutter.
+* `DefaultCampfireDisplay` for Campfire.
+* `DefaultSmithingDisplay` for Smithing Table.
 
-### 7.3. Менеджер обновления и защита рабочих станций (`RecipeViewerIntegration`)
-* **Workstation Guard (Защита от фризов во время крафта):**
-  При сохранении или удалении рецепта перезагрузка REI откладывается, если у игрока открыт любой контейнер или рабочий станок (`client.currentScreen instanceof HandledScreen`). Это исключает зависание графического интерфейса и сброс курсора прямо во время взаимодействия с верстаком или сундуком.
-* **Debounce (Устранение дребезга перезагрузок):**
-  Перезапуск просмотрщиков выполняется в фоновом пуле `ScheduledExecutorService` с задержкой в 350 мс. Серия быстрых сохранений объединяется в один единственный вызов.
-* **Высокоскоростной MethodHandle:**
-  Для вызова `DisplayRegistry.getDisplayOrigin` создается кэшированный `MethodHandle`, исключающий накладные расходы Java Reflection при фильтрации сотен дисплеев в кадре.
-
----
-
-## 8. Инспектор рецептов, декомпилятор и транслятор тегов (`com.recipeeditor.inspector`)
-
-### 8.1. Пятиуровневый транслятор тегов (`TagResolver`)
-Позволяет сопоставлять теги предметов (`#minecraft:planks`, `#c:iron_ingots`) с реальными объектами `Item` в любых условиях:
-1. **Уровень 1 (World Registry):** Динамический поиск по активному `RegistryManager` клиентского мира.
-2. **Уровень 2 (Static Registry):** Запрос через `Registries.ITEM.iterateEntries(tagKey)`.
-3. **Уровень 3 (Scanned Mod JSON):** Поиск по распарсенной карте `TAG_ITEMS`, полученной при фоновом сканировании JAR-файлов модов (`data/<ns>/tags/item/*.json`).
-4. **Уровень 4 (Static Fallback Dictionary):** Встроенный статический словарь соответствий для популярных ванильных и конвенционных Fabric/Common тегов (доски, слитки, палки, шерсть, руды, красители, стекло).
-5. **Уровень 5 (Heuristic Keyword Matching):** Эвристический анализ подстрок в названии тега (`plank` $\to$ дубовые доски, `stone` $\to$ камень, `ingot` $\to$ слиток и т.д.).
-
-### 8.2. Фоновый инспектор рецептов (`RecipeInspector`)
-* **Асинхронное сканирование JAR при старте (`startJarScanAsync`):**
-  При запуске клиента в отдельном потоке сканируются все подключенные моды (`FabricLoader.getAllMods()`), извлекая рецепты и теги без блокировки экрана загрузки игры.
-* **Синтетическая декомпиляция специальных рецептов ванилы:**
-  Minecraft содержит рецепты, генерируемые кодом без прямых JSON файлов. Инспектор автоматически воссоздает их для игрока:
-  * Незеритовые кузнечные рецепты (шлем, нагрудник, поножи, ботинки, меч, лопата, кирка, топор, мотыга) $\to$ шаблон `netherite_upgrade_smithing_template` + алмазный аналог + `netherite_ingot`.
-  * Перекраска мешков (все 16 цветов).
-  * Перекраска шерсти, кроватей, свечей, шалкеровых ящиков и ковров из любого исходного цвета.
-* **Мультиязычный поиск и инверсия раскладки клавиатуры:**
-  * Индексирует языковые файлы (`assets/<ns>/lang/*.json`) и кэш ассетов лаунчера (`.minecraft/assets/indexes/*.json`, файлы хэшей `ru_ru.json`, `uk_ua.json`). Поиск на русском языке («палка», «железо») находит предметы даже при включенном английском языке игры.
-  * Метод `flipKeyboardLayout` автоматически транслирует опечатки раскладки (QWERTY $\leftrightarrow$ ЙЦУКЕН), позволяя находить предметы при случайном вводе «njntv» вместо «тотем» или «ghbdtn» вместо «привет».
+### 7.3. Workstation Guard & Debounce (`RecipeViewerIntegration`)
+* **Workstation Guard:**
+  Postpones REI reloads whenever the player has an active container or workstation screen open (`client.currentScreen instanceof HandledScreen`). Prevents screen freezing and desynchronization while crafting.
+* **350ms Debounce:**
+  Coalesces rapid successive saves into a single scheduled reload in a background thread.
+* **Cached MethodHandle:**
+  Accesses `DisplayRegistry.getDisplayOrigin` using a cached `MethodHandle`, eliminating Java Reflection overhead during high-frequency frame filtering.
 
 ---
 
-## 9. Разрешение конфликтов рецептов (`RecipeConflictScreen`)
+## 8. Inspection, Decompilation, and Tag Resolution (`com.recipeeditor.inspector`)
 
-При сохранении рецепта метод `RecipeInspector.findConflicts` проверяет потенциальные коллизии:
-* Анализируются кастомные, ванильные и модовые рецепты для **других** предметов на том же станке.
-* Для верстака вычисляются нормализованные границы и проверяется как прямое совпадение, так и зеркальное.
-* При обнаружении пересечений открывается модальный экран `RecipeConflictScreen`:
-  * Отображается визуальная карточка конфликта с мини-сеткой крафта и стрелкой.
-  * Выводится результат крафта с всплывающими подсказками, точным ID рецепта и источником (Ванильный Minecraft, название мода или «Мои крафты»).
-  * Предоставляется выбор: **«Заменить (Override)»** (сохраняет кастомный рецепт и подавляет оригинальный) или **«Отмена»**.
+### 8.1. 5-Tier Tag Resolver (`TagResolver`)
+Resolves item tag keys (`#minecraft:planks`, `#c:iron_ingots`) to concrete `Item` instances across all environments:
+1. **Tier 1 (World Registry):** Client world dynamic `RegistryManager`.
+2. **Tier 2 (Static Registry):** `Registries.ITEM.iterateEntries(tagKey)`.
+3. **Tier 3 (Scanned Mod JSON):** Parsed `TAG_ITEMS` map collected from scanned mod JARs (`data/<ns>/tags/item/*.json`).
+4. **Tier 4 (Static Fallback Dictionary):** Built-in dictionary covering common vanilla and Conventional Fabric tags (planks, ingots, rods, wool, ores, dyes, glass).
+5. **Tier 5 (Heuristic Keyword Matching):** Substring analysis (`plank` $\to$ oak planks, `stone` $\to$ stone, `ingot` $\to$ iron ingot, etc.).
 
----
-
-## 10. Пользовательский интерфейс: Recipe Studio GUI (`com.recipeeditor.client.gui`)
-
-### 10.1. Адаптивный экран редактора (`RecipeEditorScreen`)
-* **Базовые габариты:** Базовое разрешение интерфейса $460 \times 380$ пикселей с динамическим расчетом масштаба `uiScale = Math.min(width / 460f, height / 380f)`.
-* **Левая панель (Студия крафта):**
-  * Пагинатор выбора типа станка (2 колонки кнопок, до 10 типов на страницу).
-  * Переключатель формы для верстака: `[С формой]` / `[Без формы]`.
-  * Панель навигатора вариантов рецепта: `[ ◀ ] [ Вариант N / M ] [ ▶ / + ]` с возможностью ввода номера варианта вручную.
-  * Интерактивная сетка крафта со слотами $24 \times 24$ пикселя, подсветкой активного слота и стрелкой результата.
-  * Динамические поля ввода времени плавки (в тиках с подсказкой в секундах) и опыта (XP) для печей.
-  * Поле ввода количества выходных предметов (до 1000 шт.) с кнопками `[-]` и `[+]`.
-  * Кнопки действий в правом нижнем углу: «Сохранить крафт», «Очистить сетку», «Удалить вариант», «Удалить крафт».
-* **Правая панель (Каталог предметов):**
-  * Горизонтальная карусель вкладок модов (`[Все]`, `[Minecraft]`, `[Моды...]`) с независимой прокруткой колесиком мыши.
-  * Строка поиска с кнопкой мгновенной очистки `[✕]`.
-  * Кнопки быстрых фильтров: `[Все]`, `[Без крафта]`, `[С крафтом]`, `[Мои крафты]`.
-  * Сетка предметов ($10 \times 5 = 50$ предметов на страницу) с пагинацией.
-* **Drag & Drop манипуляции:**
-  * Зажатие ЛКМ по предмету в каталоге или слоте запускает режим перетаскивания.
-  * Отрисовывается плавающий полупрозрачный стек предмета под курсором мыши.
-  * Отпускание кнопки мыши над слотом сетки укладывает предмет в слот.
-* **Горячие клавиши управления:**
-  * `ПКМ по предмету каталога` — инспекция и загрузка рецепта в редактор.
-  * `ПКМ по слоту крафта` — очистка слота.
-  * `Delete` / `Backspace` — очистка выбранного слота или сброс выбранного целевого предмета.
-  * `I` — показать / скрыть блок помощи и подсказок.
-  * `Колесико мыши над сеткой крафта` — переключение вариантов рецепта.
-  * `Колесико мыши над каталогом / вкладками` — независимая прокрутка страниц или вкладок.
-* **Проверка прав создателя мира (`hasEditPermission`):**
-  Редактирование разрешено только в главном меню, в одиночной игре или хосту локальной сети (`isIntegratedServerRunning() && isHost()`). На чужих серверах интерфейс переходит в режим чтения с выводом предупреждающего сообщения.
-* **Кастомное текстовое поле с выделением (`SelectableTextFieldWidget`):**
-  Позволяет выделять текст курсором мыши, поддерживает двойной клик для выделения всего текста и точно вычисляет координаты символов через миксин `TextFieldWidgetAccessor`.
+### 8.2. Recipe Inspector (`RecipeInspector`)
+* **Async Startup JAR Scanning (`startJarScanAsync`):**
+  Scans all installed mods (`FabricLoader.getAllMods()`) in a background daemon thread, extracting recipes and tags without blocking the game loading screen.
+* **Synthetic Decompilation of Hardcoded Vanilla Recipes:**
+  Automatically reconstructs dynamic vanilla recipes that lack static JSON definitions:
+  * Netherite smithing upgrades (all 9 armor and tool pieces) $\to$ template + diamond item + netherite ingot.
+  * Bundle re-dyeing (all 16 colors).
+  * Cross-dyeing of wool, beds, candles, shulker boxes, and carpets.
+* **Multilingual Search and Keyboard Layout Correction:**
+  * Indexes locale files from mod JARs and launcher asset caches (`.minecraft/assets/indexes/*.json`, `ru_ru.json`, `uk_ua.json`). Searching in Russian ("железо", "палка") finds items even if the client language is English.
+  * `flipKeyboardLayout` transparently swaps mismatched keyboard layouts (QWERTY $\leftrightarrow$ ЙЦУКЕН), resolving unintended queries like "njntv" $\to$ "тотем".
 
 ---
 
-## 11. Руководство для разработчиков: Добавление нового станка
+## 9. Recipe Conflict Resolution (`RecipeConflictScreen`)
 
-Чтобы расширить мод и добавить поддержку нового типа станка (например, ткацкого станка или кастомного механизма из мода), выполните следующие шаги:
-
-1. **Добавить элемент в `RecipeTypeEnum`:**
-   * Задайте уникальное имя, ключ названия блока и ключ всплывающей подсказки.
-   * Добавьте обработку в методы `fromRecipeType()` и `toRecipeType()`.
-2. **Настроить сопоставление в `CustomRecipeDispatcher`:**
-   * В методе `matchesInput` добавьте проверку типа входных данных (`RecipeInput`).
-   * В методе `createSyntheticRecipe` добавьте ветку генерации соответствующего ванильного класса рецепта.
-3. **Обновить генератор дисплеев REI (`RecipeEditorDynamicDisplayGenerator`):**
-   * В методе `getCategoryForEnum` верните категорию REI `CategoryIdentifier<?>`.
-   * В методе `createDisplay` добавьте сборку соответствующего `Display` (например, нативного дисплея из плагина мода).
-4. **Обновить отрисовку в `RecipeEditorScreen`:**
-   * В методе `renderCraftingGrid` определите геометрию отображения слотов (1 слот, 2 слота или нестандартная сетка).
-   * В методе `saveCurrentCraft` настройте сбор ингредиентов из слотов.
-5. **Добавить ключи локализации:**
-   * Пропишите переводы названия станка и подсказок в `assets/recipeeditor/lang/ru_ru.json` и `en_us.json`.
+When saving a recipe, `RecipeInspector.findConflicts` validates uniqueness:
+* Checks custom, vanilla, and modded recipes for **different items** on the same workstation.
+* For crafting tables, calculates normalized bounding boxes and checks both direct and mirrored alignments.
+* If a collision occurs, opens `RecipeConflictScreen`:
+  * Renders a miniature crafting grid, directional arrow, conflicting output item with tooltips, recipe ID, and source label (Vanilla Minecraft, Mod Name, or Custom Recipes).
+  * Prompts the user: **"Override"** (saves custom recipe and suppresses conflicting craft) or **"Cancel"**.
 
 ---
 
-## 12. Стандарты оформления коммитов (Commit Message Guidelines)
+## 10. User Interface: Recipe Studio GUI (`com.recipeeditor.client.gui`)
 
-Все коммиты в репозитории проекта должны строго соответствовать следующим правилам:
+### 10.1. Responsive Editor Screen (`RecipeEditorScreen`)
+* **Responsive Scaling:** Base design resolution $460 \times 380$ px scaled dynamically via `uiScale = Math.min(width / 460f, height / 380f)`.
+* **Left Pane (Crafting Studio):**
+  * Workstation type paginator (2 columns of buttons, up to 10 types per page).
+  * Crafting table shape toggle: `[Shaped]` / `[Shapeless]`.
+  * Variant navigator: `[ ◀ ] [ Variant N / M ] [ ▶ / + ]` with direct numeric text entry.
+  * Interactive crafting grid with $24 \times 24$ px slots, active slot highlighting, and output slot.
+  * Cooking time (ticks with seconds tooltip) and experience (XP) input fields.
+  * Output count selector (up to 1000 items) with `[-]` and `[+]` increment controls.
+  * Action controls: "Save Craft", "Clear Grid", "Delete Variant", "Delete Craft".
+* **Right Pane (Item Catalog):**
+  * Mod tabs carousel (`[All]`, `[Minecraft]`, `[Mod Names...]`) with mouse wheel scroll support.
+  * Search bar with a single-click clear button `[✕]`.
+  * Filter buttons: `[All]`, `[Uncraftable]`, `[Craftable]`, `[Custom]`.
+  * Item grid ($10 \times 5 = 50$ items per page) with page navigation.
+* **Drag-and-Drop Interaction:**
+  * Holding LMB over any item in the catalog or grid starts drag mode with a floating translucent stack under the cursor.
+  * Releasing LMB over a grid slot assigns the item.
+* **Shortcuts & Controls:**
+  * `RMB on catalog item`: inspect and decompile recipe into editor.
+  * `RMB on crafting slot`: clear slot.
+  * `Delete` / `Backspace`: clear selected slot or clear target item.
+  * `I`: toggle help and shortcut hints.
+  * `Mouse wheel over crafting grid`: cycle recipe variants.
+  * `Mouse wheel over catalog / tabs`: scroll pages or mod tabs.
+* **World Creator Permissions (`hasEditPermission`):**
+  Editing is restricted to the main menu, singleplayer, or integrated server hosts (`isIntegratedServerRunning() && isHost()`). On remote servers, editing widgets are disabled and a red warning message is displayed.
+* **Selectable Text Field (`SelectableTextFieldWidget`):**
+  Custom input widget supporting mouse drag selection, double-click word selection, and character index mapping via `TextFieldWidgetAccessor`.
 
-1. **Заголовок коммита (Subject Line):**
-   * Составляется исключительно на **английском языке**.
-   * Используется повелительное наклонение (Imperative mood): `Fix ...`, `Add ...`, `Refactor ...`, `Update ...`, `Optimize ...`.
-   * Запрещено ставить точку в конце заголовка.
-   * Длина заголовка предпочтительно не должна превышать 72 символа.
-2. **Разделитель:** Обязательная пустая строка между заголовком и телом коммита.
-3. **Тело коммита (Body):**
-   * Маркированный список конкретных изменений: `- <Компонент/Класс/Файл>: <описание сути изменения>`.
-   * Технически точное объяснение причин правок, архитектурных решений и исправленных краевых случаев.
+---
 
-**Пример идеального коммита:**
+## 11. Developer Guide: Adding a New Workstation
+
+To extend the mod with a new workstation type (e.g., Loom, custom machinery):
+
+1. **Register in `RecipeTypeEnum`:**
+   * Define enum constant with block translation key and tooltip translation key.
+   * Update `fromRecipeType()` and `toRecipeType()`.
+2. **Handle in `CustomRecipeDispatcher`:**
+   * Extend `matchesInput` to handle the new `RecipeInput` type.
+   * Extend `createSyntheticRecipe` to instantiate the corresponding vanilla or modded recipe class.
+3. **Register in REI Display Generator (`RecipeEditorDynamicDisplayGenerator`):**
+   * Map enum to REI `CategoryIdentifier<?>` in `getCategoryForEnum`.
+   * Construct the appropriate `Display` in `createDisplay`.
+4. **Update GUI Layout in `RecipeEditorScreen`:**
+   * Adjust slot coordinates in `renderCraftingGrid`.
+   * Configure slot harvesting logic in `saveCurrentCraft`.
+5. **Add Localization Entries:**
+   * Define translation strings in `assets/recipeeditor/lang/en_us.json` and `ru_ru.json`.
+
+---
+
+## 12. Commit Message Guidelines
+
+All repository commits must adhere to the following standards:
+
+1. **Subject Line:**
+   * Written exclusively in **English**.
+   * Written in the imperative mood: `Fix ...`, `Add ...`, `Refactor ...`, `Update ...`, `Optimize ...`.
+   * No trailing period.
+   * Length must not exceed 72 characters.
+2. **Separator:** Exactly one blank line between subject and body.
+3. **Body:**
+   * Structured bulleted list: `- <Component/File>: <explanation of change>`.
+   * Clear technical explanations of rationale, design decisions, and edge cases resolved.
+
+**Example Commit:**
 ```text
 Fix shaped recipe sliding matching, LAN permissions, and GUI freeze
 
@@ -414,23 +412,34 @@ Fix shaped recipe sliding matching, LAN permissions, and GUI freeze
 
 ---
 
-## 13. Стандарты составления README (Player-Friendly Documentation)
+## 13. Documentation Guidelines (Player-Friendly READMEs)
 
-Файлы документации для пользователей (`README.md` на русском языке и `readme.en.md` на английском языке) ориентированы исключительно на **обычных игроков**, а не на разработчиков.
+User-facing documentation files (`README.md` and `readme.en.md`) are written for **regular players**, not developers.
 
-### Основные правила написания README:
-1. **Категорический запрет на горизонтальные линии-разделители:**
-   * В файлах `README.md` и `readme.en.md` **запрещено** использовать горизонтальные линии вида `---`.
-   * Разделение блоков информации должно осуществляться только заголовками (`#`, `##`, `###`) и стандартными пустыми строками.
-2. **Никакого кода и внутреннего жаргона:**
-   * Не упоминать имена Java-классов (`CustomDynamicCraftingRecipe`, `ConcurrentHashMap`, `ServerRecipeManagerMixin`).
-   * Не упоминать низкоуровневые методы (`Ingredient.test()`, `Files.walk()`) и сетевые пакеты (`RecipeBookAddS2CPacket`).
-   * Не использовать фразы вроде «инжекция миксина в рантайме» или «декомпиляция байткода».
-3. **Понятные игровые формулировки и аналогии:**
-   * Вместо «декомпиляция рецепта из JAR» $\to$ «просмотр и загрузка готового крафта по правому клику мыши (ПКМ)».
-   * Вместо «скользящее окно 3x3» $\to$ «маленькие крафты (2x2 или 1x2, например факелы или палки) работают в любом месте сетки верстака».
-   * Вместо «инвалидация кэшей REI через MethodHandle» $\to$ «мгновенное отображение созданных рецептов в REI без зависаний».
-4. **Фокус на игровом процессе:**
-   * Описывать только то, что игрок видит, нажимает и получает в игре: перетаскивание предметов мышкой, поддержка 7 станков, защита от конфликтов крафтов, безопасная игра по локальной сети.
-5. **Двуязычная синхронность:**
-   * Любое изменение в `README.md` должно зеркально отражаться в `readme.en.md` на грамотном английском языке с сохранением структуры.
+### Core Documentation Rules:
+1. **Strict Prohibition of Horizontal Divider Rules:**
+   * **Do not use** markdown horizontal rules (`---`) in user-facing documentation.
+   * Separate sections using headers (`#`, `##`, `###`) and whitespace.
+2. **Zero Code and Technical Jargon:**
+   * Never mention Java class names (`CustomDynamicCraftingRecipe`, `ConcurrentHashMap`, `ServerRecipeManagerMixin`).
+   * Never mention internal methods or network packets (`RecipeBookAddS2CPacket`).
+   * Never use technical terminology such as "runtime mixin injection" or "bytecode decompilation".
+3. **Friendly Gameplay Analogies:**
+   * Instead of "decompiling recipe from JAR" $\to$ "right-click an item to inspect its recipe".
+   * Instead of "sliding window algorithm" $\to$ "small recipes like torches or sticks work anywhere on the crafting table".
+   * Instead of "REI cache invalidation via MethodHandle" $\to$ "recipes appear instantly in REI without game lag".
+4. **Focus on Player Experience:**
+   * Highlight gameplay features: drag-and-drop item placement, support for 7 workstations, conflict detection, and safe local multiplayer.
+5. **Bilingual Parity:**
+   * Every update to `README.md` must be mirrored in `readme.en.md` with identical structure and professional English phrasing.
+
+---
+
+## 14. Mandatory Dual-Language Localization Standard
+
+The mod enforces a strict bilingual requirement for all in-game text:
+* **Complete Synchronization:** Every newly introduced or modified UI string, button label, tooltip, warning hint, status message, or modal prompt **must always be added simultaneously** to both translation files:
+  * `src/main/resources/assets/recipeeditor/lang/en_us.json` (English)
+  * `src/main/resources/assets/recipeeditor/lang/ru_ru.json` (Russian)
+* **No Untranslated Keys:** Hardcoding raw string literals in user-facing widgets or leaving translation keys present in only one language file is strictly prohibited. Missing keys in either language are treated as critical issues.
+* **Consistent Tone:** Russian translations must maintain natural, friendly, and precise Minecraft terminology; English translations must follow official Minecraft naming conventions.
