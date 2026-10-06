@@ -86,10 +86,10 @@ Configuration file is saved at: `config/mrrecipeeditor.json`.
 
 ## Installation
 
-1. Download the latest release from [GitHub Releases](https://github.com/byMr712/RecipeEditor-MinecraftMod/releases).
+1. Download the latest release from [CurseForge](https://www.curseforge.com/minecraft/mc-mods/mr-recipe-editor) or [GitHub Releases](https://github.com/byMr712/MrRecipeEditor-1.21.4-MinecraftMod/releases).
 2. Requires:
-   - [Fabric API](https://modrinth.com/mod/fabric-api)
-   - [Mod Menu](https://modrinth.com/mod/modmenu)
+   - [Fabric API](https://www.curseforge.com/minecraft/mc-mods/fabric-api)
+   - [Mod Menu](https://www.curseforge.com/minecraft/mc-mods/modmenu)
 3. Place the `.jar` file into your `mods` folder.
 4. Launch the game.
 

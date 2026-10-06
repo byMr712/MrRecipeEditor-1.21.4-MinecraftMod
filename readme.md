@@ -86,10 +86,10 @@
 
 ## Установка
 
-1. Скачайте последнюю версию мода со страницы [GitHub Releases](https://github.com/byMr712/RecipeEditor-MinecraftMod/releases).
+1. Скачайте последнюю версию мода со страницы на [CurseForge](https://www.curseforge.com/minecraft/mc-mods/mr-recipe-editor) или [GitHub Releases](https://github.com/byMr712/MrRecipeEditor-1.21.4-MinecraftMod/releases).
 2. Требуются:
-   - [Fabric API](https://modrinth.com/mod/fabric-api)
-   - [Mod Menu](https://modrinth.com/mod/modmenu)
+   - [Fabric API](https://www.curseforge.com/minecraft/mc-mods/fabric-api)
+   - [Mod Menu](https://www.curseforge.com/minecraft/mc-mods/modmenu)
 3. Поместите `.jar` файл в папку `mods`.
 4. Запустите игру.
 
