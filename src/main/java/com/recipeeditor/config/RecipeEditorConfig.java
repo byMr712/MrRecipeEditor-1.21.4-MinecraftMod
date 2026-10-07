@@ -86,6 +86,7 @@ public class RecipeEditorConfig {
     public void initDefaults() {
         modEnabled = true;
         recipes.clear();
+        rebuildEnabledCache();
     }
 
     public void rebuildEnabledCache() {
