@@ -149,7 +149,7 @@ public class RecipeConflictScreen extends Screen {
                     if (rec != null) {
                         Item inItem = rec.getItemAt(0);
                         if (inItem != Items.AIR) {
-                            ItemStack st = new ItemStack(inItem);
+                            ItemStack st = safeItemStack(inItem);
                             context.drawItem(st, gridX + 1, slotGridY + 1);
                             if (isHovered(mouseX, mouseY, gridX, slotGridY, 18, 18, listTop, listH)) {
                                 hoveredStack = st;
@@ -165,7 +165,7 @@ public class RecipeConflictScreen extends Screen {
                         if (rec != null) {
                             Item inItem = rec.getItemAt(s);
                             if (inItem != Items.AIR) {
-                                ItemStack st = new ItemStack(inItem);
+                                ItemStack st = safeItemStack(inItem);
                                 context.drawItem(st, slotX + 1, slotGridY + 1);
                                 if (isHovered(mouseX, mouseY, slotX, slotGridY, 18, 18, listTop, listH)) {
                                     hoveredStack = st;
@@ -185,7 +185,7 @@ public class RecipeConflictScreen extends Screen {
                             if (rec != null) {
                                 Item inItem = rec.getItemAt(slotIdx);
                                 if (inItem != Items.AIR) {
-                                    ItemStack st = new ItemStack(inItem);
+                                    ItemStack st = safeItemStack(inItem);
                                     context.drawItem(st, slotX + 1, sY + 1);
                                     if (isHovered(mouseX, mouseY, slotX, sY, 18, 18, listTop, listH)) {
                                         hoveredStack = st;
@@ -205,7 +205,7 @@ public class RecipeConflictScreen extends Screen {
                 drawMiniSlot(context, resX, resY);
 
                 if (info.conflictingItem != null && info.conflictingItem != Items.AIR) {
-                    ItemStack resSt = new ItemStack(info.conflictingItem);
+                    ItemStack resSt = safeItemStack(info.conflictingItem);
                     context.drawItem(resSt, resX + 1, resY + 1);
                     context.drawStackOverlay(this.font, resSt, resX + 1, resY + 1);
                     if (isHovered(mouseX, mouseY, resX, resY, 18, 18, listTop, listH)) {
@@ -278,5 +278,15 @@ public class RecipeConflictScreen extends Screen {
         context.fill(x, y + h - 1, x + w, y + h, color);
         context.fill(x, y + 1, x + 1, y + h - 1, color);
         context.fill(x + w - 1, y + 1, x + w, y + h - 1, color);
+    }
+
+    private static ItemStack safeItemStack(Item item) {
+        if (item == null || item == Items.AIR) return ItemStack.EMPTY;
+        try {
+            if (item.builtInRegistryHolder().areComponentsBound()) {
+                return new ItemStack(item);
+            }
+        } catch (Throwable ignored) {}
+        return ItemStack.EMPTY;
     }
 }
