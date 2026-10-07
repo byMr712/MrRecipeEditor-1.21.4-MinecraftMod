@@ -168,11 +168,17 @@ public class CustomRecipeDispatcher {
     }
 
     public static Identifier getRecipeIdentifier(CustomRecipeData data) {
-        String cleanId = data.id != null ? data.id.toLowerCase().replaceAll("[^a-z0-9/._-]", "_") : "custom";
+        String baseId = data.id != null && !data.id.isEmpty() ? data.id : (data.resultItemId != null ? data.resultItemId : "custom");
+        if (baseId.contains(":")) {
+            baseId = baseId.substring(baseId.indexOf(':') + 1);
+        }
+        String cleanId = baseId.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9/._-]", "_");
         if (cleanId.startsWith("recipeeditor_")) {
             cleanId = cleanId.substring("recipeeditor_".length());
         }
-        return Identifier.of("recipeeditor", cleanId);
+        String typeSuffix = data.type != null ? data.type.name().toLowerCase(java.util.Locale.ROOT) : "craft";
+        int hash = Math.abs(data.getKey().hashCode());
+        return Identifier.of("recipeeditor", cleanId + "_" + typeSuffix + "_" + Integer.toHexString(hash));
     }
 
     @SuppressWarnings("unchecked")
@@ -332,9 +338,18 @@ public class CustomRecipeDispatcher {
 
     public static Optional<RecipeEntry<?>> getCustomRecipeEntryById(Identifier id) {
         if (id == null) return Optional.empty();
-        for (RecipeEntry<?> entry : getAllCustomRecipes()) {
+        Collection<RecipeEntry<?>> all = getAllCustomRecipes();
+        for (RecipeEntry<?> entry : all) {
             if (id.equals(entry.id())) {
                 return Optional.of(entry);
+            }
+        }
+        if ("recipeeditor".equals(id.getNamespace())) {
+            String path = id.getPath();
+            for (RecipeEntry<?> entry : all) {
+                if (entry.id().getPath().startsWith(path + "_")) {
+                    return Optional.of(entry);
+                }
             }
         }
         return Optional.empty();
