@@ -27,20 +27,22 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
 
-### 1.4. Build Instructions for Minecraft 1.21.1
-1. **Prerequisites**:
-   * JDK 21 or higher (e.g. JDK 21 LTS or JDK 25).
-   * Configured in `gradle.properties` (`org.gradle.java.home`).
-2. **Build Command**:
-   ```bash
-   ./gradlew clean build --console=plain
-   ```
-3. **Artifact Output**:
-   * Remapped production JAR: `build/libs/MrRecipeEditor-Fabric-1.21.1-byMr712-v1.3.jar`.
-4. **Version Specific Architecture**:
-   * Mappings: Yarn `1.21.1+build.3`.
-   * Dynamic crafting packet serialization uses a custom non-throwing `PacketCodec` in `RecipeEditorMod` to prevent netty `update_recipes` encoding crashes.
-   * `AbstractFurnaceBlockEntityMixin` patches vanilla furnace smelting to correctly increment multi-item outputs.
+### 1.4. Build Instructions and Version Nuances for Minecraft 1.21.1
+1. **Prerequisites & Build Command**:
+   * JDK 21 LTS (or JDK 25).
+   * `./gradlew clean build --console=plain`
+   * Remapped production JAR: `build/libs/MrRecipeEditor-Fabric-1.21.1-byMr712-v1.4.jar`.
+2. **Key Version Specific Nuances (1.21.1)**:
+   * **Yarn Mappings:** `1.21.1+build.3`.
+   * **Unified RecipeManager:** Minecraft 1.21.1 uses a unified `net.minecraft.recipe.RecipeManager` (before the split into `ServerRecipeManager` in 1.21.2+). The bytecode hook is `RecipeManagerMixin`.
+   * **Furnace Cooking Recipe Resolution (All 3 Overloads of `getFirstMatch`):**
+     Furnaces, smokers, blast furnaces, and campfires query recipes using `RecipeManager.createCheck(RecipeType)`, which produces a `MatchGetter` caching recipe IDs. The lookup calls `getFirstMatch(type, input, world, Identifier id)` and `getFirstMatch(type, input, world, RecipeEntry last)`.
+     Therefore, `RecipeManagerMixin` must inject into all three overloads (`getFirstMatch(type, input, world)`, `getFirstMatch(..., RecipeEntry)`, and `getFirstMatch(..., Identifier)`) at both `HEAD` (to return custom cooking recipes) and `RETURN` (to filter overridden recipes). Additionally, `get(RecipeType, Identifier)` and `get(Identifier)` must resolve custom synthetic entries by ID.
+   * **Guava ImmutableMap Collision Guard in `SynchronizeRecipesS2CPacket`:**
+     When recipes are synchronized to the client via `SynchronizeRecipesS2CPacket(RecipeManager.values())`, the client builds an `ImmutableMap<Identifier, RecipeEntry<?>>`. If multiple recipes for the same item (such as a crafting recipe and a smelting recipe, or multiple variants) share the exact same ID (`recipeeditor:<item>`), Guava throws `IllegalArgumentException: Multiple entries with same key`.
+     To prevent this, `CustomRecipeDispatcher.getRecipeIdentifier` computes unique composite IDs: `recipeeditor:<cleanId>_<typeSuffix>_<hash>`.
+   * **Multi-Output Smelting Stack Safety:**
+     `AbstractFurnaceBlockEntityMixin` intercepts `canAcceptRecipeOutput` and `craftRecipe` with `SingleStackRecipeInput`, ensuring correct stack size merging and output capping without losing items.
 
 ---
 
