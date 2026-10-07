@@ -3,7 +3,7 @@
   "id": "recipeeditor",
   "version": "${version}",
   "name": "[MR] Recipe Editor",
-  "description": "Universal In-Game Recipe Editor and Creator for Minecraft 1.21.4. Create, modify, and auto-detect recipes for any vanilla or modded items directly in-game with drag & drop support.",
+  "description": "Universal In-Game Recipe Editor and Creator for Minecraft 1.21.9. Create, modify, and auto-detect recipes for any vanilla or modded items directly in-game with drag & drop support.",
   "authors": [
     "Mr712"
   ],
