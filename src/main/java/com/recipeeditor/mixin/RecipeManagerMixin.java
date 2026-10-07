@@ -142,13 +142,59 @@ public class RecipeManagerMixin {
         cir.setReturnValue(recipeeditor$cachedValues);
     }
 
+    @Inject(method = "getAllMatches", at = @At("RETURN"), cancellable = true)
+    private <I extends RecipeInput, T extends Recipe<I>> void onGetAllMatches(
+            RecipeType<T> type,
+            I input,
+            World world,
+            CallbackInfoReturnable<List<RecipeEntry<T>>> cir
+    ) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
+        List<RecipeEntry<T>> original = cir.getReturnValue();
+        List<RecipeEntry<T>> combined = new ArrayList<>();
+        List<RecipeEntry<T>> custom = CustomRecipeDispatcher.getCustomMatches(type, input, world);
+        if (custom != null && !custom.isEmpty()) {
+            combined.addAll(custom);
+        }
+        if (original != null) {
+            for (RecipeEntry<T> entry : original) {
+                if (!CustomRecipeDispatcher.isRecipeOverridden(entry)) {
+                    combined.add(entry);
+                }
+            }
+        }
+        cir.setReturnValue(combined);
+    }
+
+    @Inject(method = "listAllOfType", at = @At("RETURN"), cancellable = true)
+    private <I extends RecipeInput, T extends Recipe<I>> void onListAllOfType(
+            RecipeType<T> type,
+            CallbackInfoReturnable<List<RecipeEntry<T>>> cir
+    ) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
+        List<RecipeEntry<T>> original = cir.getReturnValue();
+        List<RecipeEntry<T>> combined = new ArrayList<>();
+        List<RecipeEntry<T>> custom = CustomRecipeDispatcher.getAllCustomRecipesOfType(type);
+        if (custom != null && !custom.isEmpty()) {
+            combined.addAll(custom);
+        }
+        if (original != null) {
+            for (RecipeEntry<T> entry : original) {
+                if (!CustomRecipeDispatcher.isRecipeOverridden(entry)) {
+                    combined.add(entry);
+                }
+            }
+        }
+        cir.setReturnValue(combined);
+    }
+
     @Inject(method = "get(Lnet/minecraft/util/Identifier;)Ljava/util/Optional;", at = @At("RETURN"), cancellable = true)
     private void onGet(Identifier id, CallbackInfoReturnable<Optional<RecipeEntry<?>>> cir) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         Optional<RecipeEntry<?>> original = cir.getReturnValue();
         if (original != null && original.isPresent()) {
             if (CustomRecipeDispatcher.isRecipeOverridden(original.get())) {
-                Optional<RecipeEntry<?>> custom = CustomRecipeDispatcher.getCustomRecipeEntryById(id);
+                Optional<RecipeEntry<?>> custom = CustomRecipeDispatcher.getCustomRecipeForOverridden(id);
                 cir.setReturnValue(custom);
                 return;
             }

@@ -1,30 +1,21 @@
 package com.recipeeditor.mixin;
 
 import com.recipeeditor.recipe.CustomRecipeDispatcher;
-import net.minecraft.recipe.RecipeEntry;
-import net.minecraft.recipe.book.RecipeBook;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.network.ServerRecipeBook;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(RecipeBook.class)
+@Mixin(ServerRecipeBook.class)
 public class ServerRecipeBookMixin {
 
-    @Inject(method = "contains(Lnet/minecraft/recipe/RecipeEntry;)Z", at = @At("HEAD"), cancellable = true)
-    private void onContains(RecipeEntry<?> entry, CallbackInfoReturnable<Boolean> cir) {
+    @Inject(method = "sendInitRecipesPacket", at = @At("RETURN"))
+    private void onSendInitRecipesPacket(ServerPlayerEntity player, CallbackInfo ci) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
             return;
         }
-        if (entry != null && entry.id() != null) {
-            if ("recipeeditor".equals(entry.id().getNamespace())) {
-                cir.setReturnValue(true);
-                return;
-            }
-            if (CustomRecipeDispatcher.isRecipeOverridden(entry)) {
-                cir.setReturnValue(false);
-                return;
-            }
-        }
+        CustomRecipeDispatcher.sendCustomRecipeBookEntries(player);
     }
 }
