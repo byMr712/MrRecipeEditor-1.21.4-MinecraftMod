@@ -2,8 +2,9 @@ package com.recipeeditor.inspector;
 
 import com.recipeeditor.config.CustomRecipeData;
 import com.recipeeditor.config.RecipeTypeEnum;
-import net.minecraft.item.Item;
-import net.minecraft.text.Text;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 
 public class RecipeConflictInfo {
     public final CustomRecipeData attemptedRecipe;
@@ -27,8 +28,8 @@ public class RecipeConflictInfo {
         this.conflictingRecipeKey = conflictingRecipeKey;
     }
 
-    public Text getConflictingItemName() {
-        if (conflictingItem == null) return Text.literal("Unknown");
-        return conflictingItem.getName();
+    public Component getConflictingItemName() {
+        if (conflictingItem == null) return Component.literal("Unknown");
+        return new ItemStack(conflictingItem).getHoverName();
     }
 }

@@ -1,26 +1,26 @@
 package com.recipeeditor.inspector;
 
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
 
 public enum RecipeStatus {
-    UNCRAFTABLE("recipeeditor.gui.status_uncraftable", Formatting.RED),
-    VANILLA_OR_MODDED("recipeeditor.gui.status_vanilla", Formatting.GOLD),
-    CUSTOM("recipeeditor.gui.status_custom", Formatting.GREEN);
+    UNCRAFTABLE("recipeeditor.gui.status_uncraftable", ChatFormatting.RED),
+    VANILLA_OR_MODDED("recipeeditor.gui.status_vanilla", ChatFormatting.GOLD),
+    CUSTOM("recipeeditor.gui.status_custom", ChatFormatting.GREEN);
 
     private final String translationKey;
-    private final Formatting formatting;
+    private final ChatFormatting formatting;
 
-    RecipeStatus(String translationKey, Formatting formatting) {
+    RecipeStatus(String translationKey, ChatFormatting formatting) {
         this.translationKey = translationKey;
         this.formatting = formatting;
     }
 
-    public Text getDisplayText() {
-        return Text.translatable(translationKey).formatted(formatting, Formatting.BOLD);
+    public Component getDisplayText() {
+        return Component.translatable(translationKey).withStyle(formatting, ChatFormatting.BOLD);
     }
 
-    public Formatting getFormatting() {
+    public ChatFormatting getFormatting() {
         return formatting;
     }
 }

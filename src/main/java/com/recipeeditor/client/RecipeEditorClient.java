@@ -26,7 +26,7 @@ public class RecipeEditorClient implements ClientModInitializer {
             RecipeInspector.startLangIndexViaRMAsync();
             java.util.concurrent.CompletableFuture.runAsync(() -> {
                 try {
-                    RecipeInspector.initializeCache(client.world);
+                    RecipeInspector.initializeCache(client.level);
                 } catch (Throwable ignored) {}
             });
         });

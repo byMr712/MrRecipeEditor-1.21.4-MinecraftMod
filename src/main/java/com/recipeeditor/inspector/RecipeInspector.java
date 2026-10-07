@@ -13,14 +13,23 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.recipe.*;
-import net.minecraft.recipe.display.*;
-import net.minecraft.registry.Registries;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
+import net.minecraft.client.resources.language.ClientLanguage;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.locale.Language;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.util.Identifier;
-import net.minecraft.world.World;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.*;
+import net.minecraft.world.item.crafting.display.*;
+import net.minecraft.world.level.Level;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -33,7 +42,7 @@ import java.util.stream.Stream;
 
 public class RecipeInspector {
     private static final Gson GSON = new Gson();
-    private static final Map<Item, List<RecipeEntry<?>>> RECIPE_ENTRIES = new ConcurrentHashMap<>();
+    private static final Map<Item, List<RecipeHolder<?>>> RECIPE_ENTRIES = new ConcurrentHashMap<>();
     private static final Map<Item, List<RecipeDisplay>> RECIPE_DISPLAYS = new ConcurrentHashMap<>();
     private static final Set<Item> KNOWN_RECIPE_ITEMS = ConcurrentHashMap.newKeySet();
     private static final Map<Item, List<CustomRecipeData>> DECOMPILED_VARIANTS = new ConcurrentHashMap<>();
@@ -114,7 +123,7 @@ public class RecipeInspector {
         langIndexedViaRM = false;
     }
 
-    public static void initializeCache(World world) {
+    public static void initializeCache(Level world) {
         RECIPE_ENTRIES.clear();
         RECIPE_DISPLAYS.clear();
         CACHED_ITEM_VARIANTS.clear();
@@ -124,11 +133,11 @@ public class RecipeInspector {
             startJarScanAsync();
         }
 
-        // 2. Scan active Server Recipe Manager (if ServerWorld available)
-        if (world instanceof net.minecraft.server.world.ServerWorld sw) {
+        // 2. Scan active Server Recipe Manager (if ServerLevel available)
+        if (world instanceof ServerLevel sw) {
             MinecraftServer server = sw.getServer();
             if (server != null && server.getRecipeManager() != null) {
-                for (RecipeEntry<?> entry : server.getRecipeManager().values()) {
+                for (RecipeHolder<?> entry : server.getRecipeManager().getRecipes()) {
                     indexRecipeEntry(entry);
                 }
                 finishCacheInitialization();
@@ -149,7 +158,7 @@ public class RecipeInspector {
 
     private static void finishCacheInitialization() {
         if (SYNTHETIC_ITEMS.isEmpty()) {
-            for (Item item : Registries.ITEM) {
+            for (Item item : BuiltInRegistries.ITEM) {
                 if (!getSyntheticDynamicRecipes(item).isEmpty()) {
                     SYNTHETIC_ITEMS.add(item);
                 }
@@ -200,7 +209,7 @@ public class RecipeInspector {
      */
     private static void parseLangJson(Path path) {
         try (InputStream is = Files.newInputStream(path)) {
-            net.minecraft.util.Language.load(is, (key, value) -> {
+            Language.loadFromJson(is, (key, value) -> {
                 // Only index item.* and block.* keys that correspond to registered items
                 if (!key.startsWith("item.") && !key.startsWith("block.")) return;
                 ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
@@ -238,13 +247,13 @@ public class RecipeInspector {
 
     public static String getItemNameLower(Item item) {
         if (item == null) return "";
-        return ITEM_NAME_LOWER_CACHE.computeIfAbsent(item, it -> it.getName().getString().toLowerCase(Locale.ROOT));
+        return ITEM_NAME_LOWER_CACHE.computeIfAbsent(item, it -> it.getName(new ItemStack(it)).getString().toLowerCase(Locale.ROOT));
     }
 
     public static String getItemIdLower(Item item) {
         if (item == null) return "";
         return ITEM_ID_LOWER_CACHE.computeIfAbsent(item, it -> {
-            Identifier id = Registries.ITEM.getId(it);
+            Identifier id = BuiltInRegistries.ITEM.getKey(it);
             return id != null ? id.toString().toLowerCase(Locale.ROOT) : "";
         });
     }
@@ -254,82 +263,91 @@ public class RecipeInspector {
         ITEM_ID_LOWER_CACHE.clear();
     }
 
-    /**
-     * Returns true if the query matches any multilingual name for the given item.
-     */
-    public static boolean matchesMultilingual(Item item, String query) {
+    public static boolean matchesSearch(Item item, String filter) {
+        if (item == null || filter == null || filter.isEmpty()) return true;
+        String query = filter.toLowerCase(Locale.ROOT).trim();
         if (query.isEmpty()) return true;
-        String flipped = flipKeyboardLayout(query).toLowerCase(Locale.ROOT);
-        return matchesMultilingual(item, query, flipped, !flipped.equals(query));
+
+        // 1. Direct match in client language item name
+        String name = getItemNameLower(item);
+        if (name.contains(query)) return true;
+
+        // 2. Direct match in registry ID (e.g. "minecraft:stick")
+        String id = getItemIdLower(item);
+        if (id.contains(query)) return true;
+
+        // 3. Multilingual search (e.g. searching "stick" on RU client, or "палка" on EN client)
+        String transKey = item.getDescriptionId();
+        Set<String> langNames = ITEM_LANG_NAMES.get(transKey);
+        if (langNames != null) {
+            for (String langName : langNames) {
+                if (langName.contains(query)) return true;
+            }
+        }
+
+        // 4. Flipped keyboard layout search (e.g. typed "njntv" instead of "тотем", or "ghjrev" instead of "проку")
+        String flipped = flipKeyboardLayout(query);
+        if (!flipped.isEmpty() && !flipped.equals(query)) {
+            if (name.contains(flipped) || id.contains(flipped)) return true;
+            if (langNames != null) {
+                for (String langName : langNames) {
+                    if (langName.contains(flipped)) return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public static boolean matchesMultilingual(Item item, String query, String flippedQuery, boolean hasFlipped) {
-        if (query.isEmpty()) return true;
-        Set<String> names = ITEM_LANG_NAMES.get(item.getTranslationKey());
-        if (names == null || names.isEmpty()) return false;
-        for (String name : names) {
-            if (name.contains(query)) return true;
-            if (hasFlipped && name.contains(flippedQuery)) return true;
+        if (item == null) return false;
+        String transKey = item.getDescriptionId();
+        Set<String> langNames = ITEM_LANG_NAMES.get(transKey);
+        if (langNames != null) {
+            for (String langName : langNames) {
+                if (langName.contains(query)) return true;
+                if (hasFlipped && langName.contains(flippedQuery)) return true;
+            }
         }
         return false;
     }
 
-    /**
-     * Indexes item names from the currently active Minecraft language ({@link net.minecraft.util.Language#getInstance()}).
-     * Called when the editor screen opens to make cross-language search work immediately.
-     */
     public static void indexCurrentLanguage() {
-        net.minecraft.util.Language lang = net.minecraft.util.Language.getInstance();
-        if (lang == null) return;
-        for (Item item : Registries.ITEM) {
-            if (item == Items.AIR) continue;
-            String key = item.getTranslationKey();
-            String name = lang.get(key, null);
-            if (name != null && !name.equals(key)) {
-                ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
-                        .add(name.toLowerCase(Locale.ROOT));
+        Language lang = Language.getInstance();
+        if (lang != null) {
+            for (Item item : BuiltInRegistries.ITEM) {
+                if (item == Items.AIR) continue;
+                String key = item.getDescriptionId();
+                if (lang.has(key)) {
+                    String val = lang.getOrDefault(key);
+                    if (val != null && !val.equals(key)) {
+                        ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
+                                .add(val.toLowerCase(Locale.ROOT));
+                    }
+                }
             }
-        }
-    }
-
-    /**
-     * Scans launcher assets folder on disk (ATLauncher, Prism, Modrinth, CurseForge, Vanilla).
-     * Parses asset indexes (e.g. 19.json) to locate hash objects for ru_ru.json, uk_ua.json, etc.
-     * Guarantees vanilla translations load even when Minecraft is set to English!
-     */
-    public static void indexDiskAssetLanguages() {
-        if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
-            ClientLangHelper.indexDiskAssetLanguages();
-        }
-    }
-
-    /**
-     * Loads translations via Minecraft TranslationStorage when client ResourceManager is active.
-     */
-    public static void indexResourceManagerLanguages() {
-        if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
-            ClientLangHelper.indexResourceManagerLanguages();
         }
     }
 
     @Environment(EnvType.CLIENT)
     private static class ClientLangHelper {
-        static boolean initFromClient(World world) {
-            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        static boolean initFromClient(Level world) {
+            Minecraft client = Minecraft.getInstance();
             if (client == null) return false;
-            MinecraftServer server = client.getServer();
+
+            MinecraftServer server = client.getSingleplayerServer();
             if (server != null && server.getRecipeManager() != null) {
-                for (RecipeEntry<?> entry : server.getRecipeManager().values()) {
+                for (RecipeHolder<?> entry : server.getRecipeManager().getRecipes()) {
                     indexRecipeEntry(entry);
                 }
                 return true;
             }
 
             if (client.player != null) {
-                net.minecraft.client.recipebook.ClientRecipeBook recipeBook = client.player.getRecipeBook();
+                net.minecraft.client.ClientRecipeBook recipeBook = client.player.getRecipeBook();
                 if (recipeBook != null) {
-                    for (net.minecraft.client.gui.screen.recipebook.RecipeResultCollection collection : recipeBook.getOrderedResults()) {
-                        for (RecipeDisplayEntry entry : collection.getAllRecipes()) {
+                    for (RecipeCollection collection : recipeBook.getCollections()) {
+                        for (RecipeDisplayEntry entry : collection.getRecipes()) {
                             if (entry.id().toString().contains("recipeeditor")) {
                                 continue;
                             }
@@ -352,10 +370,10 @@ public class RecipeInspector {
 
         static void indexDiskAssetLanguages() {
             try {
-                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                Minecraft client = Minecraft.getInstance();
                 List<Path> candidateDirs = new ArrayList<>();
-                if (client != null && client.runDirectory != null) {
-                    Path run = client.runDirectory.toPath().toAbsolutePath();
+                if (client != null && client.gameDirectory != null) {
+                    Path run = client.gameDirectory.toPath().toAbsolutePath();
                     candidateDirs.add(run.resolve("assets"));
                     if (run.getParent() != null) {
                         candidateDirs.add(run.getParent().resolve("assets"));
@@ -393,17 +411,16 @@ public class RecipeInspector {
         }
 
         static void indexResourceManagerLanguages() {
-            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+            Minecraft client = Minecraft.getInstance();
             if (client == null) return;
-            net.minecraft.resource.ResourceManager rm = client.getResourceManager();
+            ResourceManager rm = client.getResourceManager();
             if (rm == null) return;
             try {
-                net.minecraft.client.resource.language.TranslationStorage storage =
-                        net.minecraft.client.resource.language.TranslationStorage.load(rm, List.of("ru_ru"), false);
-                for (Item item : Registries.ITEM) {
+                ClientLanguage storage = ClientLanguage.loadFrom(rm, List.of("ru_ru"), false);
+                for (Item item : BuiltInRegistries.ITEM) {
                     if (item == Items.AIR) continue;
-                    String key = item.getTranslationKey();
-                    String name = storage.get(key, null);
+                    String key = item.getDescriptionId();
+                    String name = storage.getOrDefault(key, null);
                     if (name != null && !name.equals(key)) {
                         ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
                                 .add(name.toLowerCase(Locale.ROOT));
@@ -431,7 +448,7 @@ public class RecipeInspector {
                                 Path objPath = objectsDir.resolve(hash.substring(0, 2)).resolve(hash);
                                 if (Files.isRegularFile(objPath)) {
                                     try (InputStream is = Files.newInputStream(objPath)) {
-                                        net.minecraft.util.Language.load(is, (key, value) -> {
+                                        Language.loadFromJson(is, (key, value) -> {
                                             if (!key.startsWith("item.") && !key.startsWith("block.")) return;
                                             ITEM_LANG_NAMES.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet())
                                                     .add(value.toLowerCase(Locale.ROOT));
@@ -450,9 +467,7 @@ public class RecipeInspector {
         }
     }
 
-
     private static void parseModRecipeJson(Path path) {
-
         try (Reader reader = Files.newBufferedReader(path)) {
             JsonObject obj = GSON.fromJson(reader, JsonObject.class);
 
@@ -481,20 +496,20 @@ public class RecipeInspector {
                 JsonElement resElem = obj.get("result");
                 if (resElem.isJsonPrimitive()) {
                     Identifier id = Identifier.tryParse(resElem.getAsString());
-                    if (id != null && Registries.ITEM.containsId(id)) {
-                        resultItem = Registries.ITEM.get(id);
+                    if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
+                        resultItem = BuiltInRegistries.ITEM.getValue(id);
                     }
                 } else if (resElem.isJsonObject()) {
                     JsonObject resObj = resElem.getAsJsonObject();
                     if (resObj.has("id")) {
                         Identifier id = Identifier.tryParse(resObj.get("id").getAsString());
-                        if (id != null && Registries.ITEM.containsId(id)) {
-                            resultItem = Registries.ITEM.get(id);
+                        if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
+                            resultItem = BuiltInRegistries.ITEM.getValue(id);
                         }
                     } else if (resObj.has("item")) {
                         Identifier id = Identifier.tryParse(resObj.get("item").getAsString());
-                        if (id != null && Registries.ITEM.containsId(id)) {
-                            resultItem = Registries.ITEM.get(id);
+                        if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
+                            resultItem = BuiltInRegistries.ITEM.getValue(id);
                         }
                     }
                     if (resObj.has("count")) {
@@ -536,7 +551,7 @@ public class RecipeInspector {
     }
 
     private static CustomRecipeData buildDecompiledRecipeFromJson(JsonObject obj, Item resultItem, int count, String recipeIdStr) {
-        Identifier resId = Registries.ITEM.getId(resultItem);
+        Identifier resId = BuiltInRegistries.ITEM.getKey(resultItem);
         CustomRecipeData data = new CustomRecipeData(
                 recipeIdStr != null ? recipeIdStr : (resId != null ? resId.getPath() : "recipe"),
                 resId != null ? resId.toString() : "minecraft:air",
@@ -637,13 +652,13 @@ public class RecipeInspector {
         return "minecraft:air";
     }
 
-    private static void indexRecipeEntry(RecipeEntry<?> entry) {
+    private static void indexRecipeEntry(RecipeHolder<?> entry) {
         if (entry == null || entry.id() == null) return;
-        if (entry.id().getValue().getNamespace().equals("recipeeditor")) return;
+        if (entry.id().identifier().getNamespace().equals("recipeeditor")) return;
         Recipe<?> recipe = entry.value();
         if (recipe != null && recipe.getClass().getName().startsWith("com.recipeeditor.")) return;
         try {
-            List<RecipeDisplay> displays = recipe.getDisplays();
+            List<RecipeDisplay> displays = recipe.display();
             for (RecipeDisplay display : displays) {
                 Set<Item> resultItems = getAllItemsFromSlotDisplay(display.result());
                 for (Item resultItem : resultItems) {
@@ -708,22 +723,22 @@ public class RecipeInspector {
         if (display == null) return;
         if (display instanceof SlotDisplay.ItemSlotDisplay itemDisplay) {
             items.add(itemDisplay.item().value());
-        } else if (display instanceof SlotDisplay.StackSlotDisplay stackDisplay) {
-            items.add(stackDisplay.stack().getItem());
-        } else if (display instanceof SlotDisplay.WithRemainderSlotDisplay withRemainder) {
+        } else if (display instanceof SlotDisplay.ItemStackSlotDisplay stackDisplay) {
+            items.add(stackDisplay.stack().item().value());
+        } else if (display instanceof SlotDisplay.WithRemainder withRemainder) {
             collectItemsFromSlotDisplay(withRemainder.input(), items);
         } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
-            for (var entry : Registries.ITEM.iterateEntries(tagDisplay.tag())) {
+            for (var entry : BuiltInRegistries.ITEM.getTagOrEmpty(tagDisplay.tag())) {
                 items.add(entry.value());
             }
-        } else if (display instanceof SlotDisplay.CompositeSlotDisplay composite) {
+        } else if (display instanceof SlotDisplay.Composite composite) {
             for (SlotDisplay child : composite.contents()) {
                 collectItemsFromSlotDisplay(child, items);
             }
         }
     }
 
-    public static RecipeStatus getStatus(Item item, World world, RecipeEditorConfig config) {
+    public static RecipeStatus getStatus(Item item, Level world, RecipeEditorConfig config) {
         if (item == null || item == Items.AIR) {
             return RecipeStatus.UNCRAFTABLE;
         }
@@ -743,7 +758,7 @@ public class RecipeInspector {
         return RecipeStatus.UNCRAFTABLE;
     }
 
-    public static boolean hasExistingRecipe(Item item, World world) {
+    public static boolean hasExistingRecipe(Item item, Level world) {
         if (item == null || item == Items.AIR) return false;
         if (!cacheInitialized) {
             initializeCache(world);
@@ -751,7 +766,7 @@ public class RecipeInspector {
         return KNOWN_RECIPE_ITEMS.contains(item) || SYNTHETIC_ITEMS.contains(item);
     }
 
-    public static List<CustomRecipeData> getAllRecipeVariants(Item targetItem, World world) {
+    public static List<CustomRecipeData> getAllRecipeVariants(Item targetItem, Level world) {
         if (targetItem == null || targetItem == Items.AIR) return Collections.emptyList();
         if (!cacheInitialized) {
             initializeCache(world);
@@ -776,9 +791,9 @@ public class RecipeInspector {
         };
 
         // 1. From Server Recipe Entries
-        List<RecipeEntry<?>> entries = RECIPE_ENTRIES.get(targetItem);
+        List<RecipeHolder<?>> entries = RECIPE_ENTRIES.get(targetItem);
         if (entries != null) {
-            for (RecipeEntry<?> entry : entries) {
+            for (RecipeHolder<?> entry : entries) {
                 adder.accept(decompileFromEntry(entry, targetItem));
             }
         }
@@ -810,7 +825,7 @@ public class RecipeInspector {
         return unmodifiable;
     }
 
-    public static List<CustomRecipeData> getAllRecipeVariantsOfType(Item targetItem, RecipeTypeEnum type, World world) {
+    public static List<CustomRecipeData> getAllRecipeVariantsOfType(Item targetItem, RecipeTypeEnum type, Level world) {
         if (targetItem == null || targetItem == Items.AIR || type == null) return Collections.emptyList();
         List<CustomRecipeData> all = getAllRecipeVariants(targetItem, world);
         if (all.isEmpty()) return Collections.emptyList();
@@ -823,7 +838,7 @@ public class RecipeInspector {
         return filtered;
     }
 
-    public static boolean isCookingInputOverridden(RecipeTypeEnum typeEnum, Item inputItem, World world) {
+    public static boolean isCookingInputOverridden(RecipeTypeEnum typeEnum, Item inputItem, Level world) {
         if (inputItem == null || inputItem == Items.AIR || typeEnum == null) return false;
         if (!cacheInitialized) {
             initializeCache(world);
@@ -894,7 +909,7 @@ public class RecipeInspector {
                 for (CustomRecipeData parent : currentLevel) {
                     for (Item item : tagItems) {
                         if (nextLevel.size() >= 32) break;
-                        Identifier itemId = Registries.ITEM.getId(item);
+                        Identifier itemId = BuiltInRegistries.ITEM.getKey(item);
                         if (itemId != null) {
                             CustomRecipeData variant = parent.copy();
                             for (int i = 0; i < 9; i++) {
@@ -917,7 +932,7 @@ public class RecipeInspector {
             for (int i = 0; i < 9; i++) {
                 if (r.patternSlots[i] != null && r.patternSlots[i].startsWith("#")) {
                     Item res = TagResolver.resolveTag(r.patternSlots[i]);
-                    Identifier id = Registries.ITEM.getId(res);
+                    Identifier id = BuiltInRegistries.ITEM.getKey(res);
                     r.setSlotString(i, id != null ? id.toString() : "minecraft:air");
                 }
             }
@@ -928,7 +943,7 @@ public class RecipeInspector {
 
     public static List<CustomRecipeData> getSyntheticDynamicRecipes(Item targetItem) {
         if (targetItem == null || targetItem == Items.AIR) return Collections.emptyList();
-        Identifier id = Registries.ITEM.getId(targetItem);
+        Identifier id = BuiltInRegistries.ITEM.getKey(targetItem);
         if (id == null) return Collections.emptyList();
 
         String path = id.getPath();
@@ -937,8 +952,8 @@ public class RecipeInspector {
         // 1. Netherite Smithing Upgrades (Helmet, Chestplate, Leggings, Boots, Sword, Shovel, Pickaxe, Axe, Hoe)
         if (path.startsWith("netherite_") && id.getNamespace().equals("minecraft")) {
             String baseEquip = path.replace("netherite_", "diamond_");
-            Identifier baseId = Identifier.of("minecraft", baseEquip);
-            if (Registries.ITEM.containsId(baseId)) {
+            Identifier baseId = Identifier.fromNamespaceAndPath("minecraft", baseEquip);
+            if (BuiltInRegistries.ITEM.containsKey(baseId)) {
                 CustomRecipeData smithing = new CustomRecipeData(path, id.toString(), 1, RecipeTypeEnum.SMITHING);
                 smithing.setSlotString(0, "minecraft:netherite_upgrade_smithing_template");
                 smithing.setSlotString(1, "minecraft:" + baseEquip);
@@ -1130,7 +1145,7 @@ public class RecipeInspector {
         return d.getKey();
     }
 
-    public static CustomRecipeData decompileRecipe(Item targetItem, World world) {
+    public static CustomRecipeData decompileRecipe(Item targetItem, Level world) {
         List<CustomRecipeData> variants = getAllRecipeVariants(targetItem, world);
         if (!variants.isEmpty()) {
             return variants.get(0).copy();
@@ -1138,12 +1153,12 @@ public class RecipeInspector {
         return null;
     }
 
-    public static CustomRecipeData decompileFromEntry(RecipeEntry<?> entry, Item targetItem) {
+    public static CustomRecipeData decompileFromEntry(RecipeHolder<?> entry, Item targetItem) {
         if (entry == null || targetItem == null || entry.id() == null) return null;
-        if (entry.id().getValue().getNamespace().equals("recipeeditor")) return null;
+        if (entry.id().identifier().getNamespace().equals("recipeeditor")) return null;
         if (entry.value() != null && entry.value().getClass().getName().startsWith("com.recipeeditor.")) return null;
-        Identifier resId = Registries.ITEM.getId(targetItem);
-        String recipeIdStr = entry.id().getValue().toString();
+        Identifier resId = BuiltInRegistries.ITEM.getKey(targetItem);
+        String recipeIdStr = entry.id().identifier().toString();
         CustomRecipeData data = new CustomRecipeData(
                 recipeIdStr,
                 resId != null ? resId.toString() : "minecraft:air",
@@ -1177,7 +1192,7 @@ public class RecipeInspector {
         } else if (recipe instanceof ShapelessRecipe) {
             data.type = RecipeTypeEnum.SHAPED_CRAFTING;
             data.isShapeless = true;
-            List<RecipeDisplay> displays = recipe.getDisplays();
+            List<RecipeDisplay> displays = recipe.display();
             if (!displays.isEmpty() && displays.get(0) instanceof ShapelessCraftingRecipeDisplay disp) {
                 List<SlotDisplay> ings = disp.ingredients();
                 for (int i = 0; i < Math.min(9, ings.size()); i++) {
@@ -1187,35 +1202,35 @@ public class RecipeInspector {
             result = data;
         } else if (recipe instanceof SmithingTransformRecipe smithing) {
             data.type = RecipeTypeEnum.SMITHING;
-            smithing.template().ifPresent(ing -> data.setSlotString(0, getSlotStringFromIngredient(ing)));
-            Ingredient baseIng = smithing.base();
+            smithing.templateIngredient().ifPresent(ing -> data.setSlotString(0, getSlotStringFromIngredient(ing)));
+            Ingredient baseIng = smithing.baseIngredient();
             if (baseIng != null && !baseIng.isEmpty()) data.setSlotString(1, getSlotStringFromIngredient(baseIng));
-            smithing.addition().ifPresent(ing -> data.setSlotString(2, getSlotStringFromIngredient(ing)));
+            smithing.additionIngredient().ifPresent(ing -> data.setSlotString(2, getSlotStringFromIngredient(ing)));
             result = data;
         } else if (recipe instanceof BlastingRecipe blasting) {
             data.type = RecipeTypeEnum.BLASTING;
-            data.setSlotString(0, getSlotStringFromIngredient(blasting.ingredient()));
+            data.setSlotString(0, getSlotStringFromIngredient(blasting.input()));
             result = data;
         } else if (recipe instanceof SmokingRecipe smoking) {
             data.type = RecipeTypeEnum.SMOKING;
-            data.setSlotString(0, getSlotStringFromIngredient(smoking.ingredient()));
+            data.setSlotString(0, getSlotStringFromIngredient(smoking.input()));
             result = data;
         } else if (recipe instanceof CampfireCookingRecipe campfire) {
             data.type = RecipeTypeEnum.CAMPFIRE_COOKING;
-            data.setSlotString(0, getSlotStringFromIngredient(campfire.ingredient()));
+            data.setSlotString(0, getSlotStringFromIngredient(campfire.input()));
             result = data;
         } else if (recipe instanceof SmeltingRecipe smelting) {
             data.type = RecipeTypeEnum.SMELTING;
-            data.setSlotString(0, getSlotStringFromIngredient(smelting.ingredient()));
+            data.setSlotString(0, getSlotStringFromIngredient(smelting.input()));
             result = data;
-        } else if (recipe instanceof StonecuttingRecipe stonecutting) {
+        } else if (recipe instanceof StonecutterRecipe stonecutting) {
             data.type = RecipeTypeEnum.STONECUTTING;
-            data.setSlotString(0, getSlotStringFromIngredient(stonecutting.ingredient()));
+            data.setSlotString(0, getSlotStringFromIngredient(stonecutting.input()));
             result = data;
-        } else if (recipe instanceof SingleStackRecipe singleStack) {
+        } else if (recipe instanceof SingleItemRecipe singleStack) {
             RecipeTypeEnum mappedType = CustomRecipeDispatcher.getEnumForType(singleStack.getType());
             data.type = mappedType != null ? mappedType : RecipeTypeEnum.STONECUTTING;
-            data.setSlotString(0, getSlotStringFromIngredient(singleStack.ingredient()));
+            data.setSlotString(0, getSlotStringFromIngredient(singleStack.input()));
             result = data;
         }
 
@@ -1228,7 +1243,7 @@ public class RecipeInspector {
 
     public static CustomRecipeData decompileFromDisplay(RecipeDisplay display, Item targetItem) {
         if (display == null || targetItem == null) return null;
-        Identifier resId = Registries.ITEM.getId(targetItem);
+        Identifier resId = BuiltInRegistries.ITEM.getKey(targetItem);
         CustomRecipeData data = new CustomRecipeData(
                 resId != null ? resId.getPath() : "recipe",
                 resId != null ? resId.toString() : "minecraft:air",
@@ -1288,8 +1303,8 @@ public class RecipeInspector {
     }
 
     public static String getSlotStringFromIngredient(Ingredient ing) {
-        if (ing == null || ing.isEmpty()) return "minecraft:air";
-        SlotDisplay display = ing.toDisplay();
+        if (ing == null) return "minecraft:air";
+        SlotDisplay display = ing.display();
         return getSlotStringFromSlotDisplay(display);
     }
 
@@ -1297,13 +1312,13 @@ public class RecipeInspector {
         if (display == null) return Items.AIR;
         if (display instanceof SlotDisplay.ItemSlotDisplay itemDisplay) {
             return itemDisplay.item().value();
-        } else if (display instanceof SlotDisplay.StackSlotDisplay stackDisplay) {
-            return stackDisplay.stack().getItem();
-        } else if (display instanceof SlotDisplay.WithRemainderSlotDisplay withRemainder) {
+        } else if (display instanceof SlotDisplay.ItemStackSlotDisplay stackDisplay) {
+            return stackDisplay.stack().item().value();
+        } else if (display instanceof SlotDisplay.WithRemainder withRemainder) {
             return getItemFromSlotDisplay(withRemainder.input());
         } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
-            return TagResolver.resolveTag(tagDisplay.tag().id().toString());
-        } else if (display instanceof SlotDisplay.CompositeSlotDisplay composite) {
+            return TagResolver.resolveTag(tagDisplay.tag().location().toString());
+        } else if (display instanceof SlotDisplay.Composite composite) {
             for (SlotDisplay child : composite.contents()) {
                 Item item = getItemFromSlotDisplay(child);
                 if (item != Items.AIR) return item;
@@ -1315,16 +1330,16 @@ public class RecipeInspector {
     public static String getSlotStringFromSlotDisplay(SlotDisplay display) {
         if (display == null) return "minecraft:air";
         if (display instanceof SlotDisplay.ItemSlotDisplay itemDisplay) {
-            Identifier id = Registries.ITEM.getId(itemDisplay.item().value());
+            Identifier id = BuiltInRegistries.ITEM.getKey(itemDisplay.item().value());
             return id != null ? id.toString() : "minecraft:air";
-        } else if (display instanceof SlotDisplay.StackSlotDisplay stackDisplay) {
-            Identifier id = Registries.ITEM.getId(stackDisplay.stack().getItem());
+        } else if (display instanceof SlotDisplay.ItemStackSlotDisplay stackDisplay) {
+            Identifier id = BuiltInRegistries.ITEM.getKey(stackDisplay.stack().item().value());
             return id != null ? id.toString() : "minecraft:air";
-        } else if (display instanceof SlotDisplay.WithRemainderSlotDisplay withRemainder) {
+        } else if (display instanceof SlotDisplay.WithRemainder withRemainder) {
             return getSlotStringFromSlotDisplay(withRemainder.input());
         } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
-            return "#" + tagDisplay.tag().id().toString();
-        } else if (display instanceof SlotDisplay.CompositeSlotDisplay composite) {
+            return "#" + tagDisplay.tag().location().toString();
+        } else if (display instanceof SlotDisplay.Composite composite) {
             for (SlotDisplay child : composite.contents()) {
                 String str = getSlotStringFromSlotDisplay(child);
                 if (!str.equals("minecraft:air")) return str;
@@ -1333,7 +1348,7 @@ public class RecipeInspector {
         return "minecraft:air";
     }
 
-    public static List<RecipeConflictInfo> findConflicts(CustomRecipeData candidate, Item currentTargetItem, World world, RecipeEditorConfig config) {
+    public static List<RecipeConflictInfo> findConflicts(CustomRecipeData candidate, Item currentTargetItem, Level world, RecipeEditorConfig config) {
         if (candidate == null || currentTargetItem == null || currentTargetItem == Items.AIR) {
             return Collections.emptyList();
         }
@@ -1360,7 +1375,7 @@ public class RecipeInspector {
                 if (savedItem != Items.AIR && savedItem != currentTargetItem) {
                     if (isPatternMatching(saved, candidate)) {
                         if (seenConflictingItems.add(savedItem)) {
-                            String source = net.minecraft.text.Text.translatable("recipeeditor.gui.conflict_source_custom").getString();
+                            String source = Component.translatable("recipeeditor.gui.conflict_source_custom").getString();
                             conflicts.add(new RecipeConflictInfo(candidate, savedItem, source, candidate.type, saved.overriddenId, saved.getKey()));
                         }
                     }
@@ -1412,13 +1427,13 @@ public class RecipeInspector {
             for (CustomRecipeData v : variants) {
                 if (v.type == candidate.type && isPatternMatching(v, candidate)) {
                     if (seenConflictingItems.add(item)) {
-                        Identifier id = Registries.ITEM.getId(item);
+                        Identifier id = BuiltInRegistries.ITEM.getKey(item);
                         String source;
                         if (id != null && id.getNamespace().equals("minecraft")) {
-                            source = net.minecraft.text.Text.translatable("recipeeditor.gui.conflict_source_vanilla").getString();
+                            source = Component.translatable("recipeeditor.gui.conflict_source_vanilla").getString();
                         } else {
                             String modName = getFriendlyModName(id != null ? id.getNamespace() : "");
-                            source = net.minecraft.text.Text.translatable("recipeeditor.gui.conflict_source_mod", modName).getString();
+                            source = Component.translatable("recipeeditor.gui.conflict_source_mod", modName).getString();
                         }
                         String recId = (v.overriddenId != null && !v.overriddenId.isEmpty()) ? v.overriddenId : v.id;
                         conflicts.add(new RecipeConflictInfo(candidate, item, source, candidate.type, recId, v.getKey()));

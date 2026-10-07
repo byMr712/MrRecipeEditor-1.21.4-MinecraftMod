@@ -4,10 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.recipeeditor.RecipeEditorMod;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 
 import java.io.File;
 import java.io.IOException;
@@ -85,7 +85,7 @@ public class RecipeEditorConfig {
 
     public void initDefaults() {
         modEnabled = true;
-        recipes.clear(); // Clean slate by default - no pre-added recipes
+        recipes.clear();
     }
 
     public void rebuildEnabledCache() {
@@ -170,7 +170,7 @@ public class RecipeEditorConfig {
 
     public boolean hasCustomRecipe(Item item) {
         if (!modEnabled || item == null || item == Items.AIR) return false;
-        Identifier id = Registries.ITEM.getId(item);
+        Identifier id = BuiltInRegistries.ITEM.getKey(item);
         return id != null && hasCustomRecipe(id.toString());
     }
 
@@ -181,7 +181,7 @@ public class RecipeEditorConfig {
 
     public List<CustomRecipeData> getRecipesFor(Item item) {
         if (item == null || item == Items.AIR) return Collections.emptyList();
-        Identifier id = Registries.ITEM.getId(item);
+        Identifier id = BuiltInRegistries.ITEM.getKey(item);
         if (id == null) return Collections.emptyList();
         String targetId = id.toString();
 
@@ -229,11 +229,9 @@ public class RecipeEditorConfig {
             }
         }
         list.sort((a, b) -> {
-            // 1. Shaped recipes before Shapeless recipes
             if (a.isShapeless != b.isShapeless) {
                 return a.isShapeless ? 1 : -1;
             }
-            // 2. For shapeless recipes: larger non-empty ingredient count first (more specific)
             if (a.isShapeless) {
                 int countA = a.getNonEmptyIngredients().size();
                 int countB = b.getNonEmptyIngredients().size();
@@ -241,7 +239,6 @@ public class RecipeEditorConfig {
                     return Integer.compare(countB, countA);
                 }
             }
-            // 3. Deterministic key comparison
             return a.getKey().compareTo(b.getKey());
         });
         List<CustomRecipeData> unmodifiable = Collections.unmodifiableList(list);
@@ -286,7 +283,7 @@ public class RecipeEditorConfig {
 
     public void removeRecipesFor(Item item) {
         if (item == null || item == Items.AIR || recipes == null) return;
-        Identifier id = Registries.ITEM.getId(item);
+        Identifier id = BuiltInRegistries.ITEM.getKey(item);
         if (id == null) return;
         String targetId = id.toString();
         recipes.values().removeIf(r -> targetId.equals(r.resultItemId));

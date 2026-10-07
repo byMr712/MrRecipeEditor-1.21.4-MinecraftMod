@@ -1,15 +1,16 @@
 package com.recipeeditor.config;
 
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.recipe.Ingredient;
-import net.minecraft.recipe.RawShapedRecipe;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.util.Identifier;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.ShapedRecipePattern;
 
 import java.util.*;
+import java.util.stream.Stream;
 
 public class CustomRecipeData {
     public String id = "";
@@ -27,7 +28,7 @@ public class CustomRecipeData {
     public Map<String, Integer> typeCounts = new HashMap<>();
     public transient String originalKey = null;
 
-    private transient RawShapedRecipe cachedRawRecipe = null;
+    private transient ShapedRecipePattern cachedRawRecipe = null;
     private transient int cachedHash = 0;
     private transient Ingredient[] cachedIngredients = null;
     private transient int cachedPatternHash = 0;
@@ -107,17 +108,17 @@ public class CustomRecipeData {
             return Items.AIR;
         }
         Identifier id = Identifier.tryParse(resultItemId);
-        if (id == null || !Registries.ITEM.containsId(id)) {
+        if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
             return Items.AIR;
         }
-        return Registries.ITEM.get(id);
+        return BuiltInRegistries.ITEM.getValue(id);
     }
 
     public void setResultItem(Item item) {
         if (item == null || item == Items.AIR) {
             this.resultItemId = "minecraft:air";
         } else {
-            Identifier id = Registries.ITEM.getId(item);
+            Identifier id = BuiltInRegistries.ITEM.getKey(item);
             this.resultItemId = id != null ? id.toString() : "minecraft:air";
         }
     }
@@ -134,10 +135,10 @@ public class CustomRecipeData {
             return com.recipeeditor.inspector.TagResolver.resolveTag(idStr);
         }
         Identifier id = Identifier.tryParse(idStr);
-        if (id == null || !Registries.ITEM.containsId(id)) {
+        if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
             return Items.AIR;
         }
-        return Registries.ITEM.get(id);
+        return BuiltInRegistries.ITEM.getValue(id);
     }
 
     public String getSlotString(int slot) {
@@ -156,7 +157,7 @@ public class CustomRecipeData {
             if (item == null || item == Items.AIR) {
                 patternSlots[slot] = "minecraft:air";
             } else {
-                Identifier id = Registries.ITEM.getId(item);
+                Identifier id = BuiltInRegistries.ITEM.getKey(item);
                 patternSlots[slot] = id != null ? id.toString() : "minecraft:air";
             }
             invalidateCache();
@@ -185,7 +186,6 @@ public class CustomRecipeData {
             cachedIngredients = temp;
             cachedPatternHash = currentHash;
         } else if (cachedIngredients[slot] != null && cachedIngredients[slot].isEmpty()) {
-            // If previously resolved to empty for a tag before registry was ready, retry now
             String slotStr = getSlotString(slot);
             if (slotStr != null && slotStr.startsWith("#")) {
                 Ingredient retry = computeIngredientForSlot(slot);
@@ -260,21 +260,19 @@ public class CustomRecipeData {
         if (slotStr.startsWith("#")) {
             Identifier tagId = Identifier.tryParse(slotStr.substring(1));
             if (tagId != null) {
-                TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, tagId);
-                var entryList = Registries.ITEM.getOptional(tagKey);
+                TagKey<Item> tagKey = TagKey.create(Registries.ITEM, tagId);
+                var entryList = BuiltInRegistries.ITEM.get(tagKey);
                 if (entryList.isPresent() && entryList.get().size() > 0) {
-                    return Ingredient.ofTag(entryList.get());
+                    return Ingredient.of(entryList.get());
                 }
             }
-            // Tag is missing/unresolved: return an unmatchable empty ingredient instead of null (air)
-            return Ingredient.ofItems();
+            return Ingredient.of(Stream.empty());
         }
         Item item = getItemAt(slot);
         if (item != Items.AIR) {
-            return Ingredient.ofItem(item);
+            return Ingredient.of(item);
         }
-        // Unknown item identifier: return an unmatchable empty ingredient instead of null (air)
-        return Ingredient.ofItems();
+        return Ingredient.of(Stream.empty());
     }
 
     public Optional<Ingredient> createIngredientForSlot(int slot) {
@@ -282,13 +280,12 @@ public class CustomRecipeData {
         return ing != null ? Optional.of(ing) : Optional.empty();
     }
 
-    public synchronized RawShapedRecipe getRawRecipe() {
+    public synchronized ShapedRecipePattern getRawRecipe() {
         int hash = Arrays.hashCode(patternSlots);
         if (cachedRawRecipe == null || cachedHash != hash) {
             computePatternBounds();
             if (patternWidth == 0 || patternHeight == 0) {
-                // Completely empty
-                cachedRawRecipe = new RawShapedRecipe(1, 1, List.of(Optional.empty()), Optional.empty());
+                cachedRawRecipe = new ShapedRecipePattern(1, 1, List.of(Optional.empty()), Optional.empty());
             } else {
                 int maxRow = minRow + patternHeight - 1;
                 List<Optional<Ingredient>> ingredients = new ArrayList<>(patternWidth * patternHeight);
@@ -297,7 +294,7 @@ public class CustomRecipeData {
                         ingredients.add(createIngredientForSlot(r * 3 + c));
                     }
                 }
-                cachedRawRecipe = new RawShapedRecipe(patternWidth, patternHeight, ingredients, Optional.empty());
+                cachedRawRecipe = new ShapedRecipePattern(patternWidth, patternHeight, ingredients, Optional.empty());
             }
             cachedHash = hash;
         }
