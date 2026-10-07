@@ -1,5 +1,6 @@
 package com.recipeeditor.client.gui;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.recipeeditor.mixin.client.TextFieldWidgetAccessor;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.EditBox;
@@ -13,6 +14,10 @@ public class SelectableTextFieldWidget extends EditBox {
     private long lastClickTime = 0L;
     private double lastClickX = -1;
     private double lastClickY = -1;
+
+    private static boolean isLeftClick(int button) {
+        return button == InputConstants.MOUSE_BUTTON_LEFT || button == 0;
+    }
 
     public SelectableTextFieldWidget(Font font, int x, int y, int width, int height, Component text) {
         super(font, x, y, width, height, text);
@@ -74,7 +79,7 @@ public class SelectableTextFieldWidget extends EditBox {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         boolean result = super.mouseClicked(event, doubleClick);
-        if (result && event.button() == 0) {
+        if (result && isLeftClick(event.button())) {
             long now = System.currentTimeMillis();
             if (now - lastClickTime < 300L && Math.abs(event.x() - lastClickX) < 5.0 && Math.abs(event.y() - lastClickY) < 5.0) {
                 this.setCursorToStart(false);
@@ -105,7 +110,7 @@ public class SelectableTextFieldWidget extends EditBox {
     }
 
     public boolean handleMouseDragged(double mouseX, double mouseY, int button) {
-        if (button != 0 || !this.isFocused() || !this.isDraggingSelection || this.dragAnchor < 0) {
+        if (!isLeftClick(button) || !this.isFocused() || !this.isDraggingSelection || this.dragAnchor < 0) {
             return false;
         }
         int newCursor = getCharIndexAt(mouseX);
@@ -116,14 +121,14 @@ public class SelectableTextFieldWidget extends EditBox {
 
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
-        if (event.button() == 0) {
+        if (isLeftClick(event.button())) {
             this.isDraggingSelection = false;
         }
         return super.mouseReleased(event);
     }
 
     public void handleMouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0) {
+        if (isLeftClick(button)) {
             this.isDraggingSelection = false;
         }
     }

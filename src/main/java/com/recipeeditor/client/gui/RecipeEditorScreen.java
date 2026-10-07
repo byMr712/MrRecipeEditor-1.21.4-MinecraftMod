@@ -2367,6 +2367,14 @@ public class RecipeEditorScreen extends Screen {
                 || InputConstants.isKeyDown(InputConstants.KEY_RSHIFT);
     }
 
+    private static boolean isLeftClick(int button) {
+        return button == InputConstants.MOUSE_BUTTON_LEFT || button == 0;
+    }
+
+    private static boolean isRightClick(int button) {
+        return button == InputConstants.MOUSE_BUTTON_RIGHT;
+    }
+
     private ItemStack safeItemStack(Item item) {
         return safeItemStack(item, 1);
     }
@@ -2421,7 +2429,7 @@ public class RecipeEditorScreen extends Screen {
             return true;
         }
 
-        if (button == 0) { // Left click: select slot or start drag
+        if (isLeftClick(button)) { // Left click: select slot or start drag
             int craftingSlot = getCraftingSlotAt(sX, sY);
             if (craftingSlot != -1) {
                 selectedSlot = craftingSlot;
@@ -2437,7 +2445,7 @@ public class RecipeEditorScreen extends Screen {
 
             Item catItem = getCatalogItemAt(sX, sY);
             if (catItem != null && catItem != Items.AIR) {
-                if (isShiftDown()) {
+                if (event.hasShiftDown() || isShiftDown()) {
                     selectTargetItem(catItem);
                 } else {
                     draggedItem = catItem;
@@ -2447,7 +2455,7 @@ public class RecipeEditorScreen extends Screen {
                 }
                 return true;
             }
-        } else if (button == 1) { // Right click: clear slot or LOAD RECIPE for catalog item
+        } else if (isRightClick(button)) { // Right click: clear slot or LOAD RECIPE for catalog item
             int craftingSlot = getCraftingSlotAt(sX, sY);
             if (craftingSlot >= 0 && craftingSlot < 9) {
                 if (currentRecipe != null) {
@@ -2488,11 +2496,11 @@ public class RecipeEditorScreen extends Screen {
         MouseButtonEvent scaledEvent = new MouseButtonEvent(sX, sY, event.buttonInfo());
 
         GuiEventListener focused = this.getFocused();
-        if (focused instanceof SelectableTextFieldWidget textField && button == 0) {
+        if (focused instanceof SelectableTextFieldWidget textField && isLeftClick(button)) {
             textField.handleMouseReleased(sX, sY, button);
         }
 
-        if (button == 0 && draggedItem != null) {
+        if (isLeftClick(button) && draggedItem != null) {
             int targetSlot = getCraftingSlotAt(sX, sY);
             if (targetItem == null) {
                 selectTargetItem(draggedItem);
@@ -2609,7 +2617,7 @@ public class RecipeEditorScreen extends Screen {
         MouseButtonEvent scaledEvent = new MouseButtonEvent(sX, sY, event.buttonInfo());
 
         GuiEventListener focused = this.getFocused();
-        if (focused instanceof SelectableTextFieldWidget textField && button == 0) {
+        if (focused instanceof SelectableTextFieldWidget textField && isLeftClick(button)) {
             if (textField.handleMouseDragged(sX, sY, button)) {
                 return true;
             }
