@@ -462,3 +462,34 @@ The mod enforces a strict bilingual requirement for all in-game text:
   * `src/main/resources/assets/recipeeditor/lang/ru_ru.json` (Russian)
 * **No Untranslated Keys:** Hardcoding raw string literals in user-facing widgets or leaving translation keys present in only one language file is strictly prohibited. Missing keys in either language are treated as critical issues.
 * **Consistent Tone:** Russian translations must maintain natural, friendly, and precise Minecraft terminology; English translations must follow official Minecraft naming conventions.
+
+---
+
+## 15. Version 1.21.1 Specifications, Architectural Nuances & Comprehensive Bug Fix Details
+
+### 15.1. Technical Environment & Version Architecture
+* **Minecraft Version:** `1.21.1`
+* **Java Runtime:** Java 21 LTS (or Java 25)
+* **Mapping Framework:** Yarn mappings (`1.21.1+build.3`)
+* **Fabric API:** `0.116.17+1.21.1` / Loom: `1.18-SNAPSHOT`
+* **Recipe Manager Framework:** Unified `net.minecraft.recipe.RecipeManager` (single class shared by client and server). Intercepted via `RecipeManagerMixin`.
+* **Interaction Model:** Uses temporary `ItemActionResult` for `CampfireBlock.onUseWithItem(ItemStack, BlockState, World, BlockPos, PlayerEntity, Hand, BlockHitResult)`.
+* **Network Recipe Synchronization:** Uses `RecipeBookAddS2CPacket` and `SynchronizeRecipesS2CPacket` with Guava `ImmutableMap` collision-safe composite IDs (`recipeeditor:<cleanId>_<typeSuffix>_<hash>`).
+
+### 15.2. Bug Fix Status & Implementation for 1.21.1 (Commit `555e8a2`)
+* **Bug 1 (Recipe Book Forgets Custom Recipes on World Re-entry):** **Fixed**.
+  - Added `@Inject` into `ServerRecipeBook.sendInitRecipesPacket` to transmit all custom recipes via `CustomRecipeDispatcher.sendCustomRecipeBookEntries` when a player joins the world.
+  - Corrected `RecipeManagerMixin.onGet` so that when `readNbt` queries recipe IDs saved in player data, overridden recipes resolve cleanly instead of returning `Optional.empty()`, eliminating the server error `Tried to load unrecognized recipe: ... removed now`.
+* **Bug 2 (Smithing Table Result Slot Uncraftable):** **Fixed**.
+  - `SmithingScreenHandler.updateResult` calls `RecipeManager.getAllMatches(RecipeType.SMITHING, inventory, world)` and `listAllOfType(RecipeType.SMITHING)`.
+  - Added mixin handlers in `RecipeManagerMixin` for both methods to supply matching synthetic `SmithingTransformRecipe` entries.
+* **Bug 3 (Reset Defaults / Clear All Crafts & Delete Entire Craft):** **Fixed**.
+  - `RecipeEditorConfig.initDefaults()` now calls `rebuildEnabledCache()`, ensuring `enabledResultIds` is emptied.
+  - `RecipeEditorScreen.deleteEntireCustomCraft()` executes `removeRecipesFor(targetItem)` on both `configCopy` and the active singleton instance.
+  - `RecipeViewerIntegration.reloadRecipeViewers()` is triggered on reset to immediately refresh viewer overlays.
+* **Bug 4 (Stonecutter Output Slot Cannot Be Taken):** **Fixed**.
+  - `StonecutterScreenHandler.onTakeOutput` verifies recipe validity via `RecipeManager.getAllMatches(RecipeType.STONECUTTING, inventory, world)`.
+  - Added mixin handler in `RecipeManagerMixin` for `getAllMatches` matching `RecipeType.STONECUTTING` to return custom stonecutter recipes.
+* **Bug 5 (Campfire Right-Click ClassCastException Crash):** **Fixed**.
+  - Corrected `CampfireBlockMixin.onUseWithItem` injection signature from `CallbackInfoReturnable<ActionResult>` to `CallbackInfoReturnable<ItemActionResult>`, returning `ItemActionResult.CONSUME` on client and `ItemActionResult.SUCCESS` on server.
+
