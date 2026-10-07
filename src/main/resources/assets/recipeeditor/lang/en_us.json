@@ -96,6 +96,7 @@
   "recipeeditor.gui.uncraftable_title": "This item has no recipes.",
   "recipeeditor.gui.uncraftable_prompt": "Do you want to create a recipe for it?",
   "recipeeditor.gui.uncraftable_machine_1": "No recipes for this item",
+  "recipeeditor.gui.uncraftable_machine_custom_1": "No YOUR crafts for this item",
   "recipeeditor.gui.uncraftable_machine_2": "in \"%s\", create?",
   "recipeeditor.gui.create_recipe_btn": "Create Recipe",
   "recipeeditor.tooltip.toggle_mod": "Enable or disable custom recipes configured via this mod",
