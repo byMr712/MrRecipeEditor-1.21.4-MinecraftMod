@@ -11,6 +11,20 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ServerRecipeBook.class)
 public class ServerRecipeBookMixin {
 
+    @Inject(method = "sendInitRecipesPacket", at = @At("HEAD"))
+    private void onSendInitRecipesPacketHead(ServerPlayerEntity player, CallbackInfo ci) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
+            return;
+        }
+        try {
+            ServerRecipeBook book = (ServerRecipeBook) (Object) this;
+            for (net.minecraft.recipe.RecipeEntry<?> entry : CustomRecipeDispatcher.getAllCustomRecipes()) {
+                book.add(entry);
+                book.display(entry);
+            }
+        } catch (Throwable ignored) {}
+    }
+
     @Inject(method = "sendInitRecipesPacket", at = @At("RETURN"))
     private void onSendInitRecipesPacket(ServerPlayerEntity player, CallbackInfo ci) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {

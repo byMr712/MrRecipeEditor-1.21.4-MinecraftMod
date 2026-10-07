@@ -429,21 +429,52 @@ public class CustomRecipeDispatcher {
             }
         }
         String path = id.getPath();
-        if ("recipeeditor".equals(id.getNamespace())) {
-            for (RecipeEntry<?> entry : all) {
-                String entryPath = entry.id().getPath();
-                if (entryPath.equals(path) || entryPath.startsWith(path + "_")) {
-                    return Optional.of(entry);
-                }
+        for (RecipeEntry<?> entry : all) {
+            if (entry.id().getPath().equals(path)) {
+                return Optional.of(entry);
             }
-            if (path.startsWith("minecraft_")) {
-                String stripped = path.substring("minecraft_".length());
-                for (RecipeEntry<?> entry : all) {
-                    String entryPath = entry.id().getPath();
-                    if (entryPath.equals(stripped) || entryPath.startsWith(stripped + "_")) {
-                        return Optional.of(entry);
+        }
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config != null && config.recipes != null && !config.recipes.isEmpty()) {
+            String fullId = id.toString();
+            String strippedPath = path.startsWith("minecraft_") ? path.substring("minecraft_".length()) : path;
+            if (strippedPath.startsWith("recipeeditor_")) {
+                strippedPath = strippedPath.substring("recipeeditor_".length());
+            }
+
+            for (CustomRecipeData data : config.recipes.values()) {
+                if (!data.enabled) continue;
+
+                boolean match = false;
+                if (fullId.equals(data.id) || path.equals(data.id) || strippedPath.equals(data.id)) {
+                    match = true;
+                } else if (data.overriddenId != null && (fullId.equals(data.overriddenId) || path.equals(data.overriddenId) || strippedPath.equals(data.overriddenId))) {
+                    match = true;
+                } else if (data.overriddenKey != null && (fullId.equals(data.overriddenKey) || path.equals(data.overriddenKey))) {
+                    match = true;
+                } else if (data.resultItemId != null && (fullId.equals(data.resultItemId) || path.equals(data.resultItemId) || strippedPath.equals(data.resultItemId))) {
+                    match = true;
+                } else if (data.id != null && (path.contains(data.id) || data.id.contains(path))) {
+                    match = true;
+                } else if (data.overriddenId != null && (path.contains(data.overriddenId) || data.overriddenId.contains(path))) {
+                    match = true;
+                }
+
+                if (match) {
+                    RecipeType<?> mcType = data.type != null ? data.type.toRecipeType() : null;
+                    if (mcType != null) {
+                        RecipeEntry<?> entry = getCachedSyntheticEntry(data, data.type, mcType);
+                        if (entry != null) return Optional.of(entry);
                     }
                 }
+            }
+        }
+
+        for (RecipeEntry<?> entry : all) {
+            String entryPath = entry.id().getPath();
+            if (entryPath.startsWith(path + "_") || path.startsWith(entryPath + "_") ||
+                entryPath.contains(path) || path.contains(entryPath)) {
+                return Optional.of(entry);
             }
         }
         return getCustomRecipeForOverridden(id);
@@ -644,7 +675,7 @@ public class CustomRecipeDispatcher {
 
         int safeCount = Math.min(resultItem.getMaxCount(), Math.max(1, data.getResultCountForType(typeEnum)));
         ItemStack resultStack = new ItemStack(resultItem, safeCount);
-        String group = data.id != null ? data.id : "";
+        String group = "";
 
         if (typeEnum == RecipeTypeEnum.SHAPED_CRAFTING) {
             CraftingRecipeCategory category = getCraftingCategory(resultItem);
@@ -686,12 +717,17 @@ public class CustomRecipeDispatcher {
         return null;
     }
 
+    private static volatile Set<Identifier> PREVIOUS_CUSTOM_IDS = null;
+
     public static void sendCustomRecipeBookEntries(ServerPlayerEntity player) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         if (player == null || player.networkHandler == null) return;
         try {
             Collection<RecipeEntry<?>> custom = getAllCustomRecipes();
             if (!custom.isEmpty()) {
+                if (player.server != null) {
+                    player.networkHandler.sendPacket(new SynchronizeRecipesS2CPacket(player.server.getRecipeManager().values()));
+                }
                 List<Identifier> ids = new ArrayList<>();
                 for (RecipeEntry<?> entry : custom) {
                     ids.add(entry.id());
@@ -712,13 +748,39 @@ public class CustomRecipeDispatcher {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         Collection<RecipeEntry<?>> custom = getAllCustomRecipes();
         List<Identifier> ids = new ArrayList<>();
+        Set<Identifier> currentIds = new HashSet<>();
         for (RecipeEntry<?> entry : custom) {
             ids.add(entry.id());
+            currentIds.add(entry.id());
         }
+
+        List<Identifier> removedIds = new ArrayList<>();
+        if (PREVIOUS_CUSTOM_IDS != null) {
+            for (Identifier prevId : PREVIOUS_CUSTOM_IDS) {
+                if (!currentIds.contains(prevId)) {
+                    removedIds.add(prevId);
+                }
+            }
+        }
+        PREVIOUS_CUSTOM_IDS = currentIds;
 
         for (ServerPlayerEntity player : players) {
             if (player == null || player.networkHandler == null || player.server == null) continue;
             try {
+                // 1. Send SynchronizeRecipesS2CPacket FIRST so the client recipeManager has the synthetic recipes
+                player.networkHandler.sendPacket(new SynchronizeRecipesS2CPacket(player.server.getRecipeManager().values()));
+
+                // 2. Remove any deleted custom recipes from the player's recipe book
+                if (!removedIds.isEmpty()) {
+                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket(
+                        net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket.Action.REMOVE,
+                        removedIds,
+                        Collections.emptyList(),
+                        player.getRecipeBook().getOptions()
+                    ));
+                }
+
+                // 3. Add and display all active custom recipes
                 if (!ids.isEmpty()) {
                     for (RecipeEntry<?> entry : custom) {
                         player.getRecipeBook().add(entry);
@@ -731,9 +793,22 @@ public class CustomRecipeDispatcher {
                         player.getRecipeBook().getOptions()
                     ));
                 }
-                player.networkHandler.sendPacket(new SynchronizeRecipesS2CPacket(player.server.getRecipeManager().values()));
             } catch (Throwable ignored) {}
         }
+
+        try {
+            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+            if (client != null && client.player != null && client.player.getRecipeBook() != null) {
+                client.execute(() -> {
+                    try {
+                        for (RecipeEntry<?> entry : custom) {
+                            client.player.getRecipeBook().add(entry);
+                            client.player.getRecipeBook().display(entry);
+                        }
+                    } catch (Throwable ignored) {}
+                });
+            }
+        } catch (Throwable ignored) {}
     }
 
     public static void syncRecipesToAllPlayers(MinecraftServer server) {
