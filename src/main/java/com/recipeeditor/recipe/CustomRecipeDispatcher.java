@@ -634,7 +634,9 @@ public class CustomRecipeDispatcher {
 
                     CUSTOM_SERVER_RECIPES.put(netId, serverRecipe);
                     list.add(serverRecipe);
-                    CUSTOM_DISPLAY_PACKET_ENTRIES.add(new RecipeBookAddS2CPacket.Entry(displayEntry, false, false));
+                    if (recipeData.type != RecipeTypeEnum.STONECUTTING) {
+                        CUSTOM_DISPLAY_PACKET_ENTRIES.add(new RecipeBookAddS2CPacket.Entry(displayEntry, false, false));
+                    }
                 }
             }
             CUSTOM_SERVER_RECIPES_BY_KEY.put(entry.id(), list);
