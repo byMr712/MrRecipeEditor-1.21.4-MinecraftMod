@@ -86,6 +86,7 @@ public class RecipeEditorConfig {
     public void initDefaults() {
         modEnabled = true;
         recipes.clear(); // Clean slate by default - no pre-added recipes
+        rebuildEnabledCache();
     }
 
     public void rebuildEnabledCache() {
