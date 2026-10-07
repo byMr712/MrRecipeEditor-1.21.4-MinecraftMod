@@ -248,4 +248,14 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
     public RecipeSerializer<? extends ShapedRecipe> getSerializer() {
         return RecipeEditorMod.RECIPE_SERIALIZER;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof CustomDynamicCraftingRecipe;
+    }
+
+    @Override
+    public int hashCode() {
+        return CustomDynamicCraftingRecipe.class.hashCode();
+    }
 }

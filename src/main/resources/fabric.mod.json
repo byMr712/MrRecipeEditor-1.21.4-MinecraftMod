@@ -3,7 +3,7 @@
   "id": "recipeeditor",
   "version": "${version}",
   "name": "[MR] Recipe Editor",
-  "description": "Universal In-Game Recipe Editor and Creator for Minecraft 1.21.4. Create, modify, and auto-detect recipes for any vanilla or modded items directly in-game with drag & drop support.",
+  "description": "Universal In-Game Recipe Editor and Creator for Minecraft 1.21.1. Create, modify, and auto-detect recipes for any vanilla or modded items directly in-game with drag & drop support.",
   "authors": [
     "Mr712"
   ],
@@ -31,8 +31,8 @@
     "recipeeditor.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.19.5",
-    "minecraft": "~1.21.1",
+    "fabricloader": ">=0.16.0",
+    "minecraft": "1.21.1",
     "java": ">=21",
     "modmenu": "*",
 	"fabric-api": "*"
