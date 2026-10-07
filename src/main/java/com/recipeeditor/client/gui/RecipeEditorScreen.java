@@ -31,6 +31,7 @@ public class RecipeEditorScreen extends Screen {
 
     // Target Item & Scoped Variants
     private Item targetItem = null;
+    private Item originalTargetItem = null;
     private RecipeTypeEnum selectedType = RecipeTypeEnum.SHAPED_CRAFTING;
     private final List<CustomRecipeData> typeVariants = new ArrayList<>();
     private int currentVariantIndex = 0;
@@ -162,6 +163,7 @@ public class RecipeEditorScreen extends Screen {
 
         // Target item starts null (user must select/RMB an item to edit)
         this.targetItem = null;
+        this.originalTargetItem = null;
         this.currentRecipe = null;
         this.typeVariants.clear();
         this.currentVariantIndex = 0;
@@ -282,6 +284,7 @@ public class RecipeEditorScreen extends Screen {
         this.sessionVariantIndexByType.clear();
         this.showCustomDeleteButtons = (currentFilter == CatalogFilter.CUSTOM);
         this.targetItem = item;
+        this.originalTargetItem = item;
         this.activeCreatedTypes.clear();
         this.currentRecipe = null;
         this.currentVariantIndex = 0;
@@ -1011,6 +1014,18 @@ public class RecipeEditorScreen extends Screen {
                 return true;
             }
         }
+        if (Objects.equals(targetItem, originalTargetItem)) {
+            for (Map.Entry<RecipeTypeEnum, List<CustomRecipeData>> entry : sessionVariantsByType.entrySet()) {
+                RecipeTypeEnum machineType = entry.getKey();
+                if (machineType != selectedType && entry.getValue() != null) {
+                    for (CustomRecipeData v : entry.getValue()) {
+                        if (isRecipeSavable(v, targetItem, machineType)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
         return false;
     }
 
@@ -1166,15 +1181,6 @@ public class RecipeEditorScreen extends Screen {
                 }
                 currentFilter = f;
                 refreshFilteredItemsResetPage();
-                if (f == CatalogFilter.CUSTOM) {
-                    if (targetItem == null || !configCopy.hasCustomRecipe(targetItem)) {
-                        if (!filteredItems.isEmpty()) {
-                            loadRecipeForTarget(filteredItems.get(0));
-                        }
-                    } else {
-                        loadRecipeForTarget(targetItem);
-                    }
-                }
                 updateEditorWidgetsVisibility();
                 updateButtonStates();
                 rebuildFilterButtons(startX, startY);
@@ -1418,7 +1424,23 @@ public class RecipeEditorScreen extends Screen {
         List<CustomRecipeData> toSave = new ArrayList<>();
         for (CustomRecipeData v : typeVariants) {
             if (isRecipeSavable(v, targetItem, selectedType)) {
+                v.type = selectedType;
                 toSave.add(v);
+            }
+        }
+
+        // If target item was not changed, also save all edited workstations of this item
+        if (Objects.equals(targetItem, originalTargetItem)) {
+            for (Map.Entry<RecipeTypeEnum, List<CustomRecipeData>> entry : sessionVariantsByType.entrySet()) {
+                RecipeTypeEnum machineType = entry.getKey();
+                if (machineType != selectedType && entry.getValue() != null) {
+                    for (CustomRecipeData v : entry.getValue()) {
+                        if (isRecipeSavable(v, targetItem, machineType)) {
+                            v.type = machineType;
+                            toSave.add(v);
+                        }
+                    }
+                }
             }
         }
 
@@ -1428,9 +1450,11 @@ public class RecipeEditorScreen extends Screen {
         List<com.recipeeditor.inspector.RecipeConflictInfo> allConflicts = new ArrayList<>();
         for (CustomRecipeData recipe : toSave) {
             recipe.setResultItem(targetItem);
-            recipe.type = selectedType;
-            if (recipe.getResultCountForType(selectedType) <= 0) {
-                recipe.setResultCountForType(selectedType, 1);
+            if (recipe.type == null) {
+                recipe.type = selectedType;
+            }
+            if (recipe.getResultCountForType(recipe.type) <= 0) {
+                recipe.setResultCountForType(recipe.type, 1);
             }
 
             List<com.recipeeditor.inspector.RecipeConflictInfo> conflicts = RecipeInspector.findConflicts(
@@ -1516,6 +1540,7 @@ public class RecipeEditorScreen extends Screen {
 
         sessionVariantsByType.clear();
         sessionVariantIndexByType.clear();
+        this.originalTargetItem = this.targetItem;
 
         notificationText = Text.translatable("recipeeditor.gui.craft_saved").formatted(Formatting.GREEN, Formatting.BOLD);
         notificationTimer = System.currentTimeMillis() + 3000;
@@ -1586,6 +1611,7 @@ public class RecipeEditorScreen extends Screen {
 
         if (typeVariants.isEmpty()) {
             this.targetItem = null;
+            this.originalTargetItem = null;
             this.currentRecipe = null;
             this.typeVariants.clear();
             this.activeCreatedTypes.clear();
@@ -1639,6 +1665,7 @@ public class RecipeEditorScreen extends Screen {
 
         if (currentFilter == CatalogFilter.CUSTOM) {
             this.targetItem = null;
+            this.originalTargetItem = null;
             this.currentRecipe = null;
             this.typeVariants.clear();
             this.activeCreatedTypes.clear();
@@ -1648,6 +1675,7 @@ public class RecipeEditorScreen extends Screen {
             refreshTypeVariants(selectedType, true);
             if (typeVariants.isEmpty()) {
                 this.targetItem = null;
+                this.originalTargetItem = null;
                 this.currentRecipe = null;
                 this.activeCreatedTypes.clear();
                 this.currentVariantIndex = 0;
@@ -1682,6 +1710,7 @@ public class RecipeEditorScreen extends Screen {
         }
 
         this.targetItem = null;
+        this.originalTargetItem = null;
         this.currentRecipe = null;
         this.typeVariants.clear();
         this.activeCreatedTypes.clear();
