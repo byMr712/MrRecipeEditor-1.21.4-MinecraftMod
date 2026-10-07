@@ -26,16 +26,26 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
 
-### 1.4. Build Instructions
-To compile and assemble the mod JAR for Minecraft 26.1.1:
-> [!NOTE]
-> Building for Minecraft 26.1.1 requires **JDK 25** (`C:\Program Files\Java\jdk-25.0.2` configured in `gradle.properties`).
-
-```bash
-./gradlew clean build
-```
-The resulting artifact will be located in:
-`build/libs/MrRecipeEditor-Fabric-26.1.1-byMr712-v1.3.jar`
+### 1.4. Build Instructions and Key Version Nuances for Minecraft 26.1.1
+1. **Prerequisites & Build Command**:
+   * JDK 25 (`C:\Program Files\Java\jdk-25.0.2` configured in `gradle.properties`).
+   * `./gradlew clean build --console=plain`
+   * Remapped production JAR: `build/libs/MrRecipeEditor-Fabric-26.1.1-byMr712-v1.4.jar`.
+2. **Key Version Specific Nuances (Minecraft 26.X & 26.1.1)**:
+   * **Official Mojang Mappings & Java 25**:
+     Modern Mojang mapping nomenclature (`net.minecraft.world.item.*`, `net.minecraft.client.gui.screens.*`, `net.minecraft.core.registries.BuiltInRegistries`).
+   * **Main Menu / Title Screen Item Component Initialization Guard (`ensureItemComponentsBound` & `safeProvider`)**:
+     In Minecraft 26.X, item data components (`DataComponentMap`) must be built through `BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(provider)` before instantiating `ItemStack` or displaying items when opening the editor GUI from ModMenu on the title screen.
+     Dynamic world datapack registries (`RegistryAccess`) do not exist yet on the title screen. Vanilla component initializers for items like fire-resistant armor or trimmed gear attempt to resolve dynamic datapack entries (e.g., `DamageTypes.IS_FIRE`, `TrimMaterials.REDSTONE`). Calling `build()` directly throws `IllegalStateException: Missing tag` or `Missing element`.
+     **Solution:** `RecipeInspector.ensureItemComponentsBound()` constructs a fallback `safeProvider` wrapping `BuiltInRegistries.createWrapperLookup()`. The provider intercepts lookup calls and returns empty tag sets (`HolderSet.emptyNamed(...)`), standalone reference fallbacks (`Holder.Reference.createStandAlone(...)`), and empty registry lookups, allowing all item components to bind safely without crashing on the title screen.
+   * **SDL3 / Modern Mojang Input Model (`MouseButtonEvent` & `uiScale` Coordinate Translation)**:
+     26.X utilizes the modern `MouseButtonEvent` model (delivering `x()`, `y()`, `button()`, and `buttonInfo()`).
+     All GUI interactions (clicking, dragging, releasing) in `RecipeEditorScreen` are normalized through `uiScale = Math.min(width / 460f, height / 380f)`: `sX = event.x() / uiScale` and `sY = event.y() / uiScale`.
+     Drag-and-drop item movement, right-click catalog inspection (`button == 1`), and text field drag-selection via `SelectableTextFieldWidget` operate seamlessly with precision coordinates.
+   * **Screen Navigation**:
+     Screen transitions in 26.1.1 utilize `minecraft.setScreen(...)`.
+   * **Recipe Book & Network Architecture (`ServerRecipeManager`, `NetworkRecipeId`, `RecipeDisplay`)**:
+     Recipes in 26.X are managed via `ServerRecipeManager` (split from the unified 1.21 `RecipeManager`), with display sync driven by `RecipeDisplayEntry` and dynamic `NetworkRecipeId` pools ($1\,000\,000+$) preventing ID collisions with vanilla recipes.
 
 ---
 
