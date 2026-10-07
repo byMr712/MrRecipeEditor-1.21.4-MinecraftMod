@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.10.1'
+    id 'fabric-loom' version '1.18-SNAPSHOT'
     id 'maven-publish'
 }
 
@@ -26,16 +26,35 @@ repositories {
     }
 }
 
+loom {
+    if (!project.hasProperty('yarn_mappings') || project.property('yarn_mappings').toString().trim().isEmpty()) {
+        noIntermediateMappings()
+    }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    if (project.hasProperty('yarn_mappings') && !project.property('yarn_mappings').toString().trim().isEmpty()) {
+        mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    } else {
+        mappings files("empty-mappings.jar")
+    }
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    def fabricApi = project.findProperty('fabric_api_version') ?: project.findProperty('fabric_version')
+    if (fabricApi) {
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApi}"
+    }
 
-    modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
-    modCompileOnly "me.shedaniel:RoughlyEnoughItems-api-fabric:${project.rei_version}"
-    modCompileOnly "me.shedaniel:RoughlyEnoughItems-default-plugin-fabric:${project.rei_version}"
-    modCompileOnly "dev.architectury:architectury-fabric:${project.architectury_version}"
+    if (project.hasProperty('modmenu_version') && !project.property('modmenu_version').toString().trim().isEmpty()) {
+        modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+    }
+    if (project.hasProperty('rei_version') && !project.property('rei_version').toString().trim().isEmpty()) {
+        modCompileOnly "me.shedaniel:RoughlyEnoughItems-api-fabric:${project.rei_version}"
+        modCompileOnly "me.shedaniel:RoughlyEnoughItems-default-plugin-fabric:${project.rei_version}"
+    }
+    if (project.hasProperty('architectury_version') && !project.property('architectury_version').toString().trim().isEmpty()) {
+        modCompileOnly "dev.architectury:architectury-fabric:${project.architectury_version}"
+    }
 }
 
 processResources {
@@ -46,14 +65,19 @@ processResources {
     }
 }
 
+def targetJavaVersion = project.minecraft_version.startsWith('26') ? 25 : 21
 tasks.withType(JavaCompile).configureEach {
-    it.options.release = 21
     it.options.encoding = "UTF-8"
+    if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible()) {
+        it.options.release = targetJavaVersion
+    }
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    def javaVersion = JavaVersion.toVersion(targetJavaVersion)
+    if (JavaVersion.current() < javaVersion) {
+        toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
+    }
 }
 
 jar {

@@ -9,4 +9,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "RecipeEditor-1.21.4-MinecraftMod"
+rootProject.name = "MrRecipeEditor"

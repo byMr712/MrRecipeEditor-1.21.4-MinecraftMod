@@ -23,6 +23,7 @@ desktop.ini
 *.class
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+!empty-mappings.jar
 
 # Compiled / Loom
 out/
