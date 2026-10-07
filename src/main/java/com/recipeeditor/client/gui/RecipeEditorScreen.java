@@ -1852,8 +1852,8 @@ public class RecipeEditorScreen extends Screen {
         int scaledMouseX = (int) (mouseX / uiScale);
         int scaledMouseY = (int) (mouseY / uiScale);
 
-        context.getMatrices().push();
-        context.getMatrices().scale(uiScale, uiScale, 1.0f);
+        context.getMatrices().pushMatrix();
+        context.getMatrices().scale(uiScale, uiScale);
 
         super.render(context, scaledMouseX, scaledMouseY, delta);
 
@@ -2053,16 +2053,16 @@ public class RecipeEditorScreen extends Screen {
                 float scaleW = (float) leftPaneWidth / (float) maxTextWidth;
                 float textScale = Math.min(1.0f, Math.min(scaleH, scaleW));
 
-                context.getMatrices().push();
-                context.getMatrices().translate(leftPaneX, hintStartY, 0);
-                context.getMatrices().scale(textScale, textScale, 1.0f);
+                context.getMatrices().pushMatrix();
+                context.getMatrices().translate((float) leftPaneX, (float) hintStartY);
+                context.getMatrices().scale(textScale, textScale);
 
                 int lineSpacing = 10;
                 for (int i = 0; i < hintLines.size(); i++) {
                     context.drawTextWithShadow(this.textRenderer, hintLines.get(i), 0, i * lineSpacing, 0xFF55FF55);
                 }
 
-                context.getMatrices().pop();
+                context.getMatrices().popMatrix();
             }
         }
 
@@ -2150,7 +2150,7 @@ public class RecipeEditorScreen extends Screen {
             context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("recipeeditor.gui.mod_disabled_hint_3").formatted(Formatting.GRAY), pCenterX, pStartY + 26, 0xFFAAAAAA);
         }
 
-        context.getMatrices().pop();
+        context.getMatrices().popMatrix();
 
         // Render Hover Tooltip (outside matrices, at native screen resolution)
         if (!configCopy.modEnabled) {
@@ -2352,13 +2352,9 @@ public class RecipeEditorScreen extends Screen {
 
     private void drawItemInScreen(DrawContext context, ItemStack stack, int x, int y) {
         if (stack == null || stack.isEmpty()) return;
+        context.drawItem(stack, x, y);
         if (!configCopy.modEnabled || !isLocalWorldCreator()) {
-            com.mojang.blaze3d.systems.RenderSystem.setShaderColor(0.4f, 0.4f, 0.4f, 0.8f);
-            context.drawItem(stack, x, y);
-            com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
-            context.fill(x, y, x + 16, y + 16, 0x663a3a3a);
-        } else {
-            context.drawItem(stack, x, y);
+            context.fill(x, y, x + 16, y + 16, 0x883a3a3a);
         }
     }
 

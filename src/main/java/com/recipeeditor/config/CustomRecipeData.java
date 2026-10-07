@@ -263,7 +263,7 @@ public class CustomRecipeData {
                 TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, tagId);
                 var entryList = Registries.ITEM.getOptional(tagKey);
                 if (entryList.isPresent() && entryList.get().size() > 0) {
-                    return Ingredient.fromTag(entryList.get());
+                    return Ingredient.ofTag(entryList.get());
                 }
             }
             // Tag is missing/unresolved: return an unmatchable empty ingredient instead of null (air)
