@@ -19,18 +19,22 @@
     ],
     "client": [
       "com.recipeeditor.client.RecipeEditorClient"
+    ],
+    "modmenu": [
+      "com.recipeeditor.integration.ModMenuIntegration"
     ]
   },
   "mixins": [
     "recipeeditor.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.19.5",
+    "fabricloader": ">=0.16.0",
     "minecraft": "26.2",
     "java": ">=25",
 	"fabric-api": "*"
   },
   "suggests": {
+    "modmenu": "*",
     "roughlyenoughitems": "*"
   }
 }

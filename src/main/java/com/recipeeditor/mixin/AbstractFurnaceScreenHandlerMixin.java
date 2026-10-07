@@ -5,8 +5,8 @@ import com.recipeeditor.inspector.RecipeInspector;
 import com.recipeeditor.recipe.CustomRecipeDispatcher;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.inventory.AbstractFurnaceMenu;
+import net.minecraft.world.inventory.RecipeBookType;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.AbstractCookingRecipe;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.item.crafting.SingleRecipeInput;
 import net.minecraft.world.level.Level;
@@ -20,7 +20,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(AbstractFurnaceMenu.class)
 public class AbstractFurnaceScreenHandlerMixin {
 
-    @Shadow @Final private RecipeType<? extends AbstractCookingRecipe> recipeType;
+    @Shadow @Final private RecipeBookType recipeBookType;
     @Shadow @Final protected Level level;
 
     @Inject(method = "canSmelt", at = @At("RETURN"), cancellable = true)
@@ -28,8 +28,19 @@ public class AbstractFurnaceScreenHandlerMixin {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
             return;
         }
-        if (!itemStack.isEmpty() && this.recipeType != null && this.level != null) {
-            boolean hasCustomMatch = CustomRecipeDispatcher.getCustomMatch(this.recipeType, new SingleRecipeInput(itemStack), this.level).isPresent();
+        if (!itemStack.isEmpty() && this.recipeBookType != null && this.level != null) {
+            RecipeTypeEnum typeEnum = switch (this.recipeBookType) {
+                case FURNACE -> RecipeTypeEnum.SMELTING;
+                case BLAST_FURNACE -> RecipeTypeEnum.BLASTING;
+                case SMOKER -> RecipeTypeEnum.SMOKING;
+                default -> null;
+            };
+            if (typeEnum == null) return;
+            RecipeType<?> recipeType = typeEnum.toRecipeType();
+            if (recipeType == null) return;
+
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            boolean hasCustomMatch = CustomRecipeDispatcher.getCustomMatch((RecipeType) recipeType, new SingleRecipeInput(itemStack), this.level).isPresent();
             if (hasCustomMatch) {
                 cir.setReturnValue(true);
                 return;
@@ -38,13 +49,12 @@ public class AbstractFurnaceScreenHandlerMixin {
             if (cir.getReturnValue()) {
                 if (this.level instanceof ServerLevel serverLevel) {
                     @SuppressWarnings({"unchecked", "rawtypes"})
-                    var match = serverLevel.recipeAccess().getRecipeFor((RecipeType) this.recipeType, new SingleRecipeInput(itemStack), serverLevel);
+                    var match = serverLevel.recipeAccess().getRecipeFor((RecipeType) recipeType, new SingleRecipeInput(itemStack), serverLevel);
                     if (match.isEmpty()) {
                         cir.setReturnValue(false);
                     }
                 } else if (net.fabricmc.loader.api.FabricLoader.getInstance().getEnvironmentType() == net.fabricmc.api.EnvType.CLIENT) {
-                    RecipeTypeEnum typeEnum = RecipeTypeEnum.fromRecipeType(this.recipeType);
-                    if (typeEnum != null && RecipeInspector.isCookingInputOverridden(typeEnum, itemStack.getItem(), this.level)) {
+                    if (RecipeInspector.isCookingInputOverridden(typeEnum, itemStack.getItem(), this.level)) {
                         cir.setReturnValue(false);
                     }
                 }

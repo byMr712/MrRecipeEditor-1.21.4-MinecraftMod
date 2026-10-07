@@ -49,6 +49,7 @@ public class RecipeEditorMod implements ModInitializer {
         }
 
         RecipeEditorConfig.getInstance();
+        ensureItemComponentsBound();
 
         // Player join recipe book sync on local integrated server
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -71,5 +72,23 @@ public class RecipeEditorMod implements ModInitializer {
                                 .syncRecipeBookToPlayers(server.getPlayerList().getPlayers());
                     }
                 });
+    }
+
+    public static void ensureItemComponentsBound() {
+        try {
+            if (!net.minecraft.world.item.Items.STONE.builtInRegistryHolder().areComponentsBound()) {
+                net.minecraft.core.HolderLookup.Provider provider = net.minecraft.core.HolderLookup.Provider.create(
+                        BuiltInRegistries.REGISTRY.stream().map(r -> (net.minecraft.core.HolderLookup.RegistryLookup<?>) r)
+                );
+                java.util.List<net.minecraft.core.component.DataComponentInitializers.PendingComponents<?>> pending =
+                        BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(provider);
+                for (net.minecraft.core.component.DataComponentInitializers.PendingComponents<?> p : pending) {
+                    p.apply();
+                }
+                LOGGER.info("Successfully bound default item data components for title screen menu");
+            }
+        } catch (Throwable t) {
+            LOGGER.error("Failed to bind item components: " + t.getMessage(), t);
+        }
     }
 }

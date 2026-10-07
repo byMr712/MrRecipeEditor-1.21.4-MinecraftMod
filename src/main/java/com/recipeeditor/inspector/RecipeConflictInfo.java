@@ -30,6 +30,11 @@ public class RecipeConflictInfo {
 
     public Component getConflictingItemName() {
         if (conflictingItem == null) return Component.literal("Unknown");
-        return new ItemStack(conflictingItem).getHoverName();
+        try {
+            if (conflictingItem.builtInRegistryHolder().areComponentsBound()) {
+                return new ItemStack(conflictingItem).getHoverName();
+            }
+        } catch (Throwable ignored) {}
+        return Component.translatable(conflictingItem.getDescriptionId());
     }
 }
