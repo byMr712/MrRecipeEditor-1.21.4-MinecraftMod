@@ -17,9 +17,11 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 
 ### 1.3. Target Platform and Dependencies
 * **Minecraft:** 1.21.4.
+* **Yarn Mappings:** `1.21.4+build.8`.
 * **Java:** 21 (LTS).
-* **Fabric Loader:** `>= 0.16.0`.
-* **Fabric API:** `0.115.0+1.21.4`.
+* **Fabric Loader:** `>= 0.19.5`.
+* **Fabric API:** `0.119.4+1.21.4`.
+* **Fabric Loom:** `1.18-SNAPSHOT`.
 * **Mod Menu:** `13.0.1` (declared dependency in `depends` within `fabric.mod.json`).
 * **Roughly Enough Items (REI):** `18.0.815` (declared dependency in `suggests`, official API integration).
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
