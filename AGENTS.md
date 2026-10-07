@@ -516,17 +516,23 @@ To ensure flawless operation across all supported Minecraft releases, the codeba
 
 ### 15.2. Detailed Analysis of Resolved Bugs Across Versions
 
-#### Bug 1: Recipe Book Forgets Custom Recipes on World Re-entry / Re-login
-* **Impacted Branches:** `1.21`, `1.21.1`.
-* **Symptom:** Custom recipes were present during the initial session but vanished from the vanilla recipe book upon logging out and rejoining the world. The server console reported:
-  `[Server thread/ERROR] Tried to load unrecognized recipe: ... removed now`.
-* **Root Cause:**
-  1. In 1.21/1.21.1, the vanilla client recipe book receives recipes during player login via `sendInitRecipesPacket`. In `ServerRecipeBookMixin`, this method was not intercepted, leaving rejoining players without recipe book displays.
-  2. In `RecipeManagerMixin.onGet`, querying an overridden recipe returned `Optional.empty()`. When the player joined, `ServerRecipeBook.readNbt` loaded saved recipe IDs from player data and queried `RecipeManager.get(id)`. Returning `empty()` caused vanilla to deem the recipe invalid and purge it from the player's saved recipes.
-* **Fix Implemented:**
-  - Injected into `ServerRecipeBook.sendInitRecipesPacket` in `ServerRecipeBookMixin` to transmit all synthetic recipes upon connection.
-  - Updated `RecipeManagerMixin.onGet` to cleanly resolve overridden recipes during NBT deserialization while suppressing them during matching.
-  - In `1.21.2`+ and `26.X`, this is managed natively via `NetworkRecipeId` pools and `RecipeDisplayEntry` sync inside `sendInitialRecipeBook`.
+#### Bug 1: Recipe Book Does Not See New Recipes Live or Forgets Them on World Re-entry / Re-login
+* **Impacted Branches:** `1.21`, `1.21.1`. (Versions `1.21.2`–`1.21.11` and `26.1`–`26.3` utilize split `ServerRecipeManager`, `RecipeDisplayEntry`, and dynamic `NetworkRecipeId` pools $1\,000\,000+$ and are unaffected).
+* **Symptom:**
+  1. Newly saved custom recipes were not immediately recognized by the recipe book live in-game, or all custom crafts of a category collapsed into a single rotating button.
+  2. Upon logging out and rejoining the world, custom recipes and overridden vanilla recipes vanished from the vanilla recipe book, and the server log reported:
+     `[Server thread/ERROR] Tried to load unrecognized recipe: minecraft:oak_planks removed now.`
+     `[Server thread/ERROR] Tried to load unrecognized recipe: recipeeditor:minecraft_diamond_from_smelting_diamond_ore removed now.`
+* **Root Causes Identified & Resolved:**
+  1. **Packet Inversion in Live Recipe Sync:** In `CustomRecipeDispatcher.syncRecipeBookToPlayers`, `ChangeUnlockedRecipesS2CPacket(Action.ADD)` was transmitted **before** `SynchronizeRecipesS2CPacket`. When the client received the unlock packet, `ClientPlayNetworkHandler.onUnlockRecipes` queried `client.getRecipeManager().get(id)`. Because `SynchronizeRecipesS2CPacket` had not arrived yet, the client's `recipeManager` did not contain the new recipes; the lookup returned `Optional.empty()`, and `recipeBook.add(...)` was silently skipped.
+     - *Fix:* Reordered packet dispatch so `SynchronizeRecipesS2CPacket` is sent first (populating client `recipeManager`), followed by `ChangeUnlockedRecipesS2CPacket(Action.ADD)`. Additionally added immediate direct unlocking on the client recipe book (`MinecraftClient.getInstance().player.getRecipeBook()`) for instantaneous local singleplayer UI updates.
+  2. **Recipe Grouping Collision in `ClientRecipeBook.toGroupedMap`:** Synthetic recipes previously inherited `group = data.id`. When multiple recipes shared a group or used a non-empty group identifier, `ClientRecipeBook` grouped them into a single `RecipeResultCollection`, hiding individual recipes.
+     - *Fix:* Synthetic recipe generation in `createSyntheticRecipe` explicitly sets `String group = ""` so each custom recipe gets its own distinct, clickable slot in the recipe book.
+  3. **Player `.dat` NBT Deserialization & Unrecognized Recipe Purging:** On world login, `ServerRecipeBook.readNbt` iterates through unlocked recipes and calls `RecipeManager.get(id)`.
+     - *Vanilla Overridden Recipes:* In `RecipeManagerMixin.onGet`, overridden recipes previously replaced `cir.setReturnValue` with `Optional.empty()`. When vanilla found `empty()`, it logged an error and permanently deleted the recipe from the player's saved NBT! *Fix:* In `onGet`, if `original.isPresent()` is true, the original recipe is preserved; hiding overridden recipes from the recipe book is handled safely by `RecipeBookMixin.onContains` returning `false`.
+     - *Custom Recipes & Legacy IDs:* Previously, `getCustomRecipeEntryById` only checked `entry.id()` or simple prefixes. When player save files contained legacy or long IDs (e.g. `recipeeditor:minecraft_diamond_from_smelting_diamond_ore`), the lookup returned `Optional.empty()`, causing vanilla to purge the custom recipe from player data. *Fix:* Expanded `getCustomRecipeEntryById` to perform deep matching across `data.id`, `data.overriddenId`, `data.overriddenKey`, `data.resultItemId`, and substring containment, returning the synthetic entry and preventing deletion.
+  4. **Initial Login Recipe Book Pre-population (`ServerRecipeBookMixin` `@At("HEAD")`):** Vanilla constructs `ChangeUnlockedRecipesS2CPacket(Action.INIT)` from `this.recipes` and `this.toBeDisplayed`. Injected at `@At("HEAD")` of `ServerRecipeBook.sendInitRecipesPacket` to populate `ServerRecipeBook` with all custom recipes before the packet is created, guaranteeing all custom crafts are included in the initial join packet.
+  5. **`RecipeManager.sortedValues()` Mixin Interception:** Intercepted `sortedValues()` in `RecipeManagerMixin` returning `values()`, ensuring `ClientRecipeBook.reload(sortedValues(), ...)` receives all synthetic custom recipes.
 
 #### Bug 2: Smithing Table Result Slot Inactive / Uncraftable
 * **Impacted Branches:** `1.21`, `1.21.1`.
