@@ -188,21 +188,22 @@ public class RecipeManagerMixin {
         cir.setReturnValue(combined);
     }
 
+    @Inject(method = "sortedValues", at = @At("RETURN"), cancellable = true)
+    private void onSortedValues(CallbackInfoReturnable<Collection<RecipeEntry<?>>> cir) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
+        cir.setReturnValue(((RecipeManager) (Object) this).values());
+    }
+
     @Inject(method = "get(Lnet/minecraft/util/Identifier;)Ljava/util/Optional;", at = @At("RETURN"), cancellable = true)
     private void onGet(Identifier id, CallbackInfoReturnable<Optional<RecipeEntry<?>>> cir) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         Optional<RecipeEntry<?>> original = cir.getReturnValue();
         if (original != null && original.isPresent()) {
-            if (CustomRecipeDispatcher.isRecipeOverridden(original.get())) {
-                Optional<RecipeEntry<?>> custom = CustomRecipeDispatcher.getCustomRecipeForOverridden(id);
-                cir.setReturnValue(custom);
-                return;
-            }
-        } else {
-            Optional<RecipeEntry<?>> custom = CustomRecipeDispatcher.getCustomRecipeEntryById(id);
-            if (custom.isPresent()) {
-                cir.setReturnValue(custom);
-            }
+            return;
+        }
+        Optional<RecipeEntry<?>> custom = CustomRecipeDispatcher.getCustomRecipeEntryById(id);
+        if (custom != null && custom.isPresent()) {
+            cir.setReturnValue(custom);
         }
     }
 
@@ -210,16 +211,12 @@ public class RecipeManagerMixin {
     private void onGetWithType(RecipeType<?> type, Identifier id, CallbackInfoReturnable<RecipeEntry<?>> cir) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         RecipeEntry<?> original = cir.getReturnValue();
-        if (original != null && CustomRecipeDispatcher.isRecipeOverridden(original)) {
-            Optional<RecipeEntry<?>> custom = CustomRecipeDispatcher.getCustomRecipeEntryById(id);
-            cir.setReturnValue(custom.orElse(null));
+        if (original != null) {
             return;
         }
-        if (original == null) {
-            Optional<RecipeEntry<?>> custom = CustomRecipeDispatcher.getCustomRecipeEntryById(id);
-            if (custom.isPresent()) {
-                cir.setReturnValue(custom.get());
-            }
+        Optional<RecipeEntry<?>> custom = CustomRecipeDispatcher.getCustomRecipeEntryById(id);
+        if (custom != null && custom.isPresent()) {
+            cir.setReturnValue(custom.get());
         }
     }
 }

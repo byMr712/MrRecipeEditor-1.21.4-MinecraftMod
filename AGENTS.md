@@ -475,10 +475,13 @@ The mod enforces a strict bilingual requirement for all in-game text:
 * **Interaction Model:** Uses temporary `ItemActionResult` for `CampfireBlock.onUseWithItem(ItemStack, BlockState, World, BlockPos, PlayerEntity, Hand, BlockHitResult)`.
 * **Network Recipe Synchronization:** Uses `RecipeBookAddS2CPacket` and `SynchronizeRecipesS2CPacket` with Guava `ImmutableMap` collision-safe composite IDs (`recipeeditor:<cleanId>_<typeSuffix>_<hash>`).
 
-### 15.2. Bug Fix Status & Implementation for 1.21 (Commit `c5e8c3f`)
-* **Bug 1 (Recipe Book Forgets Custom Recipes on World Re-entry):** **Fixed**.
-  - Added `@Inject` into `ServerRecipeBook.sendInitRecipesPacket` to transmit all custom recipes via `CustomRecipeDispatcher.sendCustomRecipeBookEntries` when a player joins the world.
-  - Corrected `RecipeManagerMixin.onGet` so that when `readNbt` queries recipe IDs saved in player data, overridden recipes resolve cleanly instead of returning `Optional.empty()`, eliminating the server error `Tried to load unrecognized recipe: ... removed now`.
+### 15.2. Bug Fix Status & Implementation for 1.21
+* **Bug 1 (Recipe Book Forgets Custom Recipes on World Re-entry / Packet Order Desync):** **Fixed**.
+  - **Packet Inversion Resolution:** In Minecraft 1.21, `ChangeUnlockedRecipesS2CPacket` triggers client-side lookup `this.recipeManager.get(id)`. Previously, `ChangeUnlockedRecipesS2CPacket` was sent before `SynchronizeRecipesS2CPacket`. When the client received the unlock packet, its local `recipeManager` had not yet received the synthetic recipes, causing `recipeManager.get(id)` to return `Optional.empty()` and silently dropping recipe unlock calls in `ClientRecipeBook`. Inverted packet order so `SynchronizeRecipesS2CPacket` is sent first, followed by `ChangeUnlockedRecipesS2CPacket(Action.ADD)`, plus direct client recipe book unlock on the integrated singleplayer thread.
+  - **Recipe Grouping Collision Elimination:** `ClientRecipeBook.toGroupedMap` collapses recipes sharing a non-empty `group` into a single rotating button. Synthetic recipe generation now sets `String group = ""` so each custom recipe gets its own distinct, clickable slot in the recipe book.
+  - **Player `.dat` NBT Deserialization & Unrecognized Recipe Purge Elimination:** When loading player data on world login, `ServerRecipeBook.handleList` calls `RecipeManager.get(Identifier)`. Previously, if a vanilla recipe was overridden, `RecipeManagerMixin.onGet` replaced `original` with `Optional.empty()`, causing vanilla to log `Tried to load unrecognized recipe: <id> removed now.` and permanently erase it from player data. Now, `onGet` preserves existing vanilla entries (`original.isPresent()`), relying on `RecipeBookMixin.onContains` to hide overridden recipes from the book UI. Furthermore, `CustomRecipeDispatcher.getCustomRecipeEntryById` performs comprehensive matching across `data.id`, `data.overriddenId`, `data.overriddenKey`, and `data.resultItemId`, guaranteeing legacy IDs (e.g. `recipeeditor:minecraft_diamond_from_smelting_diamond_ore`) resolve cleanly without being purged.
+  - **`ServerRecipeBook.sendInitRecipesPacket` Pre-population (`@At("HEAD")`):** Injected at `@At("HEAD")` of `ServerRecipeBook.sendInitRecipesPacket` to add all custom recipes directly to `this.recipes` and `this.toBeDisplayed` before vanilla constructs `ChangeUnlockedRecipesS2CPacket(Action.INIT)`, guaranteeing custom recipes are present in the initial sync packet on world join.
+  - **`RecipeManager.sortedValues()` Interception:** Added mixin injection for `RecipeManager.sortedValues()` returning `values()`, ensuring `ClientRecipeBook.reload(sortedValues(), ...)` receives all synthetic recipes.
 * **Bug 2 (Smithing Table Result Slot Uncraftable):** **Fixed**.
   - `SmithingScreenHandler.updateResult` calls `RecipeManager.getAllMatches(RecipeType.SMITHING, inventory, world)` and `listAllOfType(RecipeType.SMITHING)`.
   - Added mixin handlers in `RecipeManagerMixin` for both methods to supply matching synthetic `SmithingTransformRecipe` entries.
@@ -491,4 +494,5 @@ The mod enforces a strict bilingual requirement for all in-game text:
   - Added mixin handler in `RecipeManagerMixin` for `getAllMatches` matching `RecipeType.STONECUTTING` to return custom stonecutter recipes.
 * **Bug 5 (Campfire Right-Click ClassCastException Crash):** **Fixed**.
   - Corrected `CampfireBlockMixin.onUseWithItem` injection signature from `CallbackInfoReturnable<ActionResult>` to `CallbackInfoReturnable<ItemActionResult>`, returning `ItemActionResult.CONSUME` on client and `ItemActionResult.SUCCESS` on server.
+
 
