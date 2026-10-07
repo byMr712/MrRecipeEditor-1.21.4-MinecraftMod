@@ -21,6 +21,10 @@ import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
+import net.minecraft.client.gui.Click;
+import net.minecraft.client.input.KeyInput;
+import net.minecraft.client.util.InputUtil;
+import net.minecraft.server.PlayerConfigEntry;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.*;
@@ -1022,7 +1026,7 @@ public class RecipeEditorScreen extends Screen {
         }
         // In a loaded world: allow only if in singleplayer or hosting an integrated server (LAN host)
         if (this.client.getServer() != null && this.client.isIntegratedServerRunning()) {
-            return this.client.getServer().isHost(this.client.player.getGameProfile()) || this.client.isInSingleplayer();
+            return this.client.getServer().isHost(new PlayerConfigEntry(this.client.player.getGameProfile())) || this.client.isInSingleplayer();
         }
         return false;
     }
@@ -2347,7 +2351,20 @@ public class RecipeEditorScreen extends Screen {
         }
 
         context.fill(x, y, x + w, y + h, innerBg);
-        context.drawBorder(x, y, w, h, borderColor);
+        drawBorder(context, x, y, w, h, borderColor);
+    }
+
+    private static void drawBorder(DrawContext context, int x, int y, int w, int h, int color) {
+        context.fill(x, y, x + w, y + 1, color);
+        context.fill(x, y + h - 1, x + w, y + h, color);
+        context.fill(x, y + 1, x + 1, y + h - 1, color);
+        context.fill(x + w - 1, y + 1, x + w, y + h - 1, color);
+    }
+
+    private boolean isShiftDown() {
+        if (this.client == null || this.client.getWindow() == null) return false;
+        return InputUtil.isKeyPressed(this.client.getWindow(), InputUtil.GLFW_KEY_LEFT_SHIFT)
+                || InputUtil.isKeyPressed(this.client.getWindow(), InputUtil.GLFW_KEY_RIGHT_SHIFT);
     }
 
     private void drawItemInScreen(DrawContext context, ItemStack stack, int x, int y) {
@@ -2359,32 +2376,34 @@ public class RecipeEditorScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        double sX = mouseX / uiScale;
-        double sY = mouseY / uiScale;
+    public boolean mouseClicked(Click click, boolean bl) {
+        double sX = click.x() / uiScale;
+        double sY = click.y() / uiScale;
+        int button = click.button();
+        Click scaledClick = new Click(sX, sY, click.buttonInfo());
 
         if (!isLocalWorldCreator()) {
             if (exitBtn != null && exitBtn.visible && exitBtn.isMouseOver(sX, sY)) {
-                return exitBtn.mouseClicked(sX, sY, button);
+                return exitBtn.mouseClicked(scaledClick, bl);
             }
             return false;
         }
 
         if (!configCopy.modEnabled) {
             if (toggleEnabledBtn != null && toggleEnabledBtn.visible && toggleEnabledBtn.isMouseOver(sX, sY)) {
-                return toggleEnabledBtn.mouseClicked(sX, sY, button);
+                return toggleEnabledBtn.mouseClicked(scaledClick, bl);
             }
             if (exitBtn != null && exitBtn.visible && exitBtn.isMouseOver(sX, sY)) {
-                return exitBtn.mouseClicked(sX, sY, button);
+                return exitBtn.mouseClicked(scaledClick, bl);
             }
             return false;
         }
 
         if (clearSearchBtn != null && clearSearchBtn.visible && clearSearchBtn.isMouseOver(sX, sY)) {
-            return clearSearchBtn.mouseClicked(sX, sY, button);
+            return clearSearchBtn.mouseClicked(scaledClick, bl);
         }
 
-        if (super.mouseClicked(sX, sY, button)) {
+        if (super.mouseClicked(scaledClick, bl)) {
             return true;
         }
 
@@ -2404,7 +2423,7 @@ public class RecipeEditorScreen extends Screen {
 
             Item catItem = getCatalogItemAt(sX, sY);
             if (catItem != null && catItem != Items.AIR) {
-                if (Screen.hasShiftDown()) {
+                if (isShiftDown()) {
                     selectTargetItem(catItem);
                 } else {
                     draggedItem = catItem;
@@ -2445,12 +2464,14 @@ public class RecipeEditorScreen extends Screen {
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    public boolean mouseReleased(Click click) {
         if (!configCopy.modEnabled || !isLocalWorldCreator()) {
             return false;
         }
-        double sX = mouseX / uiScale;
-        double sY = mouseY / uiScale;
+        double sX = click.x() / uiScale;
+        double sY = click.y() / uiScale;
+        int button = click.button();
+        Click scaledClick = new Click(sX, sY, click.buttonInfo());
 
         Element focused = this.getFocused();
         if (focused instanceof SelectableTextFieldWidget textField && button == 0) {
@@ -2557,19 +2578,21 @@ public class RecipeEditorScreen extends Screen {
             updateButtonStates();
             return true;
         }
-        return super.mouseReleased(sX, sY, button);
+        return super.mouseReleased(scaledClick);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(Click click, double deltaX, double deltaY) {
         if (!configCopy.modEnabled || !isLocalWorldCreator()) {
             return false;
         }
         if (draggedItem != null) {
             return true;
         }
-        double sX = mouseX / uiScale;
-        double sY = mouseY / uiScale;
+        double sX = click.x() / uiScale;
+        double sY = click.y() / uiScale;
+        int button = click.button();
+        Click scaledClick = new Click(sX, sY, click.buttonInfo());
 
         Element focused = this.getFocused();
         if (focused instanceof SelectableTextFieldWidget textField && button == 0) {
@@ -2578,11 +2601,11 @@ public class RecipeEditorScreen extends Screen {
             }
         }
 
-        return super.mouseDragged(sX, sY, button, deltaX / uiScale, deltaY / uiScale);
+        return super.mouseDragged(scaledClick, deltaX / uiScale, deltaY / uiScale);
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    public boolean keyPressed(KeyInput input) {
         boolean textFieldFocused = (searchField != null && searchField.isFocused()) ||
                 (resultCountField != null && resultCountField.isFocused()) ||
                 (variantField != null && variantField.isFocused()) ||
@@ -2590,12 +2613,14 @@ public class RecipeEditorScreen extends Screen {
                 (experienceField != null && experienceField.isFocused());
 
         if (textFieldFocused) {
-            return super.keyPressed(keyCode, scanCode, modifiers);
+            return super.keyPressed(input);
         }
 
         if (!configCopy.modEnabled || !isLocalWorldCreator()) {
-            return super.keyPressed(keyCode, scanCode, modifiers);
+            return super.keyPressed(input);
         }
+
+        int keyCode = input.key();
 
         if (keyCode == GLFW.GLFW_KEY_I) {
             toggleHintsVisibility();
@@ -2607,6 +2632,6 @@ public class RecipeEditorScreen extends Screen {
             return true;
         }
 
-        return super.keyPressed(keyCode, scanCode, modifiers);
+        return super.keyPressed(input);
     }
 }

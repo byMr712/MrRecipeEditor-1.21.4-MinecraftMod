@@ -7,6 +7,8 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Util;
 import net.minecraft.util.math.MathHelper;
 
+import net.minecraft.client.gui.Click;
+
 public class SelectableTextFieldWidget extends TextFieldWidget {
     private final TextRenderer textRenderer;
     private int dragAnchor = -1;
@@ -21,11 +23,11 @@ public class SelectableTextFieldWidget extends TextFieldWidget {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        boolean result = super.mouseClicked(mouseX, mouseY, button);
-        if (result && button == 0) {
+    public boolean mouseClicked(Click click, boolean bl) {
+        boolean result = super.mouseClicked(click, bl);
+        if (result && click.button() == 0) {
             long now = Util.getMeasuringTimeMs();
-            if (now - lastClickTime < 300L && Math.abs(mouseX - lastClickX) < 5.0 && Math.abs(mouseY - lastClickY) < 5.0) {
+            if (now - lastClickTime < 300L && Math.abs(click.x() - lastClickX) < 5.0 && Math.abs(click.y() - lastClickY) < 5.0) {
                 // Double click: select all text in the field
                 this.setCursorToStart(false);
                 this.setSelectionEnd(this.getText().length());
@@ -35,8 +37,8 @@ public class SelectableTextFieldWidget extends TextFieldWidget {
                 return true;
             }
             this.lastClickTime = now;
-            this.lastClickX = mouseX;
-            this.lastClickY = mouseY;
+            this.lastClickX = click.x();
+            this.lastClickY = click.y();
             this.dragAnchor = this.getCursor();
             this.isDraggingSelection = true;
         } else if (!this.isFocused()) {
@@ -47,11 +49,11 @@ public class SelectableTextFieldWidget extends TextFieldWidget {
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (handleMouseDragged(mouseX, mouseY, button)) {
+    public boolean mouseDragged(Click click, double deltaX, double deltaY) {
+        if (handleMouseDragged(click.x(), click.y(), click.button())) {
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(click, deltaX, deltaY);
     }
 
     public boolean handleMouseDragged(double mouseX, double mouseY, int button) {
@@ -65,11 +67,11 @@ public class SelectableTextFieldWidget extends TextFieldWidget {
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0) {
+    public boolean mouseReleased(Click click) {
+        if (click.button() == 0) {
             this.isDraggingSelection = false;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(click);
     }
 
     public void handleMouseReleased(double mouseX, double mouseY, int button) {

@@ -111,7 +111,7 @@ public class RecipeConflictScreen extends Screen {
 
         // Subtle background panel for conflict items
         context.fill(listX, listTop, listX + listW, listBottom, 0x44000000);
-        context.drawBorder(listX, listTop, listW, listH, 0x33FFFFFF);
+        drawBorder(context, listX, listTop, listW, listH, 0x33FFFFFF);
 
         context.enableScissor(listX + 1, listTop + 1, listX + listW - 1, listBottom - 1);
 
@@ -130,7 +130,7 @@ public class RecipeConflictScreen extends Screen {
             if (entryStartY + cardH >= listTop && entryStartY <= listBottom) {
                 // Card background
                 context.fill(listX + 4, entryStartY, listX + listW - 8, entryStartY + cardH - 4, 0x44222222);
-                context.drawBorder(listX + 4, entryStartY, listW - 12, cardH - 4, 0x33FFFFFF);
+                drawBorder(context, listX + 4, entryStartY, listW - 12, cardH - 4, 0x33FFFFFF);
 
                 // Left Side: Grid & Station
                 int gridX = listX + 10;
@@ -278,6 +278,13 @@ public class RecipeConflictScreen extends Screen {
 
     private void drawMiniSlot(DrawContext context, int x, int y) {
         context.fill(x, y, x + 18, y + 18, 0x99000000);
-        context.drawBorder(x, y, 18, 18, 0xFF555555);
+        drawBorder(context, x, y, 18, 18, 0xFF555555);
+    }
+
+    private static void drawBorder(DrawContext context, int x, int y, int w, int h, int color) {
+        context.fill(x, y, x + w, y + 1, color);
+        context.fill(x, y + h - 1, x + w, y + h, color);
+        context.fill(x, y + 1, x + 1, y + h - 1, color);
+        context.fill(x + w - 1, y + 1, x + w, y + h - 1, color);
     }
 }
