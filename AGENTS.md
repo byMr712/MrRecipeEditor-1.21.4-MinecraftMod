@@ -460,3 +460,27 @@ The mod enforces a strict bilingual requirement for all in-game text:
   * `src/main/resources/assets/recipeeditor/lang/ru_ru.json` (Russian)
 * **No Untranslated Keys:** Hardcoding raw string literals in user-facing widgets or leaving translation keys present in only one language file is strictly prohibited. Missing keys in either language are treated as critical issues.
 * **Consistent Tone:** Russian translations must maintain natural, friendly, and precise Minecraft terminology; English translations must follow official Minecraft naming conventions.
+
+---
+
+## 15. Version 1.21.4 Specifications, Architectural Nuances & Bug Fix Details
+
+### 15.1. Technical Environment & Version Architecture
+* **Minecraft Version:** `1.21.4`
+* **Java Runtime:** Java 21 LTS
+* **Mapping Framework:** Yarn mappings (`1.21.4+build.8`)
+* **Loom Version:** `1.18-SNAPSHOT` / Fabric API `0.119.4+1.21.4`
+* **Recipe Manager Framework:** `ServerRecipeManager` with `NetworkRecipeId` allocation pool ($1\,000\,000+$) and `RecipeDisplayEntry` synchronization.
+* **Workstations:** Stonecutter uses recipe grouping methods (`getStonecutterRecipes` and `getStonecutterRecipeForSync`). Smithing table operates via `SmithingScreenHandlerMixin` and `createForgingSlotsManager`.
+* **Interaction Model:** Uses standard `ActionResult` for campfire interactions.
+
+### 15.2. Bug Fix Status & Implementation for 1.21.4
+* **Bug 1 (Recipe Book World Re-entry Persistence):** Not affected. In 1.21.4, recipes are synchronized through `RecipeDisplayEntry` and `NetworkRecipeId` pools inside `ServerRecipeBookMixin` and `sendInitialRecipeBook`.
+* **Bug 2 (Smithing Table Crafts):** Not affected. Uses `SmithingScreenHandlerMixin` with `createForgingSlotsManager`.
+* **Bug 3 (Reset Defaults / Clear All Crafts & Delete Entire Craft):** **Fixed (commit `b0841cc`)**.
+  - `RecipeEditorConfig.initDefaults()` now calls `rebuildEnabledCache()`, ensuring `enabledResultIds` is fully purged when resetting all crafts.
+  - `RecipeEditorScreen.deleteEntireCustomCraft()` executes `removeRecipesFor(targetItem)` on both `configCopy` and the active singleton instance.
+  - `RecipeViewerIntegration.reloadRecipeViewers()` is triggered on reset to immediately update viewer overlays.
+* **Bug 4 (Stonecutter Crafting Output):** Not affected. In 1.21.4, stonecutter queries are routed through `ServerRecipeManagerMixin.getStonecutterRecipes` and `getStonecutterRecipeForSync`.
+* **Bug 5 (Campfire Right-Click Crash):** Not affected. Minecraft 1.21.4 uses `ActionResult` rather than the temporary 1.21 `ItemActionResult`.
+
