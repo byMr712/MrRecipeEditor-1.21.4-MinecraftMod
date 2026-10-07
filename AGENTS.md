@@ -38,10 +38,14 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
      In Minecraft 26.X, item data components (`DataComponentMap`) must be built through `BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(provider)` before instantiating `ItemStack` or displaying items when opening the editor GUI from ModMenu on the title screen.
      Dynamic world datapack registries (`RegistryAccess`) do not exist yet on the title screen. Vanilla component initializers for items like fire-resistant armor or trimmed gear attempt to resolve dynamic datapack entries (e.g., `DamageTypes.IS_FIRE`, `TrimMaterials.REDSTONE`). Calling `build()` directly throws `IllegalStateException: Missing tag` or `Missing element`.
      **Solution:** `RecipeInspector.ensureItemComponentsBound()` constructs a fallback `safeProvider` wrapping `BuiltInRegistries.createWrapperLookup()`. The provider intercepts lookup calls and returns empty tag sets (`HolderSet.emptyNamed(...)`), standalone reference fallbacks (`Holder.Reference.createStandAlone(...)`), and empty registry lookups, allowing all item components to bind safely without crashing on the title screen.
-   * **SDL3 / Modern Mojang Input Model (`MouseButtonEvent` & `uiScale` Coordinate Translation)**:
-     26.X utilizes the modern `MouseButtonEvent` model (delivering `x()`, `y()`, `button()`, and `buttonInfo()`).
-     All GUI interactions (clicking, dragging, releasing) in `RecipeEditorScreen` are normalized through `uiScale = Math.min(width / 460f, height / 380f)`: `sX = event.x() / uiScale` and `sY = event.y() / uiScale`.
-     Drag-and-drop item movement, right-click catalog inspection (`button == 1`), and text field drag-selection via `SelectableTextFieldWidget` operate seamlessly with precision coordinates.
+   * **SDL3 / Modern Mojang Input Model (`MouseButtonEvent`, `InputConstants` & `uiScale` Coordinate Translation)**:
+     Minecraft 26.X replaces GLFW with SDL3. Under SDL3, mouse button indices are 1-based:
+     - `InputConstants.MOUSE_BUTTON_LEFT` is `1` (Left Click).
+     - `InputConstants.MOUSE_BUTTON_MIDDLE` is `2` (Middle Click).
+     - `InputConstants.MOUSE_BUTTON_RIGHT` is `3` (Right Click).
+     (In GLFW / 1.21, left was 0 and right was 1. In 26.X, checking `button == 1` for right-click caused left-click to trigger right-click actions and completely ignored true right-clicks with button 3).
+     All mouse handlers use `isLeftClick(button)` and `isRightClick(button)` checking `InputConstants.MOUSE_BUTTON_LEFT` and `InputConstants.MOUSE_BUTTON_RIGHT`.
+     Drag-and-drop item movement, right-click catalog recipe loading (`isRightClick`), right-click slot clearing, and text field drag-selection via `SelectableTextFieldWidget` operate seamlessly with precision coordinates.
    * **Screen Navigation**:
      Screen transitions in 26.1 utilize `minecraft.setScreen(...)`.
    * **Recipe Book & Network Architecture (`ServerRecipeManager`, `NetworkRecipeId`, `RecipeDisplay`)**:
