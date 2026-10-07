@@ -25,7 +25,7 @@ public class CustomDynamicSmithingRecipe implements SmithingRecipe {
     public CustomDynamicSmithingRecipe(String group, Optional<Ingredient> template, Optional<Ingredient> base, Optional<Ingredient> addition, ItemStack resultStack) {
         this.group = group != null ? group : "";
         this.template = template != null ? template : Optional.empty();
-        this.base = base != null && base.isPresent() ? base.get() : Ingredient.of(Stream.empty());
+        this.base = base != null && base.isPresent() && !base.get().isEmpty() ? base.get() : Ingredient.of(Items.BARRIER);
         this.addition = addition != null ? addition : Optional.empty();
         this.resultStack = resultStack != null ? resultStack : ItemStack.EMPTY;
     }
