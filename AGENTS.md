@@ -1,6 +1,6 @@
-# Architectural Blueprint and Technical Specification for [MR] Recipe Editor (Minecraft 1.21.4 Fabric)
+# Architectural Blueprint and Technical Specification for [MR] Recipe Editor (Minecraft 26.3 Fabric)
 
-This document provides a comprehensive technical blueprint and architectural specification for the **[MR] Recipe Editor** modification for Minecraft 1.21.4 (Fabric). It is designed for AI agents, system architects, and software engineers who require an exhaustive understanding of every implementation detail: from internal data structures and pattern-matching algorithms to network synchronization, Roughly Enough Items (REI) integration, and low-level bytecode mixins.
+This document provides a comprehensive technical blueprint and architectural specification for the **[MR] Recipe Editor** modification for Minecraft 26.3 (Fabric). It is designed for AI agents, system architects, and software engineers who require an exhaustive understanding of every implementation detail: from internal data structures and pattern-matching algorithms to network synchronization, Roughly Enough Items (REI) integration, and low-level bytecode mixins.
 
 ---
 
@@ -16,14 +16,23 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * All vanilla and modded mechanics remain completely untouched until the user explicitly saves a new custom recipe or overrides an existing one.
 
 ### 1.3. Target Platform and Dependencies
-* **Minecraft:** 1.21.4.
-* **Java:** 21 (LTS).
+* **Minecraft:** 26.3.
+* **Mappings:** Official Mojang Mappings.
+* **Java:** 25.
 * **Fabric Loader:** `>= 0.16.0`.
-* **Fabric API:** `0.115.0+1.21.4`.
-* **Mod Menu:** `13.0.1` (declared dependency in `depends` within `fabric.mod.json`).
-* **Roughly Enough Items (REI):** `18.0.815` (declared dependency in `suggests`, official API integration).
+* **Fabric API:** `0.162.0+26.3`.
+* **Fabric Loom:** `1.18-SNAPSHOT`.
+* **Mod Menu:** `21.0.0` (declared in `modmenu` entrypoint and `suggests` within `fabric.mod.json`).
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
+
+### 1.4. Branching Strategy & Main Codebase Invariant
+* **MANDATORY INVARIANT:** The codebase of the `main` branch **must ALWAYS correspond to the latest supported Minecraft version branch** (currently `26.3`).
+* Any architectural updates, fixes, or porting to newer Minecraft versions must ensure that `main` is kept synchronized with the cutting edge (the newest version branch).
+* Every supported Minecraft release maintains its own dedicated branch for targeted builds and backward-compatible patches:
+  * **Java 21 (Yarn mappings):** `1.21`, `1.21.1`, `1.21.2`, `1.21.3`, `1.21.4`, `1.21.5`, `1.21.6`, `1.21.7`, `1.21.8`, `1.21.9`, `1.21.10`, `1.21.11`
+  * **Java 25 (Mojang mappings):** `26.1`, `26.1.1`, `26.1.2`, `26.2`, `26.3`
+* Build artifacts for distribution are generated per branch with standard nomenclature (`MrRecipeEditor-Fabric-<mc_version>-byMr712-v<mod_version>.jar`).
 
 ---
 

@@ -1,6 +1,7 @@
 package com.recipeeditor.config;
 
-import net.minecraft.text.Text;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.crafting.RecipeType;
 
 public enum RecipeTypeEnum {
     SHAPED_CRAFTING("block.minecraft.crafting_table", "recipeeditor.gui.tooltip_shaped"),
@@ -19,34 +20,34 @@ public enum RecipeTypeEnum {
         this.tooltipKey = tooltipKey;
     }
 
-    public Text getDisplayName() {
-        return Text.translatable(translationKey);
+    public Component getDisplayName() {
+        return Component.translatable(translationKey);
     }
 
-    public Text getTooltip() {
-        return Text.translatable(tooltipKey);
+    public Component getTooltip() {
+        return Component.translatable(tooltipKey);
     }
 
-    public static RecipeTypeEnum fromRecipeType(net.minecraft.recipe.RecipeType<?> type) {
-        if (type == net.minecraft.recipe.RecipeType.SMELTING) return SMELTING;
-        if (type == net.minecraft.recipe.RecipeType.BLASTING) return BLASTING;
-        if (type == net.minecraft.recipe.RecipeType.SMOKING) return SMOKING;
-        if (type == net.minecraft.recipe.RecipeType.CAMPFIRE_COOKING) return CAMPFIRE_COOKING;
-        if (type == net.minecraft.recipe.RecipeType.STONECUTTING) return STONECUTTING;
-        if (type == net.minecraft.recipe.RecipeType.SMITHING) return SMITHING;
-        if (type == net.minecraft.recipe.RecipeType.CRAFTING) return SHAPED_CRAFTING;
+    public static RecipeTypeEnum fromRecipeType(RecipeType<?> type) {
+        if (type == RecipeType.SMELTING) return SMELTING;
+        if (type == RecipeType.BLASTING) return BLASTING;
+        if (type == RecipeType.SMOKING) return SMOKING;
+        if (type == RecipeType.CAMPFIRE_COOKING) return CAMPFIRE_COOKING;
+        if (type == RecipeType.STONECUTTING) return STONECUTTING;
+        if (type == RecipeType.SMITHING) return SMITHING;
+        if (type == RecipeType.CRAFTING) return SHAPED_CRAFTING;
         return null;
     }
 
-    public net.minecraft.recipe.RecipeType<?> toRecipeType() {
+    public RecipeType<?> toRecipeType() {
         return switch (this) {
-            case SMELTING -> net.minecraft.recipe.RecipeType.SMELTING;
-            case BLASTING -> net.minecraft.recipe.RecipeType.BLASTING;
-            case SMOKING -> net.minecraft.recipe.RecipeType.SMOKING;
-            case CAMPFIRE_COOKING -> net.minecraft.recipe.RecipeType.CAMPFIRE_COOKING;
-            case STONECUTTING -> net.minecraft.recipe.RecipeType.STONECUTTING;
-            case SMITHING -> net.minecraft.recipe.RecipeType.SMITHING;
-            case SHAPED_CRAFTING -> net.minecraft.recipe.RecipeType.CRAFTING;
+            case SMELTING -> RecipeType.SMELTING;
+            case BLASTING -> RecipeType.BLASTING;
+            case SMOKING -> RecipeType.SMOKING;
+            case CAMPFIRE_COOKING -> RecipeType.CAMPFIRE_COOKING;
+            case STONECUTTING -> RecipeType.STONECUTTING;
+            case SMITHING -> RecipeType.SMITHING;
+            case SHAPED_CRAFTING -> RecipeType.CRAFTING;
         };
     }
 }

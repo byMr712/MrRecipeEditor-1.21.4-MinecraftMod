@@ -7,13 +7,13 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.recipe.RecipeSerializer;
-import net.minecraft.recipe.book.CraftingRecipeCategory;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
-import net.minecraft.util.Identifier;
+import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.crafting.CraftingBookCategory;
+import net.minecraft.world.item.crafting.RecipeSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,25 +25,14 @@ public class RecipeEditorMod implements ModInitializer {
         return FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER;
     }
 
-    public static final RecipeSerializer<CustomDynamicCraftingRecipe> RECIPE_SERIALIZER = Registry.register(
-            Registries.RECIPE_SERIALIZER,
-            Identifier.of(MOD_ID, "custom_crafting"),
-            new RecipeSerializer<CustomDynamicCraftingRecipe>() {
-                private final MapCodec<CustomDynamicCraftingRecipe> CODEC = MapCodec
-                        .unit(() -> new CustomDynamicCraftingRecipe(CraftingRecipeCategory.MISC));
-                private final PacketCodec<RegistryByteBuf, CustomDynamicCraftingRecipe> PACKET_CODEC = PacketCodec
-                        .unit(new CustomDynamicCraftingRecipe(CraftingRecipeCategory.MISC));
-
-                @Override
-                public MapCodec<CustomDynamicCraftingRecipe> codec() {
-                    return CODEC;
-                }
-
-                @Override
-                public PacketCodec<RegistryByteBuf, CustomDynamicCraftingRecipe> packetCodec() {
-                    return PACKET_CODEC;
-                }
-            });
+    public static final RecipeSerializer<CustomDynamicCraftingRecipe> CUSTOM_CRAFTING_SERIALIZER = Registry.register(
+            BuiltInRegistries.RECIPE_SERIALIZER,
+            Identifier.fromNamespaceAndPath(MOD_ID, "custom_crafting"),
+            new RecipeSerializer<>(
+                    MapCodec.unit(() -> new CustomDynamicCraftingRecipe(CraftingBookCategory.MISC)),
+                    StreamCodec.unit(new CustomDynamicCraftingRecipe(CraftingBookCategory.MISC))
+            )
+    );
 
     @Override
     public void onInitialize() {
@@ -60,6 +49,7 @@ public class RecipeEditorMod implements ModInitializer {
         }
 
         RecipeEditorConfig.getInstance();
+        ensureItemComponentsBound();
 
         // Player join recipe book sync on local integrated server
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
@@ -79,8 +69,26 @@ public class RecipeEditorMod implements ModInitializer {
                     if (success) {
                         RecipeEditorConfig.getInstance().invalidateAllRecipeCaches();
                         com.recipeeditor.recipe.CustomRecipeDispatcher
-                                .syncRecipeBookToPlayers(server.getPlayerManager().getPlayerList());
+                                .syncRecipeBookToPlayers(server.getPlayerList().getPlayers());
                     }
                 });
+    }
+
+    public static void ensureItemComponentsBound() {
+        try {
+            if (!net.minecraft.world.item.Items.STONE.builtInRegistryHolder().areComponentsBound()) {
+                net.minecraft.core.HolderLookup.Provider provider = net.minecraft.core.HolderLookup.Provider.create(
+                        BuiltInRegistries.REGISTRY.stream().map(r -> (net.minecraft.core.HolderLookup.RegistryLookup<?>) r)
+                );
+                java.util.List<net.minecraft.core.component.DataComponentInitializers.PendingComponents<?>> pending =
+                        BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(provider);
+                for (net.minecraft.core.component.DataComponentInitializers.PendingComponents<?> p : pending) {
+                    p.apply();
+                }
+                LOGGER.info("Successfully bound default item data components for title screen menu");
+            }
+        } catch (Throwable t) {
+            LOGGER.error("Failed to bind item components: " + t.getMessage(), t);
+        }
     }
 }

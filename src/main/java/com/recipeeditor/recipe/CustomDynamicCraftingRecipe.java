@@ -4,72 +4,52 @@ import com.recipeeditor.RecipeEditorMod;
 import com.recipeeditor.config.CustomRecipeData;
 import com.recipeeditor.config.RecipeEditorConfig;
 import com.recipeeditor.config.RecipeTypeEnum;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.recipe.*;
-import net.minecraft.recipe.book.CraftingRecipeCategory;
-import net.minecraft.recipe.book.RecipeBookCategories;
-import net.minecraft.recipe.book.RecipeBookCategory;
-import net.minecraft.recipe.display.RecipeDisplay;
-import net.minecraft.recipe.display.ShapedCraftingRecipeDisplay;
-import net.minecraft.recipe.display.ShapelessCraftingRecipeDisplay;
-import net.minecraft.recipe.display.SlotDisplay;
-import net.minecraft.recipe.input.CraftingRecipeInput;
-import net.minecraft.registry.RegistryWrapper;
-import net.minecraft.util.Identifier;
-import net.minecraft.world.World;
+import net.minecraft.core.NonNullList;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemStackTemplate;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.*;
+import net.minecraft.world.item.crafting.display.RecipeDisplay;
+import net.minecraft.world.item.crafting.display.ShapedCraftingRecipeDisplay;
+import net.minecraft.world.item.crafting.display.ShapelessCraftingRecipeDisplay;
+import net.minecraft.world.item.crafting.display.SlotDisplay;
+import net.minecraft.world.level.Level;
 
 import java.util.*;
 
-public class CustomDynamicCraftingRecipe extends ShapedRecipe {
+public class CustomDynamicCraftingRecipe extends CustomRecipe {
 
-    public CustomDynamicCraftingRecipe(CraftingRecipeCategory category) {
-        super("recipeeditor", category, createDefaultRaw(), new ItemStack(Items.DIRT), true);
-    }
-
-    private static RawShapedRecipe createDefaultRaw() {
-        Map<Character, Ingredient> key = Map.of('A', Ingredient.ofItem(Items.DIRT));
-        return RawShapedRecipe.create(key, "A");
+    public CustomDynamicCraftingRecipe(CraftingBookCategory category) {
+        super();
     }
 
     @Override
-    public int getWidth() {
-        return 3;
-    }
-
-    @Override
-    public int getHeight() {
-        return 3;
-    }
-
-    @Override
-    public boolean isIgnoredInRecipeBook() {
-        return false;
-    }
-
-    @Override
-    public boolean showNotification() {
-        return true;
-    }
-
-    @Override
-    public RecipeBookCategory getRecipeBookCategory() {
+    public RecipeBookCategory recipeBookCategory() {
         return RecipeBookCategories.CRAFTING_MISC;
     }
 
-    private static volatile CraftingRecipeInput lastInput = null;
+    @Override
+    public CraftingBookCategory category() {
+        return CraftingBookCategory.MISC;
+    }
+
+    private static volatile CraftingInput lastInput = null;
     private static volatile CustomRecipeData lastMatchedRecipe = null;
     private static volatile int lastInputConfigVersion = -1;
 
-    private static synchronized CustomRecipeData findMatchingRecipe(CraftingRecipeInput input) {
+    private static synchronized CustomRecipeData findMatchingRecipe(CraftingInput input) {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty() || input.isEmpty()) {
             return null;
         }
 
         int currentVer = config.configVersion;
-        CraftingRecipeInput prevInput = lastInput;
+        CraftingInput prevInput = lastInput;
         if (prevInput != null && lastInputConfigVersion == currentVer && input.equals(prevInput)) {
             return lastMatchedRecipe;
         }
@@ -90,7 +70,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         return matched;
     }
 
-    public static boolean matchesCrafting(CraftingRecipeInput input, CustomRecipeData recipeData) {
+    public static boolean matchesCrafting(CraftingInput input, CustomRecipeData recipeData) {
         if (recipeData == null || recipeData.type != RecipeTypeEnum.SHAPED_CRAFTING) return false;
         if (recipeData.isShapeless) {
             return matchesShapeless(input, recipeData);
@@ -99,12 +79,12 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         }
     }
 
-    public static boolean matchesShapeless(CraftingRecipeInput input, CustomRecipeData recipeData) {
+    public static boolean matchesShapeless(CraftingInput input, CustomRecipeData recipeData) {
         if (input.isEmpty()) return false;
 
         List<Ingredient> ingredients = recipeData.getNonEmptyIngredients();
         int expectedCount = ingredients.size();
-        if (expectedCount == 0 || input.getStackCount() != expectedCount) {
+        if (expectedCount == 0 || input.ingredientCount() != expectedCount) {
             return false;
         }
 
@@ -112,7 +92,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         int count = 0;
         int inputSize = input.size();
         for (int i = 0; i < inputSize; i++) {
-            ItemStack stack = input.getStackInSlot(i);
+            ItemStack stack = input.getItem(i);
             if (!stack.isEmpty()) {
                 if (count >= expectedCount) return false;
                 inputStacks[count++] = stack;
@@ -142,7 +122,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         return false;
     }
 
-    public static boolean matchesShaped(CraftingRecipeInput input, CustomRecipeData recipeData) {
+    public static boolean matchesShaped(CraftingInput input, CustomRecipeData recipeData) {
         if (input.isEmpty()) return false;
 
         int patternW = recipeData.getPatternWidth();
@@ -151,8 +131,8 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
             return false;
         }
 
-        int inputW = input.getWidth();
-        int inputH = input.getHeight();
+        int inputW = input.width();
+        int inputH = input.height();
 
         if (inputW < patternW || inputH < patternH) {
             return false;
@@ -162,7 +142,6 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         int minCol = recipeData.getMinCol();
         int maxCol = recipeData.getMaxCol();
 
-        // Test all possible positions (dx, dy) where pattern can fit in the crafting input grid
         for (int dx = 0; dx <= inputW - patternW; dx++) {
             for (int dy = 0; dy <= inputH - patternH; dy++) {
                 if (checkMatchAt(input, recipeData, minRow, minCol, maxCol, patternW, patternH, dx, dy, false)) {
@@ -177,11 +156,11 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
         return false;
     }
 
-    private static boolean checkMatchAt(CraftingRecipeInput input, CustomRecipeData recipeData,
+    private static boolean checkMatchAt(CraftingInput input, CustomRecipeData recipeData,
                                  int minRow, int minCol, int maxCol, int patternW, int patternH,
                                  int dx, int dy, boolean mirrored) {
-        int inputW = input.getWidth();
-        int inputH = input.getHeight();
+        int inputW = input.width();
+        int inputH = input.height();
 
         for (int ir = 0; ir < inputH; ir++) {
             for (int ic = 0; ic < inputW; ic++) {
@@ -195,7 +174,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
                     expected = recipeData.getIngredientAt(slotIdx);
                 }
 
-                ItemStack actual = input.getStackInSlot(ic, ir);
+                ItemStack actual = input.getItem(ic, ir);
                 if (expected == null) {
                     if (!actual.isEmpty()) {
                         return false;
@@ -211,22 +190,22 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
     }
 
     @Override
-    public boolean matches(CraftingRecipeInput input, World world) {
+    public boolean matches(CraftingInput input, Level level) {
         return findMatchingRecipe(input) != null;
     }
 
     @Override
-    public net.minecraft.util.collection.DefaultedList<ItemStack> getRecipeRemainders(CraftingRecipeInput input) {
-        return CraftingRecipe.collectRecipeRemainders(input);
+    public NonNullList<ItemStack> getRemainingItems(CraftingInput input) {
+        return CraftingRecipe.defaultCraftingReminder(input);
     }
 
     @Override
-    public ItemStack craft(CraftingRecipeInput input, RegistryWrapper.WrapperLookup registries) {
+    public ItemStack assemble(CraftingInput input) {
         CustomRecipeData matched = findMatchingRecipe(input);
         if (matched != null) {
             Item resultItem = matched.getResultItem();
             if (resultItem != Items.AIR) {
-                int safeCount = Math.min(resultItem.getMaxCount(), Math.max(1, matched.getResultCountForType(matched.type)));
+                int safeCount = Math.min(resultItem.getDefaultInstance().getMaxStackSize(), Math.max(1, matched.getResultCountForType(matched.type)));
                 return new ItemStack(resultItem, safeCount);
             }
         }
@@ -246,7 +225,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
     private volatile int cachedDisplaysHash = 0;
 
     @Override
-    public List<RecipeDisplay> getDisplays() {
+    public List<RecipeDisplay> display() {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
             return Collections.emptyList();
@@ -267,8 +246,8 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
             Item resultItem = recipe.getResultItem();
             if (resultItem == Items.AIR) continue;
 
-            int safeCount = Math.min(resultItem.getMaxCount(), Math.max(1, recipe.getResultCountForType(recipe.type)));
-            SlotDisplay resultDisplay = new SlotDisplay.StackSlotDisplay(new ItemStack(resultItem, safeCount));
+            int safeCount = Math.min(resultItem.getDefaultInstance().getMaxStackSize(), Math.max(1, recipe.getResultCountForType(recipe.type)));
+            SlotDisplay resultDisplay = new SlotDisplay.ItemStackSlotDisplay(new ItemStackTemplate(resultItem, safeCount));
 
             if (recipe.type == RecipeTypeEnum.SHAPED_CRAFTING) {
                 if (recipe.isShapeless) {
@@ -279,7 +258,14 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
                             if (slotStr.startsWith("#")) {
                                 Identifier tagId = Identifier.tryParse(slotStr.substring(1));
                                 if (tagId != null) {
-                                    ingredients.add(new SlotDisplay.TagSlotDisplay(net.minecraft.registry.tag.TagKey.of(net.minecraft.registry.RegistryKeys.ITEM, tagId)));
+                                    TagKey<Item> tagKey = TagKey.create(Registries.ITEM, tagId);
+                                    var holderSet = BuiltInRegistries.ITEM.get(tagKey);
+                                    if (holderSet.isPresent()) {
+                                        ingredients.add(new SlotDisplay.TagSlotDisplay(holderSet.get()));
+                                    } else {
+                                        Item item = recipe.getItemAt(i);
+                                        if (item != Items.AIR) ingredients.add(new SlotDisplay.ItemSlotDisplay(item));
+                                    }
                                 } else {
                                     Item item = recipe.getItemAt(i);
                                     if (item != Items.AIR) ingredients.add(new SlotDisplay.ItemSlotDisplay(item));
@@ -315,18 +301,25 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
                                 int i = r * 3 + c;
                                 String slotStr = recipe.getSlotString(i);
                                 if (slotStr == null || slotStr.isEmpty() || slotStr.equals("minecraft:air")) {
-                                    ingredients.add(SlotDisplay.EmptySlotDisplay.INSTANCE);
+                                    ingredients.add(SlotDisplay.Empty.INSTANCE);
                                 } else if (slotStr.startsWith("#")) {
                                     Identifier tagId = Identifier.tryParse(slotStr.substring(1));
                                     if (tagId != null) {
-                                        ingredients.add(new SlotDisplay.TagSlotDisplay(net.minecraft.registry.tag.TagKey.of(net.minecraft.registry.RegistryKeys.ITEM, tagId)));
+                                        TagKey<Item> tagKey = TagKey.create(Registries.ITEM, tagId);
+                                        var holderSet = BuiltInRegistries.ITEM.get(tagKey);
+                                        if (holderSet.isPresent()) {
+                                            ingredients.add(new SlotDisplay.TagSlotDisplay(holderSet.get()));
+                                        } else {
+                                            Item item = recipe.getItemAt(i);
+                                            ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.Empty.INSTANCE);
+                                        }
                                     } else {
                                         Item item = recipe.getItemAt(i);
-                                        ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.EmptySlotDisplay.INSTANCE);
+                                        ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.Empty.INSTANCE);
                                     }
                                 } else {
                                     Item item = recipe.getItemAt(i);
-                                    ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.EmptySlotDisplay.INSTANCE);
+                                    ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.Empty.INSTANCE);
                                 }
                             }
                         }
@@ -342,7 +335,7 @@ public class CustomDynamicCraftingRecipe extends ShapedRecipe {
     }
 
     @Override
-    public RecipeSerializer<? extends ShapedRecipe> getSerializer() {
-        return RecipeEditorMod.RECIPE_SERIALIZER;
+    public RecipeSerializer<? extends CustomRecipe> getSerializer() {
+        return RecipeEditorMod.CUSTOM_CRAFTING_SERIALIZER;
     }
 }

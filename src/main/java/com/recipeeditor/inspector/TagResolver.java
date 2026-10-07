@@ -1,12 +1,13 @@
 package com.recipeeditor.inspector;
 
-import net.minecraft.item.Item;
-import net.minecraft.item.Items;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKeys;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.util.Identifier;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.tags.TagKey;
+import net.minecraft.resources.Identifier;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -24,13 +25,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Universal Tag Resolver for Minecraft 1.21.4
- * Resolves item tags (e.g. #minecraft:planks, #minecraft:stone_tool_materials, #c:iron_ingots)
- * to actual Item instances across all environments:
- * 1. Active world dynamic RegistryManager
- * 2. Static Registries.ITEM
- * 3. JAR/DataPack indexed tags
- * 4. Comprehensive built-in fallbacks & heuristic keyword matching
+ * Universal Tag Resolver for Minecraft 26.1
  */
 public class TagResolver {
     private static final Map<String, List<String>> TAG_ITEMS = new ConcurrentHashMap<>();
@@ -150,33 +145,30 @@ public class TagResolver {
         TAG_ITEMS.clear();
     }
 
-    /**
-     * Returns all distinct items matching a given tag (e.g. all 11 wood planks for #minecraft:planks).
-     */
     public static List<Item> getAllItemsForTag(String tagString) {
         if (tagString == null || tagString.isEmpty()) return Collections.emptyList();
         String tagId = tagString.startsWith("#") ? tagString.substring(1) : tagString;
         Set<Item> items = new LinkedHashSet<>();
 
-        // 1. World dynamic registry entries (if in-world on client)
         if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
             ClientTagHelper.queryClientWorldTags(tagId, items);
         }
 
-        // 2. Static Registries.ITEM
         try {
             Identifier id = Identifier.tryParse(tagId);
             if (id != null) {
-                TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
-                for (var entry : Registries.ITEM.iterateEntries(tagKey)) {
-                    if (entry.value() != null && entry.value() != Items.AIR) {
-                        items.add(entry.value());
+                TagKey<Item> tagKey = TagKey.create(Registries.ITEM, id);
+                var entryList = BuiltInRegistries.ITEM.get(tagKey);
+                if (entryList.isPresent()) {
+                    for (Holder<Item> entry : entryList.get()) {
+                        if (entry.value() != null && entry.value() != Items.AIR) {
+                            items.add(entry.value());
+                        }
                     }
                 }
             }
         } catch (Exception ignored) {}
 
-        // 3. Scanned Mod TAG_ITEMS JSON
         List<String> values = TAG_ITEMS.get(tagId);
         if (values != null && !values.isEmpty()) {
             for (String val : values) {
@@ -184,27 +176,25 @@ public class TagResolver {
                     items.addAll(getAllItemsForTag(val));
                 } else {
                     Identifier id = Identifier.tryParse(val);
-                    if (id != null && Registries.ITEM.containsId(id)) {
-                        Item item = Registries.ITEM.get(id);
+                    if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
+                        Item item = BuiltInRegistries.ITEM.getValue(id);
                         if (item != Items.AIR) items.add(item);
                     }
                 }
             }
         }
 
-        // 4. Static expansion table (e.g. all vanilla plank types before world load)
         List<String> staticList = STATIC_TAG_EXPANSIONS.get(tagId);
         if (staticList != null) {
             for (String idStr : staticList) {
                 Identifier id = Identifier.tryParse(idStr);
-                if (id != null && Registries.ITEM.containsId(id)) {
-                    Item item = Registries.ITEM.get(id);
+                if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
+                    Item item = BuiltInRegistries.ITEM.getValue(id);
                     if (item != Items.AIR) items.add(item);
                 }
             }
         }
 
-        // 5. Fallback single resolve
         if (items.isEmpty()) {
             Item single = resolveTag(tagId);
             if (single != Items.AIR) {
@@ -215,9 +205,6 @@ public class TagResolver {
         return new ArrayList<>(items);
     }
 
-    /**
-     * Parses a tag JSON file located in data/<namespace>/tags/item/<path>.json
-     */
     public static void parseTagJson(Path path) {
         try {
             String norm = path.toString().replace('\\', '/');
@@ -226,15 +213,13 @@ public class TagResolver {
                 if (norm.startsWith("data/")) dataIdx = 0;
                 else return;
             } else {
-                norm = norm.substring(dataIdx + 1); // remove leading slash before data
+                norm = norm.substring(dataIdx + 1);
             }
 
-            // norm is now "data/<namespace>/tags/item/<subpath>.json" or "data/<namespace>/tags/items/<subpath>.json"
             String[] parts = norm.split("/");
             if (parts.length < 5) return;
 
             String namespace = parts[1];
-            // find where tags/item starts
             int tagItemIdx = -1;
             for (int i = 2; i < parts.length - 1; i++) {
                 if (parts[i].equals("item") || parts[i].equals("items")) {
@@ -279,9 +264,6 @@ public class TagResolver {
         } catch (Exception ignored) {}
     }
 
-    /**
-     * Resolves a tag string (e.g. "#minecraft:planks" or "minecraft:planks") to a concrete Item.
-     */
     public static Item resolveTag(String tagString) {
         if (tagString == null || tagString.isEmpty()) return Items.AIR;
         String tagId = tagString.startsWith("#") ? tagString.substring(1) : tagString;
@@ -301,7 +283,6 @@ public class TagResolver {
         if (visited.contains(tagId)) return Items.AIR;
         visited.add(tagId);
 
-        // 1. Try world registry (when inside active world on client)
         if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
             Item clientItem = ClientTagHelper.queryClientWorldTag(tagId);
             if (clientItem != Items.AIR) {
@@ -309,12 +290,11 @@ public class TagResolver {
             }
         }
 
-        // 2. Try static Registries.ITEM if entries are available
         try {
             Identifier id = Identifier.tryParse(tagId);
             if (id != null) {
-                TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
-                for (var entry : Registries.ITEM.iterateEntries(tagKey)) {
+                TagKey<Item> tagKey = TagKey.create(Registries.ITEM, id);
+                for (Holder<Item> entry : BuiltInRegistries.ITEM.getTagOrEmpty(tagKey)) {
                     if (entry.value() != null && entry.value() != Items.AIR) {
                         return entry.value();
                     }
@@ -322,7 +302,6 @@ public class TagResolver {
             }
         } catch (Exception ignored) {}
 
-        // 3. Try scanned TAG_ITEMS map
         List<String> values = TAG_ITEMS.get(tagId);
         if (values != null && !values.isEmpty()) {
             for (String val : values) {
@@ -331,24 +310,22 @@ public class TagResolver {
                     if (sub != Items.AIR) return sub;
                 } else {
                     Identifier id = Identifier.tryParse(val);
-                    if (id != null && Registries.ITEM.containsId(id)) {
-                        Item item = Registries.ITEM.get(id);
+                    if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
+                        Item item = BuiltInRegistries.ITEM.getValue(id);
                         if (item != Items.AIR) return item;
                     }
                 }
             }
         }
 
-        // 4. Try static exact fallback dictionary
         if (STATIC_FALLBACKS.containsKey(tagId)) {
             Identifier id = Identifier.tryParse(STATIC_FALLBACKS.get(tagId));
-            if (id != null && Registries.ITEM.containsId(id)) {
-                Item item = Registries.ITEM.get(id);
+            if (id != null && BuiltInRegistries.ITEM.containsKey(id)) {
+                Item item = BuiltInRegistries.ITEM.getValue(id);
                 if (item != Items.AIR) return item;
             }
         }
 
-        // 5. Heuristic keyword matching for unknown/modded tags
         Item heuristic = matchHeuristic(tagId.toLowerCase(Locale.ROOT));
         if (heuristic != Items.AIR) {
             return heuristic;
@@ -362,8 +339,8 @@ public class TagResolver {
         if (s.contains("cobble")) return Items.COBBLESTONE;
         if (s.contains("stone")) return Items.STONE;
         if (s.contains("log") || s.contains("wood")) return Items.OAK_LOG;
-        if (s.contains("wool")) return Items.WHITE_WOOL;
-        if (s.contains("carpet")) return Items.WHITE_CARPET;
+        if (s.contains("wool")) return BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("minecraft", "white_wool"));
+        if (s.contains("carpet")) return BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("minecraft", "white_carpet"));
         if (s.contains("stick") || s.contains("rod")) return Items.STICK;
         if (s.contains("iron") && (s.contains("ingot") || s.contains("metal"))) return Items.IRON_INGOT;
         if (s.contains("gold") && s.contains("ingot")) return Items.GOLD_INGOT;
@@ -390,7 +367,7 @@ public class TagResolver {
         if (s.contains("sign")) return Items.OAK_SIGN;
         if (s.contains("boat")) return Items.OAK_BOAT;
         if (s.contains("flower")) return Items.DANDELION;
-        if (s.contains("dye")) return Items.RED_DYE;
+        if (s.contains("dye")) return BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("minecraft", "red_dye"));
         if (s.contains("seed")) return Items.WHEAT_SEEDS;
         if (s.contains("sapling")) return Items.OAK_SAPLING;
         if (s.contains("leaf") || s.contains("leaves")) return Items.OAK_LEAVES;
@@ -409,14 +386,14 @@ public class TagResolver {
     private static class ClientTagHelper {
         static void queryClientWorldTags(String tagId, Set<Item> outItems) {
             try {
-                MinecraftClient client = MinecraftClient.getInstance();
-                if (client != null && client.world != null) {
+                Minecraft client = Minecraft.getInstance();
+                if (client != null && client.level != null) {
                     Identifier id = Identifier.tryParse(tagId);
                     if (id != null) {
-                        TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
-                        var entryList = client.world.getRegistryManager().getOrThrow(RegistryKeys.ITEM).getOptional(tagKey);
+                        TagKey<Item> tagKey = TagKey.create(Registries.ITEM, id);
+                        var entryList = client.level.registryAccess().lookupOrThrow(Registries.ITEM).get(tagKey);
                         if (entryList.isPresent()) {
-                            for (var entry : entryList.get()) {
+                            for (Holder<Item> entry : entryList.get()) {
                                 Item item = entry.value();
                                 if (item != null && item != Items.AIR) {
                                     outItems.add(item);
@@ -430,14 +407,14 @@ public class TagResolver {
 
         static Item queryClientWorldTag(String tagId) {
             try {
-                MinecraftClient client = MinecraftClient.getInstance();
-                if (client != null && client.world != null) {
+                Minecraft client = Minecraft.getInstance();
+                if (client != null && client.level != null) {
                     Identifier id = Identifier.tryParse(tagId);
                     if (id != null) {
-                        TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
-                        var entryList = client.world.getRegistryManager().getOrThrow(RegistryKeys.ITEM).getOptional(tagKey);
+                        TagKey<Item> tagKey = TagKey.create(Registries.ITEM, id);
+                        var entryList = client.level.registryAccess().lookupOrThrow(Registries.ITEM).get(tagKey);
                         if (entryList.isPresent()) {
-                            for (var entry : entryList.get()) {
+                            for (Holder<Item> entry : entryList.get()) {
                                 Item item = entry.value();
                                 if (item != null && item != Items.AIR) {
                                     return item;

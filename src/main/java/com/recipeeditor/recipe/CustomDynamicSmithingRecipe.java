@@ -1,108 +1,118 @@
 package com.recipeeditor.recipe;
 
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.recipe.Ingredient;
-import net.minecraft.recipe.IngredientPlacement;
-import net.minecraft.recipe.RecipeSerializer;
-import net.minecraft.recipe.SmithingRecipe;
-import net.minecraft.recipe.display.RecipeDisplay;
-import net.minecraft.recipe.display.SlotDisplay;
-import net.minecraft.recipe.display.SmithingRecipeDisplay;
-import net.minecraft.recipe.input.SmithingRecipeInput;
-import net.minecraft.registry.RegistryWrapper;
-import net.minecraft.world.World;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemStackTemplate;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.*;
+import net.minecraft.world.item.crafting.display.RecipeDisplay;
+import net.minecraft.world.item.crafting.display.SlotDisplay;
+import net.minecraft.world.item.crafting.display.SmithingRecipeDisplay;
+import net.minecraft.world.level.Level;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 public class CustomDynamicSmithingRecipe implements SmithingRecipe {
     private final String group;
     private final Optional<Ingredient> template;
-    private final Optional<Ingredient> base;
+    private final Ingredient base;
     private final Optional<Ingredient> addition;
     private final ItemStack resultStack;
-    private IngredientPlacement ingredientPlacement;
+    private PlacementInfo placementInfo;
 
     public CustomDynamicSmithingRecipe(String group, Optional<Ingredient> template, Optional<Ingredient> base, Optional<Ingredient> addition, ItemStack resultStack) {
         this.group = group != null ? group : "";
         this.template = template != null ? template : Optional.empty();
-        this.base = base != null ? base : Optional.empty();
+        this.base = base != null && base.isPresent() ? base.get() : Ingredient.of(Stream.empty());
         this.addition = addition != null ? addition : Optional.empty();
         this.resultStack = resultStack != null ? resultStack : ItemStack.EMPTY;
     }
 
     @Override
-    public boolean matches(SmithingRecipeInput input, World world) {
+    public boolean matches(SmithingRecipeInput input, Level level) {
         if (input == null) return false;
-        return Ingredient.matches(this.template, input.template())
-                && Ingredient.matches(this.base, input.base())
-                && Ingredient.matches(this.addition, input.addition());
+        return Ingredient.testOptionalIngredient(this.template, input.template())
+                && this.base.test(input.base())
+                && Ingredient.testOptionalIngredient(this.addition, input.addition());
     }
 
     @Override
-    public ItemStack craft(SmithingRecipeInput input, RegistryWrapper.WrapperLookup registries) {
+    public ItemStack assemble(SmithingRecipeInput input) {
         if (this.resultStack.isEmpty()) {
             return ItemStack.EMPTY;
         }
         ItemStack baseStack = input != null ? input.base() : ItemStack.EMPTY;
         if (!baseStack.isEmpty()) {
             try {
-                ItemStack crafted = baseStack.copyComponentsToNewStack(this.resultStack.getItem(), this.resultStack.getCount());
-                crafted.applyUnvalidatedChanges(this.resultStack.getComponentChanges());
-                if (!this.resultStack.isDamageable()) {
-                    crafted.remove(DataComponentTypes.DAMAGE);
+                ItemStack crafted = this.resultStack.copy();
+                crafted.applyComponents(baseStack.getComponents());
+                if (!this.resultStack.isDamageableItem()) {
+                    crafted.remove(DataComponents.DAMAGE);
                 }
-                if (!crafted.isEmpty()) {
-                    return crafted;
-                }
+                return crafted;
             } catch (Throwable ignored) {}
         }
         return this.resultStack.copy();
     }
 
     @Override
-    public Optional<Ingredient> template() {
+    public Optional<Ingredient> templateIngredient() {
         return this.template;
     }
 
     @Override
-    public Optional<Ingredient> base() {
+    public Ingredient baseIngredient() {
         return this.base;
     }
 
     @Override
-    public Optional<Ingredient> addition() {
+    public Optional<Ingredient> additionIngredient() {
         return this.addition;
     }
 
     @Override
     public RecipeSerializer<? extends SmithingRecipe> getSerializer() {
-        return RecipeSerializer.SMITHING_TRANSFORM;
+        return SmithingTransformRecipe.SERIALIZER;
     }
 
     @Override
-    public IngredientPlacement getIngredientPlacement() {
-        if (this.ingredientPlacement == null) {
-            this.ingredientPlacement = IngredientPlacement.forMultipleSlots(List.of(this.template, this.base, this.addition));
+    public RecipeType<SmithingRecipe> getType() {
+        return RecipeType.SMITHING;
+    }
+
+    @Override
+    public RecipeBookCategory recipeBookCategory() {
+        return RecipeBookCategories.SMITHING;
+    }
+
+    @Override
+    public boolean showNotification() {
+        return true;
+    }
+
+    @Override
+    public String group() {
+        return this.group;
+    }
+
+    @Override
+    public PlacementInfo placementInfo() {
+        if (this.placementInfo == null) {
+            this.placementInfo = PlacementInfo.createFromOptionals(List.of(this.template, Optional.of(this.base), this.addition));
         }
-        return this.ingredientPlacement;
+        return this.placementInfo;
     }
 
     @Override
-    public List<RecipeDisplay> getDisplays() {
+    public List<RecipeDisplay> display() {
         return List.of(new SmithingRecipeDisplay(
-                Ingredient.toDisplay(this.template),
-                Ingredient.toDisplay(this.base),
-                Ingredient.toDisplay(this.addition),
-                new SlotDisplay.StackSlotDisplay(this.resultStack),
+                Ingredient.optionalIngredientToDisplay(this.template),
+                this.base.display(),
+                Ingredient.optionalIngredientToDisplay(this.addition),
+                new SlotDisplay.ItemStackSlotDisplay(new ItemStackTemplate(this.resultStack.getItem(), this.resultStack.getCount())),
                 new SlotDisplay.ItemSlotDisplay(Items.SMITHING_TABLE)
         ));
-    }
-
-    @Override
-    public String getGroup() {
-        return this.group;
     }
 }

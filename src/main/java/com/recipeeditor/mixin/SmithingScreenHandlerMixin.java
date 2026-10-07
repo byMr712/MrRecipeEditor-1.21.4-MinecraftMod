@@ -1,11 +1,11 @@
 package com.recipeeditor.mixin;
 
 import com.recipeeditor.recipe.CustomRecipeDispatcher;
-import net.minecraft.item.ItemStack;
-import net.minecraft.recipe.RecipeManager;
-import net.minecraft.recipe.RecipePropertySet;
-import net.minecraft.screen.SmithingScreenHandler;
-import net.minecraft.screen.slot.ForgingSlotsManager;
+import net.minecraft.world.inventory.ItemCombinerMenuSlotDefinition;
+import net.minecraft.world.inventory.SmithingMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.RecipeAccess;
+import net.minecraft.world.item.crafting.RecipePropertySet;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -13,44 +13,44 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-@Mixin(SmithingScreenHandler.class)
+@Mixin(SmithingMenu.class)
 public abstract class SmithingScreenHandlerMixin {
 
-    @Shadow @Final private RecipePropertySet templatePropertySet;
-    @Shadow @Final private RecipePropertySet basePropertySet;
-    @Shadow @Final private RecipePropertySet additionPropertySet;
+    @Shadow @Final private RecipePropertySet templateItemTest;
+    @Shadow @Final private RecipePropertySet baseItemTest;
+    @Shadow @Final private RecipePropertySet additionItemTest;
 
-    @Inject(method = "createForgingSlotsManager", at = @At("HEAD"), cancellable = true)
-    private static void onCreateForgingSlotsManager(RecipeManager recipeManager, CallbackInfoReturnable<ForgingSlotsManager> cir) {
+    @Inject(method = "createInputSlotDefinitions", at = @At("HEAD"), cancellable = true)
+    private static void onCreateInputSlotDefinitions(RecipeAccess recipeAccess, CallbackInfoReturnable<ItemCombinerMenuSlotDefinition> cir) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
-        RecipePropertySet base = recipeManager.getPropertySet(RecipePropertySet.SMITHING_BASE);
-        RecipePropertySet template = recipeManager.getPropertySet(RecipePropertySet.SMITHING_TEMPLATE);
-        RecipePropertySet addition = recipeManager.getPropertySet(RecipePropertySet.SMITHING_ADDITION);
+        RecipePropertySet base = recipeAccess.propertySet(RecipePropertySet.SMITHING_BASE);
+        RecipePropertySet template = recipeAccess.propertySet(RecipePropertySet.SMITHING_TEMPLATE);
+        RecipePropertySet addition = recipeAccess.propertySet(RecipePropertySet.SMITHING_ADDITION);
 
-        ForgingSlotsManager manager = ForgingSlotsManager.builder()
-                .input(0, 8, 48, stack -> template.canUse(stack) || CustomRecipeDispatcher.isCustomSmithingTemplate(stack))
-                .input(1, 26, 48, stack -> base.canUse(stack) || CustomRecipeDispatcher.isCustomSmithingBase(stack))
-                .input(2, 44, 48, stack -> addition.canUse(stack) || CustomRecipeDispatcher.isCustomSmithingAddition(stack))
-                .output(3, 98, 48)
+        ItemCombinerMenuSlotDefinition manager = ItemCombinerMenuSlotDefinition.create()
+                .withSlot(0, 8, 48, stack -> template.test(stack) || CustomRecipeDispatcher.isCustomSmithingTemplate(stack))
+                .withSlot(1, 26, 48, stack -> base.test(stack) || CustomRecipeDispatcher.isCustomSmithingBase(stack))
+                .withSlot(2, 44, 48, stack -> addition.test(stack) || CustomRecipeDispatcher.isCustomSmithingAddition(stack))
+                .withResultSlot(3, 98, 48)
                 .build();
         cir.setReturnValue(manager);
     }
 
-    @Inject(method = "isValidIngredient", at = @At("HEAD"), cancellable = true)
-    private void onIsValidIngredient(ItemStack stack, CallbackInfoReturnable<Boolean> cir) {
+    @Inject(method = "canMoveIntoInputSlots", at = @At("HEAD"), cancellable = true)
+    private void onCanMoveIntoInputSlots(ItemStack stack, CallbackInfoReturnable<Boolean> cir) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         if (stack == null || stack.isEmpty()) return;
 
-        SmithingScreenHandler handler = (SmithingScreenHandler) (Object) this;
-        if ((this.templatePropertySet.canUse(stack) || CustomRecipeDispatcher.isCustomSmithingTemplate(stack)) && !handler.getSlot(0).hasStack()) {
+        SmithingMenu handler = (SmithingMenu) (Object) this;
+        if ((this.templateItemTest.test(stack) || CustomRecipeDispatcher.isCustomSmithingTemplate(stack)) && !handler.getSlot(0).hasItem()) {
             cir.setReturnValue(true);
             return;
         }
-        if ((this.basePropertySet.canUse(stack) || CustomRecipeDispatcher.isCustomSmithingBase(stack)) && !handler.getSlot(1).hasStack()) {
+        if ((this.baseItemTest.test(stack) || CustomRecipeDispatcher.isCustomSmithingBase(stack)) && !handler.getSlot(1).hasItem()) {
             cir.setReturnValue(true);
             return;
         }
-        if ((this.additionPropertySet.canUse(stack) || CustomRecipeDispatcher.isCustomSmithingAddition(stack)) && !handler.getSlot(2).hasStack()) {
+        if ((this.additionItemTest.test(stack) || CustomRecipeDispatcher.isCustomSmithingAddition(stack)) && !handler.getSlot(2).hasItem()) {
             cir.setReturnValue(true);
             return;
         }

@@ -1,23 +1,23 @@
 package com.recipeeditor.mixin;
 
 import com.recipeeditor.recipe.CustomRecipeDispatcher;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.CampfireBlock;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.CampfireBlockEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.recipe.CampfireCookingRecipe;
-import net.minecraft.recipe.RecipeEntry;
-import net.minecraft.recipe.RecipeType;
-import net.minecraft.recipe.input.SingleStackRecipeInput;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.stat.Stats;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.World;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.stats.Stats;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.CampfireCookingRecipe;
+import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.item.crafting.SingleRecipeInput;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.CampfireBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.CampfireBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -28,54 +28,54 @@ import java.util.Optional;
 @Mixin(CampfireBlock.class)
 public class CampfireBlockMixin {
 
-    @Inject(method = "onUseWithItem", at = @At("HEAD"), cancellable = true)
-    private void onUseWithItem(
+    @Inject(method = "useItemOn", at = @At("HEAD"), cancellable = true)
+    private void onUseItemOn(
             ItemStack stack,
             BlockState state,
-            World world,
+            Level level,
             BlockPos pos,
-            PlayerEntity player,
-            Hand hand,
+            Player player,
+            InteractionHand hand,
             BlockHitResult hit,
-            CallbackInfoReturnable<ActionResult> cir
+            CallbackInfoReturnable<InteractionResult> cir
     ) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
             return;
         }
-        if (!state.get(CampfireBlock.LIT)) {
+        if (!state.getValue(CampfireBlock.LIT)) {
             return;
         }
-        BlockEntity blockEntity = world.getBlockEntity(pos);
+        BlockEntity blockEntity = level.getBlockEntity(pos);
         if (blockEntity instanceof CampfireBlockEntity campfireBlockEntity) {
-            if (player.isSneaking() || player.shouldCancelInteraction()) {
+            if (player.isShiftKeyDown()) {
                 return;
             }
-            ItemStack itemStack = player.getStackInHand(hand);
+            ItemStack itemStack = player.getItemInHand(hand);
             if (!itemStack.isEmpty()) {
-                SingleStackRecipeInput input = new SingleStackRecipeInput(itemStack);
-                Optional<RecipeEntry<CampfireCookingRecipe>> custom = CustomRecipeDispatcher.getCustomMatch(RecipeType.CAMPFIRE_COOKING, input, world);
+                SingleRecipeInput input = new SingleRecipeInput(itemStack);
+                Optional<RecipeHolder<CampfireCookingRecipe>> custom = CustomRecipeDispatcher.getCustomMatch(RecipeType.CAMPFIRE_COOKING, input, level);
                 if (custom.isPresent()) {
-                    if (world instanceof ServerWorld serverWorld) {
-                        if (campfireBlockEntity.addItem(serverWorld, player, itemStack)) {
-                            player.incrementStat(Stats.INTERACT_WITH_CAMPFIRE);
-                            cir.setReturnValue(ActionResult.SUCCESS_SERVER);
+                    if (level instanceof ServerLevel serverLevel) {
+                        if (campfireBlockEntity.placeFood(serverLevel, player, itemStack)) {
+                            player.awardStat(Stats.INTERACT_WITH_CAMPFIRE);
+                            cir.setReturnValue(InteractionResult.SUCCESS_SERVER);
                             return;
                         } else {
-                            cir.setReturnValue(ActionResult.PASS_TO_DEFAULT_BLOCK_ACTION);
+                            cir.setReturnValue(InteractionResult.TRY_WITH_EMPTY_HAND);
                             return;
                         }
                     } else {
                         boolean hasEmptySlot = false;
-                        for (ItemStack cooked : campfireBlockEntity.getItemsBeingCooked()) {
+                        for (ItemStack cooked : campfireBlockEntity.getItems()) {
                             if (cooked.isEmpty()) {
                                 hasEmptySlot = true;
                                 break;
                             }
                         }
                         if (hasEmptySlot) {
-                            cir.setReturnValue(ActionResult.CONSUME);
+                            cir.setReturnValue(InteractionResult.CONSUME);
                         } else {
-                            cir.setReturnValue(ActionResult.PASS_TO_DEFAULT_BLOCK_ACTION);
+                            cir.setReturnValue(InteractionResult.TRY_WITH_EMPTY_HAND);
                         }
                         return;
                     }

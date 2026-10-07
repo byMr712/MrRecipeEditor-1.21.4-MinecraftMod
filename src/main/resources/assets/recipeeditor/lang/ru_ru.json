@@ -96,6 +96,7 @@
   "recipeeditor.gui.uncraftable_title": "У этого предмета нет крафта.",
   "recipeeditor.gui.uncraftable_prompt": "Хотите создать для него рецепт?",
   "recipeeditor.gui.uncraftable_machine_1": "Для этого предмета нет крафта",
+  "recipeeditor.gui.uncraftable_machine_custom_1": "Для этого предмета нет ВАШИХ крафтов",
   "recipeeditor.gui.uncraftable_machine_2": "в «%s», создать?",
   "recipeeditor.gui.create_recipe_btn": "Создать рецепт",
   "recipeeditor.tooltip.toggle_mod": "Включить или отключить работу ваших рецептов настроенных через этот мод",
