@@ -90,28 +90,6 @@ remapJar {
     archiveFileName = "${project.archives_base_name}.jar"
 }
 
-def launcherModsDir = file("E:/ATLauncher/instances/FabulouslyOptimizedFPStest1214/mods")
-
-tasks.register('copyToLauncher', Copy) {
-    onlyIf {
-        launcherModsDir.exists()
-    }
-    dependsOn remapJar
-    from remapJar.archiveFile
-    into launcherModsDir
-    doFirst {
-        launcherModsDir.listFiles().findAll { it.name.startsWith("MrRecipeEditor") && it.name.endsWith(".jar") }.each {
-            it.delete()
-        }
-    }
-    doLast {
-        println ">>> Copied ${remapJar.archiveFileName.get()} to ATLauncher instance mods folder!"
-    }
-}
-
-if (launcherModsDir.exists()) {
-    build.finalizedBy(copyToLauncher)
-}
 
 publishing {
     publications {
