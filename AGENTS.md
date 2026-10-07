@@ -469,3 +469,28 @@ The mod enforces a strict bilingual requirement for all in-game text:
   * `src/main/resources/assets/recipeeditor/lang/ru_ru.json` (Russian)
 * **No Untranslated Keys:** Hardcoding raw string literals in user-facing widgets or leaving translation keys present in only one language file is strictly prohibited. Missing keys in either language are treated as critical issues.
 * **Consistent Tone:** Russian translations must maintain natural, friendly, and precise Minecraft terminology; English translations must follow official Minecraft naming conventions.
+
+---
+
+## 15. Version 26.1 Specifications, Architectural Nuances & Bug Fix Details
+
+### 15.1. Technical Environment & Version Architecture
+* **Minecraft Version:** `26.1`
+* **Java Runtime:** Java 25 (`C:\Program Files\Java\jdk-25.0.2`)
+* **Mapping Framework:** Official Mojang Mappings
+* **Loom Version:** `1.18.3`
+* **Recipe Manager Framework:** `ServerRecipeManager` with `NetworkRecipeId` allocation pool ($1\,000\,000+$) and `RecipeDisplayEntry` synchronization.
+* **Input Architecture:** SDL3 with 1-based mouse buttons (`InputConstants.MOUSE_BUTTON_LEFT = 1`, `MOUSE_BUTTON_MIDDLE = 2`, `MOUSE_BUTTON_RIGHT = 3`) and normalized coordinates via `uiScale = Math.min(width / 460f, height / 380f)`.
+* **Screen Transition API:** `minecraft.setScreen(...)`.
+* **Main Menu Component Safety:** Uses `RecipeInspector.ensureItemComponentsBound()` with `safeProvider` wrapper around `BuiltInRegistries.createWrapperLookup()` to prevent dynamic datapack crashes on the title screen.
+
+### 15.2. Bug Fix Status & Implementation for 26.1
+* **Bug 1 (Recipe Book World Re-entry Persistence):** Not affected. In 26.1, recipes are synchronized through `RecipeDisplayEntry` and `NetworkRecipeId` pools inside `ServerRecipeBookMixin` and `sendInitialRecipeBook`.
+* **Bug 2 (Smithing Table Crafts):** Not affected. Uses `SmithingScreenHandlerMixin` with `createForgingSlotsManager`.
+* **Bug 3 (Reset Defaults / Clear All Crafts & Delete Entire Craft):** **Fixed (commit `10a17cb`)**.
+  - `RecipeEditorConfig.initDefaults()` now calls `rebuildEnabledCache()`, ensuring `enabledResultIds` is fully purged when resetting all crafts.
+  - `RecipeEditorScreen.deleteEntireCustomCraft()` executes `removeRecipesFor(targetItem)` on both `configCopy` and the active singleton instance.
+  - `RecipeViewerIntegration.reloadRecipeViewers()` is triggered on reset to immediately update viewer overlays.
+* **Bug 4 (Stonecutter Crafting Output):** Not affected. In 26.1, stonecutter queries are routed through `ServerRecipeManagerMixin.getStonecutterRecipes` and `getStonecutterRecipeForSync`.
+* **Bug 5 (Campfire Right-Click Crash):** Not affected. Minecraft 26.1 uses `InteractionResult` rather than the deprecated 1.21 `ItemActionResult`.
+
