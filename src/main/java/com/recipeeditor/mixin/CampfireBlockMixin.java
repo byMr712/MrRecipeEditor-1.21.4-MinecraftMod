@@ -42,14 +42,8 @@ public class CampfireBlockMixin {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
             return;
         }
-        if (!state.getValue(CampfireBlock.LIT)) {
-            return;
-        }
         BlockEntity blockEntity = level.getBlockEntity(pos);
         if (blockEntity instanceof CampfireBlockEntity campfireBlockEntity) {
-            if (player.isShiftKeyDown()) {
-                return;
-            }
             ItemStack itemStack = player.getItemInHand(hand);
             if (!itemStack.isEmpty()) {
                 SingleRecipeInput input = new SingleRecipeInput(itemStack);
@@ -59,26 +53,13 @@ public class CampfireBlockMixin {
                         if (campfireBlockEntity.placeFood(serverLevel, player, itemStack)) {
                             player.awardStat(Stats.INTERACT_WITH_CAMPFIRE);
                             cir.setReturnValue(InteractionResult.SUCCESS_SERVER);
-                            return;
                         } else {
-                            cir.setReturnValue(InteractionResult.TRY_WITH_EMPTY_HAND);
-                            return;
+                            cir.setReturnValue(InteractionResult.CONSUME);
                         }
                     } else {
-                        boolean hasEmptySlot = false;
-                        for (ItemStack cooked : campfireBlockEntity.getItems()) {
-                            if (cooked.isEmpty()) {
-                                hasEmptySlot = true;
-                                break;
-                            }
-                        }
-                        if (hasEmptySlot) {
-                            cir.setReturnValue(InteractionResult.CONSUME);
-                        } else {
-                            cir.setReturnValue(InteractionResult.TRY_WITH_EMPTY_HAND);
-                        }
-                        return;
+                        cir.setReturnValue(InteractionResult.CONSUME);
                     }
+                    return;
                 }
             }
         }

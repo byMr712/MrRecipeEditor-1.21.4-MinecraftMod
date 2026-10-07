@@ -222,12 +222,6 @@ public class ServerRecipeManagerMixin {
     private void onByKey(ResourceKey<Recipe<?>> key, CallbackInfoReturnable<Optional<RecipeHolder<?>>> cir) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         Optional<RecipeHolder<?>> original = cir.getReturnValue();
-        if (original != null && original.isPresent()) {
-            if (CustomRecipeDispatcher.isRecipeOverridden(original.get())) {
-                cir.setReturnValue(Optional.empty());
-                return;
-            }
-        }
         if (original == null || original.isEmpty()) {
             Optional<RecipeHolder<?>> custom = CustomRecipeDispatcher.getCustomRecipeEntryByKey(key);
             if (custom.isPresent()) {
