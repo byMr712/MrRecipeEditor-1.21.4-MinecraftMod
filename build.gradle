@@ -27,9 +27,6 @@ repositories {
 }
 
 loom {
-    if (!project.hasProperty('yarn_mappings') || project.property('yarn_mappings').toString().trim().isEmpty()) {
-        noIntermediateMappings()
-    }
 }
 
 dependencies {

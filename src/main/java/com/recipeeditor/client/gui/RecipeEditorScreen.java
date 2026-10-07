@@ -1885,7 +1885,9 @@ public class RecipeEditorScreen extends Screen {
             int pCenterX = leftPaneX + (leftPaneWidth / 2);
             int promptY = gridStartY + 6;
             String machineName = selectedType.getDisplayName().getString();
-            Component line1 = Component.translatable("recipeeditor.gui.uncraftable_machine_1").withStyle(ChatFormatting.GRAY);
+            Component line1 = (currentFilter == CatalogFilter.CUSTOM)
+                    ? Component.translatable("recipeeditor.gui.uncraftable_machine_custom_1").withStyle(ChatFormatting.GRAY)
+                    : Component.translatable("recipeeditor.gui.uncraftable_machine_1").withStyle(ChatFormatting.GRAY);
             Component line2 = Component.translatable("recipeeditor.gui.uncraftable_machine_2", machineName).withStyle(ChatFormatting.WHITE);
             context.drawCenteredTextWithShadow(this.font, line1, pCenterX, promptY, 0xFFAAAAAA);
             context.drawCenteredTextWithShadow(this.font, line2, pCenterX, promptY + 14, 0xFFFFFFFF);
