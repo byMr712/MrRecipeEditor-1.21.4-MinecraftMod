@@ -130,6 +130,9 @@ public class RecipeManagerMixin {
         List<RecipeEntry<?>> filtered = new ArrayList<>();
         if (original != null) {
             for (RecipeEntry<?> entry : original) {
+                if (entry.id() != null && "recipeeditor".equals(entry.id().getNamespace())) {
+                    continue;
+                }
                 if (!CustomRecipeDispatcher.isRecipeOverridden(entry)) {
                     filtered.add(entry);
                 }
@@ -158,6 +161,9 @@ public class RecipeManagerMixin {
         }
         if (original != null) {
             for (RecipeEntry<T> entry : original) {
+                if (entry.id() != null && "recipeeditor".equals(entry.id().getNamespace())) {
+                    continue;
+                }
                 if (!CustomRecipeDispatcher.isRecipeOverridden(entry)) {
                     combined.add(entry);
                 }
@@ -180,6 +186,9 @@ public class RecipeManagerMixin {
         }
         if (original != null) {
             for (RecipeEntry<T> entry : original) {
+                if (entry.id() != null && "recipeeditor".equals(entry.id().getNamespace())) {
+                    continue;
+                }
                 if (!CustomRecipeDispatcher.isRecipeOverridden(entry)) {
                     combined.add(entry);
                 }
