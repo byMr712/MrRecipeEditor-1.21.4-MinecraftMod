@@ -22,7 +22,7 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Fabric Loader:** `>= 0.16.0`.
 * **Fabric API:** `0.116.17+1.21.1`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
-* **Mod Menu:** `13.0.1` (declared dependency in `depends` within `fabric.mod.json`).
+* **Mod Menu:** Declared in `modmenu` entrypoint and strictly required in `depends` (`"modmenu": "*"`) within `fabric.mod.json`.
 * **Roughly Enough Items (REI):** `18.0.815` (declared dependency in `suggests`, official API integration).
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
@@ -495,4 +495,8 @@ The mod enforces a strict bilingual requirement for all in-game text:
   - Added mixin handler in `RecipeManagerMixin` for `getAllMatches` matching `RecipeType.STONECUTTING` to return custom stonecutter recipes.
 * **Bug 5 (Campfire Right-Click ClassCastException Crash):** **Fixed**.
   - Corrected `CampfireBlockMixin.onUseWithItem` injection signature from `CallbackInfoReturnable<ActionResult>` to `CallbackInfoReturnable<ItemActionResult>`, returning `ItemActionResult.CONSUME` on client and `ItemActionResult.SUCCESS` on server.
+* **Bug 8 (Cannot Place Custom Recipe Item on Campfire):** **Fixed**.
+  - In `CampfireBlockMixin`, removed `!state.get(LIT)` check (allowing items to be placed onto unlit campfires) and removed `isSneaking()`/`shouldCancelInteraction()` restrictions.
+  - Client unconditionally returns `ItemActionResult.CONSUME`, ensuring block interaction packets are sent to the server.
+  - Server returns `ItemActionResult.SUCCESS` on success and falls back to `ItemActionResult.CONSUME` when campfire slots are occupied.
 

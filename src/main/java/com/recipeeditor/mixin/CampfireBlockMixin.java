@@ -42,14 +42,8 @@ public class CampfireBlockMixin {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
             return;
         }
-        if (!state.get(CampfireBlock.LIT)) {
-            return;
-        }
         BlockEntity blockEntity = world.getBlockEntity(pos);
         if (blockEntity instanceof CampfireBlockEntity campfireBlockEntity) {
-            if (player.isSneaking() || player.shouldCancelInteraction()) {
-                return;
-            }
             ItemStack itemStack = player.getStackInHand(hand);
             if (!itemStack.isEmpty()) {
                 SingleStackRecipeInput input = new SingleStackRecipeInput(itemStack);
@@ -60,26 +54,13 @@ public class CampfireBlockMixin {
                         if (campfireBlockEntity.addItem(player, itemStack, cookTime)) {
                             player.incrementStat(Stats.INTERACT_WITH_CAMPFIRE);
                             cir.setReturnValue(ItemActionResult.SUCCESS);
-                            return;
                         } else {
-                            cir.setReturnValue(ItemActionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION);
-                            return;
+                            cir.setReturnValue(ItemActionResult.CONSUME);
                         }
                     } else {
-                        boolean hasEmptySlot = false;
-                        for (ItemStack cooked : campfireBlockEntity.getItemsBeingCooked()) {
-                            if (cooked.isEmpty()) {
-                                hasEmptySlot = true;
-                                break;
-                            }
-                        }
-                        if (hasEmptySlot) {
-                            cir.setReturnValue(ItemActionResult.CONSUME);
-                        } else {
-                            cir.setReturnValue(ItemActionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION);
-                        }
-                        return;
+                        cir.setReturnValue(ItemActionResult.CONSUME);
                     }
+                    return;
                 }
             }
         }
