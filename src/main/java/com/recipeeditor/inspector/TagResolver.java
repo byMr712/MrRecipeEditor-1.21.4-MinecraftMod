@@ -339,8 +339,8 @@ public class TagResolver {
         if (s.contains("cobble")) return Items.COBBLESTONE;
         if (s.contains("stone")) return Items.STONE;
         if (s.contains("log") || s.contains("wood")) return Items.OAK_LOG;
-        if (s.contains("wool")) return Items.WHITE_WOOL;
-        if (s.contains("carpet")) return Items.WHITE_CARPET;
+        if (s.contains("wool")) return BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("minecraft", "white_wool"));
+        if (s.contains("carpet")) return BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("minecraft", "white_carpet"));
         if (s.contains("stick") || s.contains("rod")) return Items.STICK;
         if (s.contains("iron") && (s.contains("ingot") || s.contains("metal"))) return Items.IRON_INGOT;
         if (s.contains("gold") && s.contains("ingot")) return Items.GOLD_INGOT;
@@ -367,7 +367,7 @@ public class TagResolver {
         if (s.contains("sign")) return Items.OAK_SIGN;
         if (s.contains("boat")) return Items.OAK_BOAT;
         if (s.contains("flower")) return Items.DANDELION;
-        if (s.contains("dye")) return Items.RED_DYE;
+        if (s.contains("dye")) return BuiltInRegistries.ITEM.getValue(Identifier.fromNamespaceAndPath("minecraft", "red_dye"));
         if (s.contains("seed")) return Items.WHEAT_SEEDS;
         if (s.contains("sapling")) return Items.OAK_SAPLING;
         if (s.contains("leaf") || s.contains("leaves")) return Items.OAK_LEAVES;

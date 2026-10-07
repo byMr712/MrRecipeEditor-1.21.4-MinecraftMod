@@ -895,12 +895,12 @@ public class RecipeEditorScreen extends Screen {
 
     private void promptResetDefaults() {
         if (this.minecraft == null) return;
-        this.minecraft.setScreen(new ConfirmScreen(
+        this.minecraft.setScreenAndShow(new ConfirmScreen(
                 confirmed -> {
                     if (confirmed) {
                         resetDefaults();
                     }
-                    this.minecraft.setScreen(this);
+                    this.minecraft.setScreenAndShow(this);
                 },
                 Component.translatable("recipeeditor.gui.reset_confirm_title").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
                 Component.translatable("recipeeditor.gui.reset_confirm_msg")
@@ -909,12 +909,12 @@ public class RecipeEditorScreen extends Screen {
 
     private void promptDeleteCurrentVariant() {
         if (this.minecraft == null || targetItem == null || currentRecipe == null) return;
-        this.minecraft.setScreen(new ConfirmScreen(
+        this.minecraft.setScreenAndShow(new ConfirmScreen(
                 confirmed -> {
                     if (confirmed) {
                         deleteCurrentVariant();
                     }
-                    this.minecraft.setScreen(this);
+                    this.minecraft.setScreenAndShow(this);
                 },
                 Component.translatable("recipeeditor.gui.delete_variant_confirm_title").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
                 Component.translatable("recipeeditor.gui.delete_variant_confirm_msg")
@@ -923,12 +923,12 @@ public class RecipeEditorScreen extends Screen {
 
     private void promptDeleteEntireCustomCraft() {
         if (this.minecraft == null || targetItem == null) return;
-        this.minecraft.setScreen(new ConfirmScreen(
+        this.minecraft.setScreenAndShow(new ConfirmScreen(
                 confirmed -> {
                     if (confirmed) {
                         deleteEntireCustomCraft();
                     }
-                    this.minecraft.setScreen(this);
+                    this.minecraft.setScreenAndShow(this);
                 },
                 Component.translatable("recipeeditor.gui.delete_confirm_title").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
                 Component.translatable("recipeeditor.gui.delete_confirm_msg")
@@ -1025,7 +1025,7 @@ public class RecipeEditorScreen extends Screen {
         }
         // In a loaded world: allow only if in singleplayer or hosting an integrated server (LAN host)
         if (this.minecraft.getSingleplayerServer() != null && this.minecraft.isLocalServer()) {
-            return this.minecraft.isSingleplayer() || this.minecraft.getSingleplayerServer().isSingleplayerOwner(new net.minecraft.server.players.NameAndId(this.minecraft.player.getGameProfile()));
+            return this.minecraft.hasSingleplayerServer() || this.minecraft.getSingleplayerServer().isSingleplayerOwner(new net.minecraft.server.players.NameAndId(this.minecraft.player.getGameProfile()));
         }
         return false;
     }
@@ -1402,12 +1402,12 @@ public class RecipeEditorScreen extends Screen {
     private void promptClearAllSlots() {
         if (!hasEditPermission() || currentRecipe == null) return;
         if (this.minecraft != null) {
-            this.minecraft.setScreen(new ConfirmScreen(
+            this.minecraft.setScreenAndShow(new ConfirmScreen(
                     confirmed -> {
                         if (confirmed) {
                             clearAllSlots();
                         }
-                        this.minecraft.setScreen(this);
+                        this.minecraft.setScreenAndShow(this);
                     },
                     Component.translatable("recipeeditor.gui.clear_confirm_title").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
                     Component.translatable("recipeeditor.gui.clear_confirm_msg")
@@ -1449,7 +1449,7 @@ public class RecipeEditorScreen extends Screen {
 
         if (!allConflicts.isEmpty()) {
             if (this.minecraft != null) {
-                this.minecraft.setScreen(new RecipeConflictScreen(this, allConflicts, () -> {
+                this.minecraft.setScreenAndShow(new RecipeConflictScreen(this, allConflicts, () -> {
                     RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
                     // Point 4: Delete conflicting custom recipe if it was overridden by this new recipe
                     for (com.recipeeditor.inspector.RecipeConflictInfo info : allConflicts) {
@@ -1700,7 +1700,7 @@ public class RecipeEditorScreen extends Screen {
     @Override
     public void onClose() {
         if (this.minecraft != null) {
-            this.minecraft.setScreen(this.parent);
+            this.minecraft.setScreenAndShow(this.parent);
         }
     }
 
