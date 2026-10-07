@@ -139,8 +139,13 @@ public class ServerRecipeManagerMixin {
         }
         if (original != null && original.entries() != null) {
             for (CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe> entry : original.entries()) {
-                if (entry.recipe() != null && entry.recipe().recipe().isPresent() && CustomRecipeDispatcher.isRecipeOverridden(entry.recipe().recipe().get())) {
-                    continue;
+                if (entry.recipe() != null && entry.recipe().recipe().isPresent()) {
+                    if ("recipeeditor".equals(entry.recipe().recipe().get().id().getValue().getNamespace())) {
+                        continue;
+                    }
+                    if (CustomRecipeDispatcher.isRecipeOverridden(entry.recipe().recipe().get())) {
+                        continue;
+                    }
                 }
                 combined.add(entry);
             }
@@ -177,8 +182,13 @@ public class ServerRecipeManagerMixin {
         }
         if (original != null && original.entries() != null) {
             for (CuttingRecipeDisplay.GroupEntry<StonecuttingRecipe> entry : original.entries()) {
-                if (entry.recipe() != null && entry.recipe().recipe().isPresent() && CustomRecipeDispatcher.isRecipeOverridden(entry.recipe().recipe().get())) {
-                    continue;
+                if (entry.recipe() != null && entry.recipe().recipe().isPresent()) {
+                    if ("recipeeditor".equals(entry.recipe().recipe().get().id().getValue().getNamespace())) {
+                        continue;
+                    }
+                    if (CustomRecipeDispatcher.isRecipeOverridden(entry.recipe().recipe().get())) {
+                        continue;
+                    }
                 }
                 combined.add(entry);
             }
@@ -211,6 +221,9 @@ public class ServerRecipeManagerMixin {
         List<RecipeEntry<?>> filtered = new ArrayList<>();
         if (original != null) {
             for (RecipeEntry<?> entry : original) {
+                if (entry.id() != null && "recipeeditor".equals(entry.id().getValue().getNamespace())) {
+                    continue;
+                }
                 if (!CustomRecipeDispatcher.isRecipeOverridden(entry)) {
                     filtered.add(entry);
                 }
