@@ -22,7 +22,7 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Fabric Loader:** `>= 0.16.0`.
 * **Fabric API:** `0.162.0+26.3`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
-* **Mod Menu:** `21.0.0` (declared in `modmenu` entrypoint and `suggests` within `fabric.mod.json`).
+* **Mod Menu:** Declared in `modmenu` entrypoint and strictly required in `depends` (`"modmenu": "*"`) within `fabric.mod.json`.
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
 
@@ -565,28 +565,65 @@ To ensure flawless operation across all supported Minecraft releases, the codeba
 * **Root Cause:** In Minecraft 1.21 and 1.21.1, Mojang introduced `ItemActionResult` for block interaction methods executed with an item in hand (`CampfireBlock.onUseWithItem`). `CampfireBlockMixin` declared its injection callback as `CallbackInfoReturnable<ActionResult>`, returning `ActionResult.CONSUME`/`SUCCESS`. At runtime, the JVM attempted to cast `ActionResult` to `ItemActionResult`, resulting in an unhandled crash.
 * **Fix Implemented:** Updated `CampfireBlockMixin` in `1.21` and `1.21.1` to target `ItemActionResult` and return `ItemActionResult.CONSUME` on client and `ItemActionResult.SUCCESS` on server. (In `1.21.2`+ and `26.X`, Mojang reverted block interactions to `ActionResult` and `InteractionResult`, making this issue non-existent in subsequent versions).
 
+#### Bug 6: Recipe Book Desynchronization and Stale / Missing Recipes on World Re-entry (Minecraft 26.X)
+* **Impacted Branches:** `26.1`, `26.1.1`, `26.1.2`, `26.2`, `26.3`, `main`.
+* **Symptom:** Recipe book failed to see newly registered custom recipes, retained deleted or stale recipe displays, or lost recipes altogether upon reconnecting to a world.
+* **Root Cause:**
+  1. `CustomRecipeDispatcher.PREVIOUS_NETWORK_IDS` was not initialized during initial player login in `sendCustomRecipeBookEntries()`. When recipes were later modified or removed, `oldIds` calculated an empty set, failing to dispatch `ClientboundRecipeBookRemovePacket` and leaving obsolete recipes orphaned in client memory.
+  2. In `ServerRecipeManagerMixin.onByKey`, returning `Optional.empty()` for overridden recipes caused vanilla player data loading (`ServerRecipeBook`) to treat valid known recipes as non-existent and purge them permanently from the player's saved state.
+  3. `syncRecipeBookToPlayers()` only sent add/remove display packets, omitting `ClientboundUpdateRecipesPacket(itemProperties, stonecutterRecipes)`, leaving client recipe collections desynchronized until a manual datapack reload.
+* **Fix Implemented:**
+  - Initialized `PREVIOUS_NETWORK_IDS` during login and synchronized network ID sets accurately upon registry mutation.
+  - Removed `Optional.empty()` override cancellation in `ServerRecipeManagerMixin.onByKey`, ensuring recipe book loading preserves recipe records.
+  - Added live broadcast of `ClientboundUpdateRecipesPacket` across all connected players upon recipe saves.
+
+#### Bug 7: Crash on World Re-Entry with Configured Recipes & Empty Smithing/Stonecutter Output Slot (`UnsupportedOperationException: Ingredients can't be empty`) (Minecraft 26.X)
+* **Impacted Branches:** `26.1`, `26.1.1`, `26.1.2`, `26.2`, `26.3`, `main`.
+* **Symptom:** Re-entering a world with saved custom recipes crashed the server with `java.lang.UnsupportedOperationException: Ingredients can't be empty` in `Ingredient.<init>`. Furthermore, smithing table and stonecutter crafts permitted input placement but produced an empty output slot.
+* **Root Cause:**
+  1. In Minecraft 26.X, Mojang added a strict constructor invariant in `Ingredient.<init>` throwing `UnsupportedOperationException: Ingredients can't be empty` whenever ingredient values are empty. `CustomRecipeData.computeIngredientForSlot` previously constructed empty ingredients via `Ingredient.of(Stream.empty())`, triggering immediate server crashes on world reload and container interaction.
+  2. In `CustomDynamicSmithingRecipe`, missing template/base/addition slots attempted to construct empty ingredients, failing with the same exception and causing `SmithingMenu.createResult` to abort with an empty result slot.
+  3. In `CustomRecipeDispatcher.getCustomStonecutterGrouping`, `optionDisplay` was erroneously wrapped in an extra layer, causing stonecutter recipe displays to fail synchronization on the client.
+* **Fix Implemented:**
+  - Updated `CustomRecipeData.computeIngredientForSlot` to return `null` instead of `Ingredient.of(Stream.empty())` for empty slots or missing tags.
+  - Updated `CustomDynamicSmithingRecipe` to safely fallback `base` to `Ingredient.of(Items.BARRIER)` when empty or missing, preventing constructor crashes while maintaining valid matching.
+  - Updated `CustomRecipeDispatcher.createSyntheticRecipe` to check `!ing.isEmpty()` before creating vanilla synthetic recipes, and unwrapped stonecutter option displays.
+
+#### Bug 8: Cannot Place Custom Recipe Item on Campfire (Minecraft 1.21.5 – 1.21.11 & 26.X)
+* **Impacted Branches:** `1.21.5` – `1.21.11`, `26.1` – `26.3`, `main`.
+* **Symptom:** Items configured for custom campfire cooking could not be placed onto a campfire.
+* **Root Cause:**
+  1. In `CampfireBlockMixin`, checking `!state.get(LIT)` prevented placing items on unlit campfires (contrary to vanilla behavior).
+  2. Checking `player.isSneaking() || player.shouldCancelInteraction()` prevented placing items when holding blocks or tools.
+  3. On the client, checking `hasEmptySlot` via `getItemsBeingCooked()` returned `PASS_TO_DEFAULT_BLOCK_ACTION` when client entity data wasn't synchronized, causing the client to skip sending `PlayerInteractBlockC2SPacket` entirely.
+  4. On the server, returning `PASS_TO_DEFAULT_BLOCK_ACTION` when `addItem` returned false caused unwanted default block interaction fallbacks.
+* **Fix Implemented:**
+  - Removed `LIT` and sneaking preconditions in `CampfireBlockMixin`.
+  - Client unconditionally returns `ActionResult.CONSUME` (or `InteractionResult.CONSUME`), ensuring the interaction packet is dispatched.
+  - Server returns `SUCCESS_SERVER` on successful insertion and falls back to `CONSUME`.
+
 ---
 
 ### 15.3. Version Compatibility and Implementation Matrix
 
 | Branch | Minecraft | Java | Mapping Type | Recipe Engine Hook | Screen Navigation | Applicable Fixes Applied |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **`1.21`** | 1.21 | Java 21 | Yarn | `RecipeManagerMixin` (unified) | `setScreen` | **Bugs 1, 2, 3, 4, 5** (`c5e8c3f`) |
-| **`1.21.1`** | 1.21.1 | Java 21 | Yarn | `RecipeManagerMixin` (unified) | `setScreen` | **Bugs 1, 2, 3, 4, 5** (`555e8a2`) |
-| **`1.21.2`** | 1.21.2 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b6b0075`) |
-| **`1.21.3`** | 1.21.3 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`8442a93`) |
-| **`1.21.4`** | 1.21.4 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b0841cc`) |
-| **`1.21.5`** | 1.21.5 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`9e0c0e6`) |
-| **`1.21.6`** | 1.21.6 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`3f4d520`) |
-| **`1.21.7`** | 1.21.7 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`3d4415b`) |
-| **`1.21.8`** | 1.21.8 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b017fc2`) |
-| **`1.21.9`** | 1.21.9 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`d3efb4f`) |
-| **`1.21.10`** | 1.21.10 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b19a434`) |
-| **`1.21.11`** | 1.21.11 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b964613`) |
-| **`26.1`** | 26.1 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`10a17cb`) |
-| **`26.1.1`** | 26.1.1 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`1b349ad`) |
-| **`26.1.2`** | 26.1.2 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`fcf1332`) |
-| **`26.2`** | 26.2 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`380683f`) |
-| **`26.3`** | 26.3 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreenAndShow` | **Bug 3** (`0634b94`) |
-| **`main`** | 26.3 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreenAndShow` | **Bug 3** (`0634b94`) |
+| **`1.21`** | 1.21 | Java 21 | Yarn | `RecipeManagerMixin` (unified) | `setScreen` | **Bugs 1, 2, 3, 4, 5** |
+| **`1.21.1`** | 1.21.1 | Java 21 | Yarn | `RecipeManagerMixin` (unified) | `setScreen` | **Bugs 1, 2, 3, 4, 5** |
+| **`1.21.2`** | 1.21.2 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** |
+| **`1.21.3`** | 1.21.3 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** |
+| **`1.21.4`** | 1.21.4 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** |
+| **`1.21.5`** | 1.21.5 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 8** |
+| **`1.21.6`** | 1.21.6 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 8** |
+| **`1.21.7`** | 1.21.7 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 8** |
+| **`1.21.8`** | 1.21.8 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 8** |
+| **`1.21.9`** | 1.21.9 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 8** |
+| **`1.21.10`** | 1.21.10 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 8** |
+| **`1.21.11`** | 1.21.11 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 8** |
+| **`26.1`** | 26.1 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 6, 7, 8** |
+| **`26.1.1`** | 26.1.1 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 6, 7, 8** |
+| **`26.1.2`** | 26.1.2 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 6, 7, 8** |
+| **`26.2`** | 26.2 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3, 6, 7, 8** |
+| **`26.3`** | 26.3 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreenAndShow` | **Bug 3, 6, 7, 8** |
+| **`main`** | 26.3 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreenAndShow` | **Bug 3, 6, 7, 8** |
 
