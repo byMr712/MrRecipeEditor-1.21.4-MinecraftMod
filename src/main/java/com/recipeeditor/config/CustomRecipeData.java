@@ -184,12 +184,12 @@ public class CustomRecipeData {
             }
             cachedIngredients = temp;
             cachedPatternHash = currentHash;
-        } else if (cachedIngredients[slot] != null && cachedIngredients[slot].getMatchingItems().isEmpty()) {
+        } else if (cachedIngredients[slot] != null && cachedIngredients[slot].isEmpty()) {
             // If previously resolved to empty for a tag before registry was ready, retry now
             String slotStr = getSlotString(slot);
             if (slotStr != null && slotStr.startsWith("#")) {
                 Ingredient retry = computeIngredientForSlot(slot);
-                if (retry != null && !retry.getMatchingItems().isEmpty()) {
+                if (retry != null && !retry.isEmpty()) {
                     cachedIngredients[slot] = retry;
                     cachedNonEmptyIngredients = null;
                 }
@@ -261,17 +261,14 @@ public class CustomRecipeData {
             Identifier tagId = Identifier.tryParse(slotStr.substring(1));
             if (tagId != null) {
                 TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, tagId);
-                var entryList = Registries.ITEM.getOptional(tagKey);
-                if (entryList.isPresent() && entryList.get().size() > 0) {
-                    return Ingredient.fromTag(entryList.get());
-                }
+                return Ingredient.fromTag(tagKey);
             }
             // Tag is missing/unresolved: return an unmatchable empty ingredient instead of null (air)
             return Ingredient.ofItems();
         }
         Item item = getItemAt(slot);
         if (item != Items.AIR) {
-            return Ingredient.ofItem(item);
+            return Ingredient.ofItems(item);
         }
         // Unknown item identifier: return an unmatchable empty ingredient instead of null (air)
         return Ingredient.ofItems();
@@ -288,13 +285,15 @@ public class CustomRecipeData {
             computePatternBounds();
             if (patternWidth == 0 || patternHeight == 0) {
                 // Completely empty
-                cachedRawRecipe = new RawShapedRecipe(1, 1, List.of(Optional.empty()), Optional.empty());
+                cachedRawRecipe = new RawShapedRecipe(1, 1, net.minecraft.util.collection.DefaultedList.copyOf(Ingredient.EMPTY, Ingredient.EMPTY), Optional.empty());
             } else {
                 int maxRow = minRow + patternHeight - 1;
-                List<Optional<Ingredient>> ingredients = new ArrayList<>(patternWidth * patternHeight);
+                net.minecraft.util.collection.DefaultedList<Ingredient> ingredients = net.minecraft.util.collection.DefaultedList.ofSize(patternWidth * patternHeight, Ingredient.EMPTY);
+                int idx = 0;
                 for (int r = minRow; r <= maxRow; r++) {
                     for (int c = minCol; c <= maxCol; c++) {
-                        ingredients.add(createIngredientForSlot(r * 3 + c));
+                        Ingredient ing = getIngredientAt(r * 3 + c);
+                        ingredients.set(idx++, ing != null ? ing : Ingredient.EMPTY);
                     }
                 }
                 cachedRawRecipe = new RawShapedRecipe(patternWidth, patternHeight, ingredients, Optional.empty());
@@ -330,7 +329,7 @@ public class CustomRecipeData {
             List<Ingredient> list = new ArrayList<>();
             for (int i = 0; i < 9; i++) {
                 Ingredient ing = getIngredientAt(i);
-                if (ing != null && !ing.getMatchingItems().isEmpty()) {
+                if (ing != null && !ing.isEmpty()) {
                     list.add(ing);
                 }
             }

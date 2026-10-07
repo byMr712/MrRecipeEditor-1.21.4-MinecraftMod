@@ -4,10 +4,9 @@
   "package": "com.recipeeditor.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "ServerRecipeManagerMixin",
+    "RecipeManagerMixin",
     "CampfireBlockMixin",
     "AbstractFurnaceScreenHandlerMixin",
-    "SmithingScreenHandlerMixin",
     "ServerRecipeBookMixin"
   ],
   "client": [

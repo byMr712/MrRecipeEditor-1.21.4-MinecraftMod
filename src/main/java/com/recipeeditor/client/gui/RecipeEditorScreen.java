@@ -5,6 +5,7 @@ import com.recipeeditor.config.RecipeEditorConfig;
 import com.recipeeditor.config.RecipeTypeEnum;
 import com.recipeeditor.inspector.RecipeInspector;
 import com.recipeeditor.inspector.RecipeStatus;
+import com.recipeeditor.recipe.CustomRecipeDispatcher;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.gui.DrawContext;
@@ -1385,13 +1386,7 @@ public class RecipeEditorScreen extends Screen {
     private void syncStonecutterRecipes() {
         if (this.client != null && this.client.getServer() != null) {
             try {
-                var recipeManager = this.client.getServer().getRecipeManager();
-                var stonecutterPacket = new net.minecraft.network.packet.s2c.play.SynchronizeRecipesS2CPacket(
-                        recipeManager.getPropertySets(),
-                        recipeManager.getStonecutterRecipeForSync());
-                for (ServerPlayerEntity p : this.client.getServer().getPlayerManager().getPlayerList()) {
-                    p.networkHandler.sendPacket(stonecutterPacket);
-                }
+                CustomRecipeDispatcher.syncRecipesToAllPlayers(this.client.getServer());
             } catch (Throwable ignored) {}
         }
     }
@@ -1921,7 +1916,7 @@ public class RecipeEditorScreen extends Screen {
                         ItemStack stack = new ItemStack(item);
                         drawItemInScreen(context, stack, inputX + 3, inputY + 3);
                         if (configCopy.modEnabled) {
-                            context.drawStackOverlay(this.textRenderer, stack, inputX + 3, inputY + 3);
+                            context.drawItemInSlot(this.textRenderer, stack, inputX + 3, inputY + 3);
                         }
                     }
                     if (scaledMouseX >= inputX && scaledMouseX <= inputX + 22 && scaledMouseY >= inputY && scaledMouseY <= inputY + 22 && item != Items.AIR) {
@@ -1943,7 +1938,7 @@ public class RecipeEditorScreen extends Screen {
                             ItemStack stack = new ItemStack(item);
                             drawItemInScreen(context, stack, slotX + 3, slotY + 3);
                             if (configCopy.modEnabled) {
-                                context.drawStackOverlay(this.textRenderer, stack, slotX + 3, slotY + 3);
+                                context.drawItemInSlot(this.textRenderer, stack, slotX + 3, slotY + 3);
                             }
                         }
                         if (scaledMouseX >= slotX && scaledMouseX <= slotX + 22 && scaledMouseY >= slotY && scaledMouseY <= slotY + 22 && item != Items.AIR) {
@@ -1969,7 +1964,7 @@ public class RecipeEditorScreen extends Screen {
                                 ItemStack stack = new ItemStack(item);
                                 drawItemInScreen(context, stack, x + 3, y + 3);
                                 if (configCopy.modEnabled) {
-                                    context.drawStackOverlay(this.textRenderer, stack, x + 3, y + 3);
+                                    context.drawItemInSlot(this.textRenderer, stack, x + 3, y + 3);
                                 }
                             }
                             if (scaledMouseX >= x && scaledMouseX <= x + 22 && scaledMouseY >= y && scaledMouseY <= y + 22 && item != Items.AIR) {
@@ -1997,7 +1992,7 @@ public class RecipeEditorScreen extends Screen {
                 ItemStack resStack = new ItemStack(targetItem, count);
                 drawItemInScreen(context, resStack, resultX + 6, resultY + 6);
                 if (configCopy.modEnabled) {
-                    context.drawStackOverlay(this.textRenderer, resStack, resultX + 6, resultY + 6);
+                    context.drawItemInSlot(this.textRenderer, resStack, resultX + 6, resultY + 6);
                 }
                 if (scaledMouseX >= resultX && scaledMouseX <= resultX + 28 && scaledMouseY >= resultY && scaledMouseY <= resultY + 28) {
                     hoveredStack = resStack;
@@ -2126,7 +2121,7 @@ public class RecipeEditorScreen extends Screen {
                     : new ItemStack(draggedItem);
             drawItemInScreen(context, dragStack, scaledMouseX - 8, scaledMouseY - 8);
             if (configCopy.modEnabled) {
-                context.drawStackOverlay(this.textRenderer, dragStack, scaledMouseX - 8, scaledMouseY - 8);
+                context.drawItemInSlot(this.textRenderer, dragStack, scaledMouseX - 8, scaledMouseY - 8);
             }
         }
 

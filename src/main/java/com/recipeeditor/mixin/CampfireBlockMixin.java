@@ -56,12 +56,13 @@ public class CampfireBlockMixin {
                 Optional<RecipeEntry<CampfireCookingRecipe>> custom = CustomRecipeDispatcher.getCustomMatch(RecipeType.CAMPFIRE_COOKING, input, world);
                 if (custom.isPresent()) {
                     if (world instanceof ServerWorld serverWorld) {
-                        if (campfireBlockEntity.addItem(serverWorld, player, itemStack)) {
+                        int cookTime = custom.get().value().getCookingTime();
+                        if (campfireBlockEntity.addItem(player, itemStack, cookTime)) {
                             player.incrementStat(Stats.INTERACT_WITH_CAMPFIRE);
-                            cir.setReturnValue(ActionResult.SUCCESS_SERVER);
+                            cir.setReturnValue(ActionResult.SUCCESS);
                             return;
                         } else {
-                            cir.setReturnValue(ActionResult.PASS_TO_DEFAULT_BLOCK_ACTION);
+                            cir.setReturnValue(ActionResult.PASS);
                             return;
                         }
                     } else {
@@ -75,7 +76,7 @@ public class CampfireBlockMixin {
                         if (hasEmptySlot) {
                             cir.setReturnValue(ActionResult.CONSUME);
                         } else {
-                            cir.setReturnValue(ActionResult.PASS_TO_DEFAULT_BLOCK_ACTION);
+                            cir.setReturnValue(ActionResult.PASS);
                         }
                         return;
                     }

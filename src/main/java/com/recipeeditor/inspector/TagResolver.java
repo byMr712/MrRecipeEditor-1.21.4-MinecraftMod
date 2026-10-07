@@ -414,7 +414,7 @@ public class TagResolver {
                     Identifier id = Identifier.tryParse(tagId);
                     if (id != null) {
                         TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
-                        var entryList = client.world.getRegistryManager().getOrThrow(RegistryKeys.ITEM).getOptional(tagKey);
+                        var entryList = client.world.getRegistryManager().get(RegistryKeys.ITEM).getEntryList(tagKey);
                         if (entryList.isPresent()) {
                             for (var entry : entryList.get()) {
                                 Item item = entry.value();
@@ -435,7 +435,7 @@ public class TagResolver {
                     Identifier id = Identifier.tryParse(tagId);
                     if (id != null) {
                         TagKey<Item> tagKey = TagKey.of(RegistryKeys.ITEM, id);
-                        var entryList = client.world.getRegistryManager().getOrThrow(RegistryKeys.ITEM).getOptional(tagKey);
+                        var entryList = client.world.getRegistryManager().get(RegistryKeys.ITEM).getEntryList(tagKey);
                         if (entryList.isPresent()) {
                             for (var entry : entryList.get()) {
                                 Item item = entry.value();

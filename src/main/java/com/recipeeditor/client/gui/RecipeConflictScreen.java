@@ -211,7 +211,7 @@ public class RecipeConflictScreen extends Screen {
                 if (info.conflictingItem != null && info.conflictingItem != Items.AIR) {
                     ItemStack resSt = new ItemStack(info.conflictingItem);
                     context.drawItem(resSt, resX + 1, resY + 1);
-                    context.drawStackOverlay(this.textRenderer, resSt, resX + 1, resY + 1);
+                    context.drawItemInSlot(this.textRenderer, resSt, resX + 1, resY + 1);
                     if (isHovered(mouseX, mouseY, resX, resY, 18, 18, listTop, listH)) {
                         hoveredStack = resSt;
                     }
