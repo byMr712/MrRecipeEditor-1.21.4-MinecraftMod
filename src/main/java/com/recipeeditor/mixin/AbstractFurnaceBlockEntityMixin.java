@@ -17,7 +17,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class AbstractFurnaceBlockEntityMixin {
 
     @Inject(method = "canAcceptRecipeOutput", at = @At("HEAD"), cancellable = true)
-    private static void onCanAcceptRecipeOutput(DynamicRegistryManager registryManager, RecipeEntry<? extends AbstractCookingRecipe> recipe, SingleStackRecipeInput input, DefaultedList<ItemStack> slots, int count, CallbackInfoReturnable<Boolean> cir) {
+    private static void onCanAcceptRecipeOutput(DynamicRegistryManager registryManager, RecipeEntry<? extends AbstractCookingRecipe> recipe, DefaultedList<ItemStack> slots, int count, CallbackInfoReturnable<Boolean> cir) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
 
         if (slots.get(0).isEmpty() || recipe == null) {
@@ -25,6 +25,7 @@ public abstract class AbstractFurnaceBlockEntityMixin {
             return;
         }
 
+        SingleStackRecipeInput input = new SingleStackRecipeInput(slots.get(0));
         ItemStack result = recipe.value().craft(input, registryManager);
         if (result.isEmpty()) {
             cir.setReturnValue(false);
@@ -47,13 +48,15 @@ public abstract class AbstractFurnaceBlockEntityMixin {
     }
 
     @Inject(method = "craftRecipe", at = @At("HEAD"), cancellable = true)
-    private static void onCraftRecipe(DynamicRegistryManager registryManager, RecipeEntry<? extends AbstractCookingRecipe> recipe, SingleStackRecipeInput input, DefaultedList<ItemStack> slots, int count, CallbackInfoReturnable<Boolean> cir) {
+    private static void onCraftRecipe(DynamicRegistryManager registryManager, RecipeEntry<? extends AbstractCookingRecipe> recipe, DefaultedList<ItemStack> slots, int count, CallbackInfoReturnable<Boolean> cir) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
 
         if (recipe == null || slots.get(0).isEmpty()) {
             cir.setReturnValue(false);
             return;
         }
+
+        SingleStackRecipeInput input = new SingleStackRecipeInput(slots.get(0));
 
         ItemStack resultStack = recipe.value().craft(input, registryManager);
         if (resultStack.isEmpty()) {
