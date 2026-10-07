@@ -247,7 +247,14 @@ public class RecipeInspector {
 
     public static String getItemNameLower(Item item) {
         if (item == null) return "";
-        return ITEM_NAME_LOWER_CACHE.computeIfAbsent(item, it -> it.getName(new ItemStack(it)).getString().toLowerCase(Locale.ROOT));
+        return ITEM_NAME_LOWER_CACHE.computeIfAbsent(item, it -> {
+            try {
+                if (it.builtInRegistryHolder().areComponentsBound()) {
+                    return it.getName(new ItemStack(it)).getString().toLowerCase(Locale.ROOT);
+                }
+            } catch (Throwable ignored) {}
+            return Component.translatable(it.getDescriptionId()).getString().toLowerCase(Locale.ROOT);
+        });
     }
 
     public static String getItemIdLower(Item item) {

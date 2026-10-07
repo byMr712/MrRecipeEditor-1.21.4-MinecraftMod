@@ -1,6 +1,6 @@
-# Architectural Blueprint and Technical Specification for [MR] Recipe Editor (Minecraft 1.21.11 Fabric)
+# Architectural Blueprint and Technical Specification for [MR] Recipe Editor (Minecraft 26.3 Fabric)
 
-This document provides a comprehensive technical blueprint and architectural specification for the **[MR] Recipe Editor** modification for Minecraft 1.21.11 (Fabric). It is designed for AI agents, system architects, and software engineers who require an exhaustive understanding of every implementation detail: from internal data structures and pattern-matching algorithms to network synchronization, Roughly Enough Items (REI) integration, and low-level bytecode mixins.
+This document provides a comprehensive technical blueprint and architectural specification for the **[MR] Recipe Editor** modification for Minecraft 26.3 (Fabric). It is designed for AI agents, system architects, and software engineers who require an exhaustive understanding of every implementation detail: from internal data structures and pattern-matching algorithms to network synchronization, Roughly Enough Items (REI) integration, and low-level bytecode mixins.
 
 ---
 
@@ -16,14 +16,13 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * All vanilla and modded mechanics remain completely untouched until the user explicitly saves a new custom recipe or overrides an existing one.
 
 ### 1.3. Target Platform and Dependencies
-* **Minecraft:** 1.21.11.
-* **Yarn Mappings:** `1.21.11+build.6`.
-* **Java:** 21 (LTS).
-* **Fabric Loader:** `>= 0.19.5`.
-* **Fabric API:** `0.141.6+1.21.11`.
+* **Minecraft:** 26.3.
+* **Mappings:** Official Mojang Mappings.
+* **Java:** 25.
+* **Fabric Loader:** `>= 0.16.0`.
+* **Fabric API:** `0.162.0+26.3`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
-* **Mod Menu:** `13.0.1` (declared dependency in `depends` within `fabric.mod.json`).
-* **Roughly Enough Items (REI):** `18.0.815` (declared dependency in `suggests`, official API integration).
+* **Mod Menu:** `21.0.0` (declared in `modmenu` entrypoint and `suggests` within `fabric.mod.json`).
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
 

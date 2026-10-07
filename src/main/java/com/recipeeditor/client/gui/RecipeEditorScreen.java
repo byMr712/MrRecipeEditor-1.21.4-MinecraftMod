@@ -1,5 +1,6 @@
 package com.recipeeditor.client.gui;
 
+import com.recipeeditor.RecipeEditorMod;
 import com.recipeeditor.config.CustomRecipeData;
 import com.recipeeditor.config.RecipeEditorConfig;
 import com.recipeeditor.config.RecipeTypeEnum;
@@ -162,6 +163,7 @@ public class RecipeEditorScreen extends Screen {
         this.configCopy = RecipeEditorConfig.getInstance().copy();
 
         RecipeInspector.invalidateWorldCache();
+        RecipeEditorMod.ensureItemComponentsBound();
 
         // Target item starts null (user must select/RMB an item to edit)
         this.targetItem = null;
@@ -173,6 +175,14 @@ public class RecipeEditorScreen extends Screen {
         Set<String> namespaces = new LinkedHashSet<>();
         for (Item item : BuiltInRegistries.ITEM) {
             if (item != Items.AIR) {
+                try {
+                    if (!item.builtInRegistryHolder().areComponentsBound()) {
+                        continue;
+                    }
+                    new ItemStack(item);
+                } catch (Throwable ignored) {
+                    continue;
+                }
                 allItems.add(item);
                 Identifier id = BuiltInRegistries.ITEM.getKey(item);
                 if (id != null) {
@@ -1885,7 +1895,9 @@ public class RecipeEditorScreen extends Screen {
             int pCenterX = leftPaneX + (leftPaneWidth / 2);
             int promptY = gridStartY + 6;
             String machineName = selectedType.getDisplayName().getString();
-            Component line1 = Component.translatable("recipeeditor.gui.uncraftable_machine_1").withStyle(ChatFormatting.GRAY);
+            Component line1 = (currentFilter == CatalogFilter.CUSTOM)
+                    ? Component.translatable("recipeeditor.gui.uncraftable_machine_custom_1").withStyle(ChatFormatting.GRAY)
+                    : Component.translatable("recipeeditor.gui.uncraftable_machine_1").withStyle(ChatFormatting.GRAY);
             Component line2 = Component.translatable("recipeeditor.gui.uncraftable_machine_2", machineName).withStyle(ChatFormatting.WHITE);
             context.drawCenteredTextWithShadow(this.font, line1, pCenterX, promptY, 0xFFAAAAAA);
             context.drawCenteredTextWithShadow(this.font, line2, pCenterX, promptY + 14, 0xFFFFFFFF);
@@ -1911,14 +1923,14 @@ public class RecipeEditorScreen extends Screen {
                 if (currentRecipe != null) {
                     Item item = currentRecipe.getItemAt(0);
                     if (item != Items.AIR) {
-                        ItemStack stack = new ItemStack(item);
+                        ItemStack stack = safeItemStack(item);
                         drawItemInScreen(context, stack, inputX + 3, inputY + 3);
                         if (configCopy.modEnabled) {
                             context.drawStackOverlay(this.font, stack, inputX + 3, inputY + 3);
                         }
                     }
                     if (scaledMouseX >= inputX && scaledMouseX <= inputX + 22 && scaledMouseY >= inputY && scaledMouseY <= inputY + 22 && item != Items.AIR) {
-                        hoveredStack = new ItemStack(item);
+                        hoveredStack = safeItemStack(item);
                     }
                 }
             } else if (selectedType == RecipeTypeEnum.SMITHING) {
@@ -1933,14 +1945,14 @@ public class RecipeEditorScreen extends Screen {
                     if (currentRecipe != null) {
                         Item item = currentRecipe.getItemAt(i);
                         if (item != Items.AIR) {
-                            ItemStack stack = new ItemStack(item);
+                            ItemStack stack = safeItemStack(item);
                             drawItemInScreen(context, stack, slotX + 3, slotY + 3);
                             if (configCopy.modEnabled) {
                                 context.drawStackOverlay(this.font, stack, slotX + 3, slotY + 3);
                             }
                         }
                         if (scaledMouseX >= slotX && scaledMouseX <= slotX + 22 && scaledMouseY >= slotY && scaledMouseY <= slotY + 22 && item != Items.AIR) {
-                            hoveredStack = new ItemStack(item);
+                            hoveredStack = safeItemStack(item);
                         }
                     }
                 }
@@ -1959,14 +1971,14 @@ public class RecipeEditorScreen extends Screen {
                         if (currentRecipe != null) {
                             Item item = currentRecipe.getItemAt(slotIndex);
                             if (item != Items.AIR) {
-                                ItemStack stack = new ItemStack(item);
+                                ItemStack stack = safeItemStack(item);
                                 drawItemInScreen(context, stack, x + 3, y + 3);
                                 if (configCopy.modEnabled) {
                                     context.drawStackOverlay(this.font, stack, x + 3, y + 3);
                                 }
                             }
                             if (scaledMouseX >= x && scaledMouseX <= x + 22 && scaledMouseY >= y && scaledMouseY <= y + 22 && item != Items.AIR) {
-                                hoveredStack = new ItemStack(item);
+                                hoveredStack = safeItemStack(item);
                             }
                         }
                     }
@@ -1987,7 +1999,7 @@ public class RecipeEditorScreen extends Screen {
 
             if (targetItem != null && targetItem != Items.AIR) {
                 int count = currentRecipe != null ? currentRecipe.getResultCountForType(selectedType) : 1;
-                ItemStack resStack = new ItemStack(targetItem, count);
+                ItemStack resStack = safeItemStack(targetItem, count);
                 drawItemInScreen(context, resStack, resultX + 6, resultY + 6);
                 if (configCopy.modEnabled) {
                     context.drawStackOverlay(this.font, resStack, resultX + 6, resultY + 6);
@@ -2075,7 +2087,7 @@ public class RecipeEditorScreen extends Screen {
             drawSlotBox(context, slotX, slotY, 22, 22, isHovered, false);
 
             Item catItem = filteredItems.get(i);
-            ItemStack catStack = new ItemStack(catItem);
+            ItemStack catStack = safeItemStack(catItem);
             drawItemInScreen(context, catStack, slotX + 3, slotY + 3);
 
             if (isHovered) {
@@ -2115,8 +2127,8 @@ public class RecipeEditorScreen extends Screen {
         // Render dragged item
         if (draggedItem != null && draggedItem != Items.AIR) {
             ItemStack dragStack = (dragSourceSlot == RESULT_SLOT && currentRecipe != null)
-                    ? new ItemStack(draggedItem, currentRecipe.getResultCountForType(selectedType))
-                    : new ItemStack(draggedItem);
+                    ? safeItemStack(draggedItem, currentRecipe.getResultCountForType(selectedType))
+                    : safeItemStack(draggedItem);
             drawItemInScreen(context, dragStack, scaledMouseX - 8, scaledMouseY - 8);
             if (configCopy.modEnabled) {
                 context.drawStackOverlay(this.font, dragStack, scaledMouseX - 8, scaledMouseY - 8);
@@ -2353,6 +2365,20 @@ public class RecipeEditorScreen extends Screen {
     private boolean isShiftDown() {
         return InputConstants.isKeyDown(InputConstants.KEY_LSHIFT)
                 || InputConstants.isKeyDown(InputConstants.KEY_RSHIFT);
+    }
+
+    private ItemStack safeItemStack(Item item) {
+        return safeItemStack(item, 1);
+    }
+
+    private ItemStack safeItemStack(Item item, int count) {
+        if (item == null || item == Items.AIR) return ItemStack.EMPTY;
+        try {
+            if (item.builtInRegistryHolder().areComponentsBound()) {
+                return new ItemStack(item, count);
+            }
+        } catch (Throwable ignored) {}
+        return ItemStack.EMPTY;
     }
 
     private void drawItemInScreen(DrawContext context, ItemStack stack, int x, int y) {
