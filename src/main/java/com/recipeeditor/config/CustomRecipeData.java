@@ -266,13 +266,13 @@ public class CustomRecipeData {
                     return Ingredient.of(entryList.get());
                 }
             }
-            return Ingredient.of(Stream.empty());
+            return null;
         }
         Item item = getItemAt(slot);
         if (item != Items.AIR) {
             return Ingredient.of(item);
         }
-        return Ingredient.of(Stream.empty());
+        return null;
     }
 
     public Optional<Ingredient> createIngredientForSlot(int slot) {

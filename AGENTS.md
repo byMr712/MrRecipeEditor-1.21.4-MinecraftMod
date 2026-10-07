@@ -21,7 +21,7 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Fabric Loader:** `>= 0.16.0`.
 * **Fabric API:** `0.161.0+26.2`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
-* **Mod Menu:** `20.0.3` (declared dependency in `suggests` within `fabric.mod.json`).
+* **Mod Menu:** Declared in `modmenu` entrypoint and strictly required in `depends` (`"modmenu": "*"`) within `fabric.mod.json`.
 * **Roughly Enough Items (REI):** `18.0.815` (declared dependency in `suggests`, official API integration).
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
@@ -493,4 +493,15 @@ The mod enforces a strict bilingual requirement for all in-game text:
   - `RecipeViewerIntegration.reloadRecipeViewers()` is triggered on reset to immediately update viewer overlays.
 * **Bug 4 (Stonecutter Crafting Output):** Not affected. In 26.2, stonecutter queries are routed through `ServerRecipeManagerMixin.getStonecutterRecipes` and `getStonecutterRecipeForSync`.
 * **Bug 5 (Campfire Right-Click Crash):** Not affected. Minecraft 26.2 uses `InteractionResult` rather than the deprecated 1.21 `ItemActionResult`.
+* **Bug 6 (Recipe Book Desynchronization & World Re-entry Disappearance):** **Fixed**.
+  - Initialized `PREVIOUS_NETWORK_IDS` in `sendCustomRecipeBookEntries()` to properly track old display entries.
+  - Removed `Optional.empty()` suppression in `ServerRecipeManagerMixin.onByKey()` to prevent vanilla player recipe book loading from purging existing entries.
+  - Broadcast `ClientboundUpdateRecipesPacket(itemProperties, stonecutterRecipes)` to all connected players on recipe save.
+* **Bug 7 (Crash on World Re-entry & Empty Smithing/Stonecutter Outputs):** **Fixed**.
+  - In `CustomRecipeData.computeIngredientForSlot()`, returned `null` instead of `Ingredient.of(Stream.empty())` for air and missing tags, preventing `UnsupportedOperationException: Ingredients can't be empty`.
+  - In `CustomDynamicSmithingRecipe`, safely fallback empty base ingredients to `Ingredient.of(Items.BARRIER)`.
+  - In `CustomRecipeDispatcher.createSyntheticRecipe()`, validate non-empty ingredients and unwrapped stonecutter option displays.
+* **Bug 8 (Cannot Place Custom Recipe Item on Campfire):** **Fixed**.
+  - In `CampfireBlockMixin`, removed `LIT` and sneaking checks.
+  - Unconditionally return `InteractionResult.CONSUME` on client and server fallback.
 
