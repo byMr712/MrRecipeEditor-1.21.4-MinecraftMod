@@ -42,14 +42,8 @@ public class CampfireBlockMixin {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
             return;
         }
-        if (!state.get(CampfireBlock.LIT)) {
-            return;
-        }
         BlockEntity blockEntity = world.getBlockEntity(pos);
         if (blockEntity instanceof CampfireBlockEntity campfireBlockEntity) {
-            if (player.isSneaking() || player.shouldCancelInteraction()) {
-                return;
-            }
             ItemStack itemStack = player.getStackInHand(hand);
             if (!itemStack.isEmpty()) {
                 SingleStackRecipeInput input = new SingleStackRecipeInput(itemStack);
@@ -59,26 +53,13 @@ public class CampfireBlockMixin {
                         if (campfireBlockEntity.addItem(serverWorld, player, itemStack)) {
                             player.incrementStat(Stats.INTERACT_WITH_CAMPFIRE);
                             cir.setReturnValue(ActionResult.SUCCESS_SERVER);
-                            return;
                         } else {
-                            cir.setReturnValue(ActionResult.PASS_TO_DEFAULT_BLOCK_ACTION);
-                            return;
+                            cir.setReturnValue(ActionResult.CONSUME);
                         }
                     } else {
-                        boolean hasEmptySlot = false;
-                        for (ItemStack cooked : campfireBlockEntity.getItemsBeingCooked()) {
-                            if (cooked.isEmpty()) {
-                                hasEmptySlot = true;
-                                break;
-                            }
-                        }
-                        if (hasEmptySlot) {
-                            cir.setReturnValue(ActionResult.CONSUME);
-                        } else {
-                            cir.setReturnValue(ActionResult.PASS_TO_DEFAULT_BLOCK_ACTION);
-                        }
-                        return;
+                        cir.setReturnValue(ActionResult.CONSUME);
                     }
+                    return;
                 }
             }
         }
