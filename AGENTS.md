@@ -19,13 +19,28 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Minecraft:** 1.21.2.
 * **Yarn Mappings:** `1.21.2+build.1`.
 * **Java:** 21 (LTS).
-* **Fabric Loader:** `>= 0.19.5`.
+* **Fabric Loader:** `>= 0.16.0`.
 * **Fabric API:** `0.106.1+1.21.2`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
 * **Mod Menu:** `13.0.1` (declared dependency in `depends` within `fabric.mod.json`).
 * **Roughly Enough Items (REI):** `18.0.815` (declared dependency in `suggests`, official API integration).
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
+
+### 1.4. Build Instructions for Minecraft 1.21.2
+1. **Prerequisites**:
+   * JDK 21 or higher (e.g. JDK 21 LTS or JDK 25).
+   * Configured in `gradle.properties` (`org.gradle.java.home`).
+2. **Build Command**:
+   ```bash
+   ./gradlew clean build --console=plain
+   ```
+3. **Artifact Output**:
+   * Remapped production JAR: `build/libs/MrRecipeEditor-Fabric-1.21.2-byMr712-v1.3.jar`.
+4. **Version Specific Architecture**:
+   * Mappings: Yarn `1.21.2+build.1`.
+   * Introduces `ServerRecipeManager` and `NetworkRecipeId` architecture.
+   * `AbstractFurnaceBlockEntityMixin` patches vanilla furnace smelting to correctly increment multi-item outputs.
 
 ---
 
