@@ -235,11 +235,11 @@ public class CustomRecipeDispatcher {
             for (CustomRecipeData recipe : config.recipes.values()) {
                 if (!recipe.enabled || recipe.type != RecipeTypeEnum.SMITHING) continue;
                 Ingredient t = recipe.getIngredientAt(0);
-                if (t != null && !t.isEmpty()) templates.add(t);
+                if (t != null && !t.getMatchingItems().isEmpty()) templates.add(t);
                 Ingredient b = recipe.getIngredientAt(1);
-                if (b != null && !b.isEmpty()) bases.add(b);
+                if (b != null && !b.getMatchingItems().isEmpty()) bases.add(b);
                 Ingredient a = recipe.getIngredientAt(2);
-                if (a != null && !a.isEmpty()) additions.add(a);
+                if (a != null && !a.getMatchingItems().isEmpty()) additions.add(a);
             }
         }
         CACHED_SMITHING_TEMPLATES.clear();

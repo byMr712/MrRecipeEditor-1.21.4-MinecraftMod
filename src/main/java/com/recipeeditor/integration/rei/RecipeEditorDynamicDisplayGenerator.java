@@ -182,7 +182,7 @@ public class RecipeEditorDynamicDisplayGenerator implements DynamicDisplayGenera
                     List<EntryIngredient> inputs = new ArrayList<>(9);
                     for (int i = 0; i < 9; i++) {
                         Ingredient ing = data.getIngredientAt(i);
-                        if (ing != null && !ing.isEmpty()) {
+                        if (ing != null && !ing.getMatchingItems().isEmpty()) {
                             inputs.add(EntryIngredients.ofIngredient(ing));
                         } else {
                             inputs.add(EntryIngredient.empty());

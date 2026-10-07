@@ -184,12 +184,12 @@ public class CustomRecipeData {
             }
             cachedIngredients = temp;
             cachedPatternHash = currentHash;
-        } else if (cachedIngredients[slot] != null && cachedIngredients[slot].isEmpty()) {
+        } else if (cachedIngredients[slot] != null && cachedIngredients[slot].getMatchingItems().isEmpty()) {
             // If previously resolved to empty for a tag before registry was ready, retry now
             String slotStr = getSlotString(slot);
             if (slotStr != null && slotStr.startsWith("#")) {
                 Ingredient retry = computeIngredientForSlot(slot);
-                if (retry != null && !retry.isEmpty()) {
+                if (retry != null && !retry.getMatchingItems().isEmpty()) {
                     cachedIngredients[slot] = retry;
                     cachedNonEmptyIngredients = null;
                 }
@@ -330,7 +330,7 @@ public class CustomRecipeData {
             List<Ingredient> list = new ArrayList<>();
             for (int i = 0; i < 9; i++) {
                 Ingredient ing = getIngredientAt(i);
-                if (ing != null && !ing.isEmpty()) {
+                if (ing != null && !ing.getMatchingItems().isEmpty()) {
                     list.add(ing);
                 }
             }

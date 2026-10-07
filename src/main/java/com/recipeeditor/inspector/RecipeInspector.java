@@ -1287,7 +1287,7 @@ public class RecipeInspector {
     }
 
     public static String getSlotStringFromIngredient(Ingredient ing) {
-        if (ing == null || ing.isEmpty()) return "minecraft:air";
+        if (ing == null || ing.getMatchingItems().isEmpty()) return "minecraft:air";
         SlotDisplay display = ing.toDisplay();
         return getSlotStringFromSlotDisplay(display);
     }
