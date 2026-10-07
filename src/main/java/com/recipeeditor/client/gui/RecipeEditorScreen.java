@@ -24,7 +24,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
 
 import java.util.*;
 
@@ -2351,10 +2351,8 @@ public class RecipeEditorScreen extends Screen {
     }
 
     private boolean isShiftDown() {
-        if (this.minecraft == null || this.minecraft.getWindow() == null) return false;
-        long handle = this.minecraft.getWindow().handle();
-        return GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
-                || GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+        return InputConstants.isKeyDown(InputConstants.KEY_LSHIFT)
+                || InputConstants.isKeyDown(InputConstants.KEY_RSHIFT);
     }
 
     private void drawItemInScreen(DrawContext context, ItemStack stack, int x, int y) {
@@ -2612,12 +2610,12 @@ public class RecipeEditorScreen extends Screen {
 
         int keyCode = event.key();
 
-        if (keyCode == GLFW.GLFW_KEY_I) {
+        if (keyCode == InputConstants.KEY_I) {
             toggleHintsVisibility();
             return true;
         }
 
-        if (keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+        if (keyCode == InputConstants.KEY_DELETE || keyCode == InputConstants.KEY_BACKSPACE) {
             clearSelectedSlot();
             return true;
         }

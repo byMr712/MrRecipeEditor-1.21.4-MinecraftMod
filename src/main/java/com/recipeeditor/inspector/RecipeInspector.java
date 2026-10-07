@@ -728,7 +728,7 @@ public class RecipeInspector {
         } else if (display instanceof SlotDisplay.WithRemainder withRemainder) {
             collectItemsFromSlotDisplay(withRemainder.input(), items);
         } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
-            for (var entry : BuiltInRegistries.ITEM.getTagOrEmpty(tagDisplay.tag())) {
+            for (var entry : tagDisplay.tag()) {
                 items.add(entry.value());
             }
         } else if (display instanceof SlotDisplay.Composite composite) {
@@ -1317,7 +1317,14 @@ public class RecipeInspector {
         } else if (display instanceof SlotDisplay.WithRemainder withRemainder) {
             return getItemFromSlotDisplay(withRemainder.input());
         } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
-            return TagResolver.resolveTag(tagDisplay.tag().location().toString());
+            return tagDisplay.tag().unwrapKey()
+                    .map(k -> TagResolver.resolveTag(k.location().toString()))
+                    .orElseGet(() -> {
+                        if (tagDisplay.tag().size() > 0) {
+                            return tagDisplay.tag().get(0).value();
+                        }
+                        return Items.AIR;
+                    });
         } else if (display instanceof SlotDisplay.Composite composite) {
             for (SlotDisplay child : composite.contents()) {
                 Item item = getItemFromSlotDisplay(child);
@@ -1338,7 +1345,15 @@ public class RecipeInspector {
         } else if (display instanceof SlotDisplay.WithRemainder withRemainder) {
             return getSlotStringFromSlotDisplay(withRemainder.input());
         } else if (display instanceof SlotDisplay.TagSlotDisplay tagDisplay) {
-            return "#" + tagDisplay.tag().location().toString();
+            return tagDisplay.tag().unwrapKey()
+                    .map(k -> "#" + k.location().toString())
+                    .orElseGet(() -> {
+                        if (tagDisplay.tag().size() > 0) {
+                            Identifier id = BuiltInRegistries.ITEM.getKey(tagDisplay.tag().get(0).value());
+                            return id != null ? id.toString() : "minecraft:air";
+                        }
+                        return "minecraft:air";
+                    });
         } else if (display instanceof SlotDisplay.Composite composite) {
             for (SlotDisplay child : composite.contents()) {
                 String str = getSlotStringFromSlotDisplay(child);

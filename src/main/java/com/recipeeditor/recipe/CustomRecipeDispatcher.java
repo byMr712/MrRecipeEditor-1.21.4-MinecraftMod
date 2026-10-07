@@ -486,7 +486,7 @@ public class CustomRecipeDispatcher {
         if (item instanceof net.minecraft.world.item.BlockItem blockItem) {
             net.minecraft.world.level.block.Block block = blockItem.getBlock();
             if (block instanceof net.minecraft.world.level.block.DiodeBlock ||
-                block instanceof net.minecraft.world.level.block.RedStoneWireBlock ||
+                block instanceof net.minecraft.world.level.block.RedstoneWireBlock ||
                 block instanceof net.minecraft.world.level.block.piston.PistonBaseBlock ||
                 block instanceof net.minecraft.world.level.block.HopperBlock ||
                 block instanceof net.minecraft.world.level.block.DropperBlock ||

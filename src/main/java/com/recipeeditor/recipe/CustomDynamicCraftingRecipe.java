@@ -258,7 +258,14 @@ public class CustomDynamicCraftingRecipe extends CustomRecipe {
                             if (slotStr.startsWith("#")) {
                                 Identifier tagId = Identifier.tryParse(slotStr.substring(1));
                                 if (tagId != null) {
-                                    ingredients.add(new SlotDisplay.TagSlotDisplay(TagKey.create(Registries.ITEM, tagId)));
+                                    TagKey<Item> tagKey = TagKey.create(Registries.ITEM, tagId);
+                                    var holderSet = BuiltInRegistries.ITEM.get(tagKey);
+                                    if (holderSet.isPresent()) {
+                                        ingredients.add(new SlotDisplay.TagSlotDisplay(holderSet.get()));
+                                    } else {
+                                        Item item = recipe.getItemAt(i);
+                                        if (item != Items.AIR) ingredients.add(new SlotDisplay.ItemSlotDisplay(item));
+                                    }
                                 } else {
                                     Item item = recipe.getItemAt(i);
                                     if (item != Items.AIR) ingredients.add(new SlotDisplay.ItemSlotDisplay(item));
@@ -298,7 +305,14 @@ public class CustomDynamicCraftingRecipe extends CustomRecipe {
                                 } else if (slotStr.startsWith("#")) {
                                     Identifier tagId = Identifier.tryParse(slotStr.substring(1));
                                     if (tagId != null) {
-                                        ingredients.add(new SlotDisplay.TagSlotDisplay(TagKey.create(Registries.ITEM, tagId)));
+                                        TagKey<Item> tagKey = TagKey.create(Registries.ITEM, tagId);
+                                        var holderSet = BuiltInRegistries.ITEM.get(tagKey);
+                                        if (holderSet.isPresent()) {
+                                            ingredients.add(new SlotDisplay.TagSlotDisplay(holderSet.get()));
+                                        } else {
+                                            Item item = recipe.getItemAt(i);
+                                            ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.Empty.INSTANCE);
+                                        }
                                     } else {
                                         Item item = recipe.getItemAt(i);
                                         ingredients.add(item != Items.AIR ? new SlotDisplay.ItemSlotDisplay(item) : SlotDisplay.Empty.INSTANCE);
