@@ -7,6 +7,7 @@
     "RecipeManagerMixin",
     "CampfireBlockMixin",
     "AbstractFurnaceScreenHandlerMixin",
+    "AbstractFurnaceBlockEntityMixin",
     "ServerRecipeBookMixin"
   ],
   "client": [

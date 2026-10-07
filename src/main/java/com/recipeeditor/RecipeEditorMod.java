@@ -31,8 +31,16 @@ public class RecipeEditorMod implements ModInitializer {
             new RecipeSerializer<CustomDynamicCraftingRecipe>() {
                 private final MapCodec<CustomDynamicCraftingRecipe> CODEC = MapCodec
                         .unit(() -> new CustomDynamicCraftingRecipe(CraftingRecipeCategory.MISC));
-                private final PacketCodec<RegistryByteBuf, CustomDynamicCraftingRecipe> PACKET_CODEC = PacketCodec
-                        .unit(new CustomDynamicCraftingRecipe(CraftingRecipeCategory.MISC));
+                private final PacketCodec<RegistryByteBuf, CustomDynamicCraftingRecipe> PACKET_CODEC = new PacketCodec<>() {
+                    @Override
+                    public CustomDynamicCraftingRecipe decode(RegistryByteBuf buf) {
+                        return new CustomDynamicCraftingRecipe(CraftingRecipeCategory.MISC);
+                    }
+
+                    @Override
+                    public void encode(RegistryByteBuf buf, CustomDynamicCraftingRecipe value) {
+                    }
+                };
 
                 @Override
                 public MapCodec<CustomDynamicCraftingRecipe> codec() {
