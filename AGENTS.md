@@ -475,14 +475,16 @@ The mod enforces a strict bilingual requirement for all in-game text:
 * **Interaction Model:** Uses standard `ActionResult` for campfire interactions.
 
 ### 15.2. Bug Fix Status & Implementation for 1.21.6
-* **Bug 1 (Recipe Book World Re-entry Persistence):** Not affected. In 1.21.6, recipes are synchronized through `RecipeDisplayEntry` and `NetworkRecipeId` pools inside `ServerRecipeBookMixin` and `sendInitialRecipeBook`.
-* **Bug 2 (Smithing Table Crafts):** Not affected. Uses `SmithingScreenHandlerMixin` with `createForgingSlotsManager`.
+* **Bug 1 (Workstation Recipe Book & Stonecutter Duplication):** **Fixed**.
+  - In `CustomDynamicCraftingRecipe.getDisplays()`, returns `Collections.emptyList()` so the mod's datapack serializer entry (`recipeeditor:custom_crafting.json`) does not generate duplicate displays in the client recipe book alongside `CustomRecipeDispatcher`'s synthetic entries.
+  - In `CustomRecipeDispatcher.ensureRecipeBookEntriesUpToDate()`, stonecutting recipes (`recipeData.type == STONECUTTING`) are excluded from `CUSTOM_DISPLAY_PACKET_ENTRIES` sent via `RecipeBookAddS2CPacket`, ensuring stonecutter recipes are only synced through `SynchronizeRecipesS2CPacket` (`getStonecutterRecipeForSync`).
+  - In `ServerRecipeManagerMixin`, `getStonecutterRecipes`, `getStonecutterRecipeForSync`, and `values()` filter out entries with namespace `"recipeeditor"` from `original` before adding custom recipes, preventing dual-entry collisions.
+* **Bug 2 (Variant Index Shift on Blank Target Item):** **Fixed**.
+  - In `RecipeEditorScreen.java` (`RESULT_SLOT` drop handler), when replacing the target item with an item that has no recipes, the system checks `typeVariants.size() == 1 && !hasAnyIngredients(typeVariants.get(0))`. If true, it replaces the empty placeholder variant at index 0 with `newVariant` and keeps `currentVariantIndex = 0` ("Variant 1 / 1"), instead of adding a dummy second variant.
 * **Bug 3 (Reset Defaults / Clear All Crafts & Delete Entire Craft):** **Fixed (commit `3f4d520`)**.
   - `RecipeEditorConfig.initDefaults()` now calls `rebuildEnabledCache()`, ensuring `enabledResultIds` is fully purged when resetting all crafts.
   - `RecipeEditorScreen.deleteEntireCustomCraft()` executes `removeRecipesFor(targetItem)` on both `configCopy` and the active singleton instance.
   - `RecipeViewerIntegration.reloadRecipeViewers()` is triggered on reset to immediately update viewer overlays.
-* **Bug 4 (Stonecutter Crafting Output):** Not affected. In 1.21.6, stonecutter queries are routed through `ServerRecipeManagerMixin.getStonecutterRecipes` and `getStonecutterRecipeForSync`.
-* **Bug 5 (Campfire Right-Click Crash):** Not affected. Minecraft 1.21.6 uses `ActionResult` rather than the temporary 1.21 `ItemActionResult`.
 * **Bug 8 (Cannot Place Custom Recipe Item on Campfire):** **Fixed**.
   - In `CampfireBlockMixin`, removed `!state.get(LIT)` check (allowing items to be placed onto unlit campfires) and removed `isSneaking()`/`shouldCancelInteraction()` restrictions.
   - Client unconditionally returns `ActionResult.CONSUME`, ensuring block interaction packets are sent to the server.

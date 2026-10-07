@@ -2542,9 +2542,13 @@ public class RecipeEditorScreen extends Screen {
                                 newVariant.experience = snapExp;
                                 newVariant.cookingTime = snapTime;
                                 newVariant.isShapeless = snapShapeless;
-                                newVariant.invalidateCache();
-                                typeVariants.add(newVariant);
-                                currentVariantIndex = typeVariants.size() - 1;
+                                if (typeVariants.size() == 1 && !hasAnyIngredients(typeVariants.get(0))) {
+                                    typeVariants.set(0, newVariant);
+                                    currentVariantIndex = 0;
+                                } else {
+                                    typeVariants.add(newVariant);
+                                    currentVariantIndex = typeVariants.size() - 1;
+                                }
                                 currentRecipe = newVariant;
                             }
 
