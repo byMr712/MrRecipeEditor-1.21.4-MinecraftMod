@@ -1892,7 +1892,9 @@ public class RecipeEditorScreen extends Screen {
             int pCenterX = leftPaneX + (leftPaneWidth / 2);
             int promptY = gridStartY + 6;
             String machineName = selectedType.getDisplayName().getString();
-            Text line1 = Text.translatable("recipeeditor.gui.uncraftable_machine_1").formatted(Formatting.GRAY);
+            Text line1 = (currentFilter == CatalogFilter.CUSTOM)
+                    ? Text.translatable("recipeeditor.gui.uncraftable_machine_custom_1").formatted(Formatting.GRAY)
+                    : Text.translatable("recipeeditor.gui.uncraftable_machine_1").formatted(Formatting.GRAY);
             Text line2 = Text.translatable("recipeeditor.gui.uncraftable_machine_2", machineName).formatted(Formatting.WHITE);
             context.drawCenteredTextWithShadow(this.textRenderer, line1, pCenterX, promptY, 0xFFAAAAAA);
             context.drawCenteredTextWithShadow(this.textRenderer, line2, pCenterX, promptY + 14, 0xFFFFFFFF);
