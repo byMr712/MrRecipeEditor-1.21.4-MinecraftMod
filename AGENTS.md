@@ -478,3 +478,109 @@ The mod enforces a strict bilingual requirement for all in-game text:
   * `src/main/resources/assets/recipeeditor/lang/ru_ru.json` (Russian)
 * **No Untranslated Keys:** Hardcoding raw string literals in user-facing widgets or leaving translation keys present in only one language file is strictly prohibited. Missing keys in either language are treated as critical issues.
 * **Consistent Tone:** Russian translations must maintain natural, friendly, and precise Minecraft terminology; English translations must follow official Minecraft naming conventions.
+
+---
+
+## 15. Cross-Version Changelog, Architectural Divergences, and Bug Fix Matrix
+
+To ensure flawless operation across all supported Minecraft releases, the codebase is branched per Minecraft release. The core architecture is divided into three distinct generational eras, each with specific technical constraints and implementations.
+
+### 15.1. Generational Eras & Architectural Divergences
+
+#### 1. Legacy Yarn / Unified Manager Era (`1.21`, `1.21.1`)
+* **Java Runtime:** Java 21 LTS.
+* **Mapping Framework:** Yarn mappings (`net.minecraft.recipe.*`, `net.minecraft.client.gui.screen.*`).
+* **Recipe System:** Unified `net.minecraft.recipe.RecipeManager` handles both server and client matching via `RecipeManagerMixin`.
+* **Recipe Book Packets:** Dynamic recipes are synchronized using `RecipeBookAddS2CPacket` and `SynchronizeRecipesS2CPacket`. To avoid Guava `ImmutableMap` key collisions when multiple recipes produce the same item across different workstations, composite keys (`recipeeditor:<cleanId>_<typeSuffix>_<hash>`) are strictly enforced.
+* **Interaction Types:** Minecraft 1.21 and 1.21.1 introduced `ItemActionResult` for block item interactions (`CampfireBlock.onUseWithItem`), which requires returning `ItemActionResult.CONSUME`/`SUCCESS` rather than `ActionResult`.
+* **Workstation Invocations:** `StonecutterScreenHandler` and `SmithingScreenHandler` execute queries via `RecipeManager.getAllMatches` and `listAllOfType`.
+
+#### 2. Modern Yarn / Network-ID & Component Era (`1.21.2` – `1.21.11`)
+* **Java Runtime:** Java 21 LTS.
+* **Mapping Framework:** Yarn mappings.
+* **Recipe System:** Split architecture where server recipes are managed by `ServerRecipeManager` and network displays are driven by `RecipeDisplayEntry` and isolated `NetworkRecipeId` ranges ($1\,000\,000+$).
+* **Workstations:** Stonecutter migrated to recipe grouping methods (`getStonecutterRecipes` and `getStonecutterRecipeForSync`). Smithing table operates via `SmithingScreenHandlerMixin` and `createForgingSlotsManager`.
+* **Interaction Types:** Mojang deprecated and eliminated `ItemActionResult`, reverting `CampfireBlock.onUseWithItem` back to standard `ActionResult`.
+* **Recipe Book Persistence:** `ServerRecipeBookMixin` intercepts `sendInitialRecipeBook` and initial connection packets, maintaining auto-unlock status without advancement checks.
+
+#### 3. Modern Mojang Mappings / Data Component Era (`26.1`, `26.1.1`, `26.1.2`, `26.2`, `26.3`)
+* **Java Runtime:** Java 25.
+* **Mapping Framework:** Official Mojang Mappings (`net.minecraft.world.item.*`, `net.minecraft.core.registries.BuiltInRegistries`).
+* **Input Architecture:** Powered by SDL3 where mouse button indices are 1-based (`InputConstants.MOUSE_BUTTON_LEFT = 1`, `MOUSE_BUTTON_MIDDLE = 2`, `MOUSE_BUTTON_RIGHT = 3`). All coordinate inputs are scaled via `uiScale = Math.min(width / 460f, height / 380f)`.
+* **Title Screen Component Initializer Guard:** Dynamic world registries do not exist when launching from the title screen via ModMenu. Calling `BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build()` triggers crashes on dynamic entries (e.g. fire-resistant tags or trim materials). Protected via `RecipeInspector.ensureItemComponentsBound()` with a fallback `safeProvider` intercepting lookups and returning empty holder sets.
+* **Screen Navigation Nuances:**
+  - `26.1`, `26.1.1`, `26.1.2`, `26.2`: Transition screens using `minecraft.setScreen(...)`.
+  - `26.3` & `main`: Modern transition API using `minecraft.setScreenAndShow(...)`.
+
+---
+
+### 15.2. Detailed Analysis of Resolved Bugs Across Versions
+
+#### Bug 1: Recipe Book Forgets Custom Recipes on World Re-entry / Re-login
+* **Impacted Branches:** `1.21`, `1.21.1`.
+* **Symptom:** Custom recipes were present during the initial session but vanished from the vanilla recipe book upon logging out and rejoining the world. The server console reported:
+  `[Server thread/ERROR] Tried to load unrecognized recipe: ... removed now`.
+* **Root Cause:**
+  1. In 1.21/1.21.1, the vanilla client recipe book receives recipes during player login via `sendInitRecipesPacket`. In `ServerRecipeBookMixin`, this method was not intercepted, leaving rejoining players without recipe book displays.
+  2. In `RecipeManagerMixin.onGet`, querying an overridden recipe returned `Optional.empty()`. When the player joined, `ServerRecipeBook.readNbt` loaded saved recipe IDs from player data and queried `RecipeManager.get(id)`. Returning `empty()` caused vanilla to deem the recipe invalid and purge it from the player's saved recipes.
+* **Fix Implemented:**
+  - Injected into `ServerRecipeBook.sendInitRecipesPacket` in `ServerRecipeBookMixin` to transmit all synthetic recipes upon connection.
+  - Updated `RecipeManagerMixin.onGet` to cleanly resolve overridden recipes during NBT deserialization while suppressing them during matching.
+  - In `1.21.2`+ and `26.X`, this is managed natively via `NetworkRecipeId` pools and `RecipeDisplayEntry` sync inside `sendInitialRecipeBook`.
+
+#### Bug 2: Smithing Table Result Slot Inactive / Uncraftable
+* **Impacted Branches:** `1.21`, `1.21.1`.
+* **Symptom:** Placing custom recipe ingredients into the template, base, and addition slots of the smithing table produced no output in the result slot.
+* **Root Cause:** In Minecraft 1.21/1.21.1, `SmithingScreenHandler.updateResult` checks for valid recipes via `RecipeManager.getAllMatches(RecipeType.SMITHING, inventory, world)` and `RecipeManager.listAllOfType(RecipeType.SMITHING)`. `RecipeManagerMixin` previously only intercepted `getFirstMatch`, leaving `getAllMatches` unaware of synthetic smithing crafts.
+* **Fix Implemented:** Injected into `RecipeManager.getAllMatches` and `RecipeManager.listAllOfType` for `RecipeType.SMITHING` in `RecipeManagerMixin` to merge matching synthetic `SmithingTransformRecipe` instances. (In `1.21.2`+ and `26.X`, smithing table slots are driven by `SmithingScreenHandlerMixin` and `createForgingSlotsManager`).
+
+#### Bug 3: "Reset Defaults" ("Очистить все крафты") Does Not Clear Items from "Мои крафты" & Delete Craft Invalidation
+* **Impacted Branches:** **All Branches** (`1.21` – `1.21.11`, `26.1` – `26.3`, `main`).
+* **Symptom:** Clicking "Очистить все крафты" (Reset Defaults) or deleting an entire craft left items visibly cached in the "Мои крафты" catalog tab, and recipe search still indicated custom crafts were active.
+* **Root Cause:**
+  1. In `RecipeEditorConfig.initDefaults()`, `recipes.clear()` emptied the recipe map, but failed to call `rebuildEnabledCache()`. As a result, the static `enabledResultIds` set retained old item IDs, causing `hasCustomRecipe(itemId)` to report `true` indefinitely.
+  2. In `RecipeEditorScreen.deleteEntireCustomCraft()`, deletion iterated through the loaded recipe list, but did not call `removeRecipesFor(targetItem)` on both the local copy and singleton config, leaving leftover keys if signatures differed.
+  3. External recipe viewer displays were not synchronously purged after a global reset.
+* **Fix Implemented:**
+  - Added `rebuildEnabledCache()` inside `RecipeEditorConfig.initDefaults()`.
+  - Added explicit `configCopy.removeRecipesFor(targetItem)` and `actual.removeRecipesFor(targetItem)` calls in `RecipeEditorScreen.deleteEntireCustomCraft()`.
+  - Added `RecipeViewerIntegration.reloadRecipeViewers()` dispatch to update external viewers immediately upon clearing crafts.
+
+#### Bug 4: Stonecutter Displays Recipe but Output Cannot Be Taken
+* **Impacted Branches:** `1.21`, `1.21.1`.
+* **Symptom:** In the stonecutter GUI, custom recipes appeared in the list of available cuts, but clicking the output slot did nothing and the output item could not be retrieved.
+* **Root Cause:** When the player attempts to take the crafted item, `StonecutterScreenHandler.onTakeOutput` verifies the craft by querying `RecipeManager.getAllMatches(RecipeType.STONECUTTING, inventory, world)`. Because `getAllMatches` in `RecipeManagerMixin` did not return custom stonecutter recipes, the server rejected the action as invalid.
+* **Fix Implemented:** Added `@Inject` into `RecipeManager.getAllMatches` for `RecipeType.STONECUTTING` in `RecipeManagerMixin` to supply synthetic `StonecuttingRecipe` objects. (In `1.21.2`+ and `26.X`, stonecutter queries are routed through `getStonecutterRecipes` and `getStonecutterRecipeForSync` in `ServerRecipeManagerMixin`).
+
+#### Bug 5: ClassCastException Crash on Right-Clicking Campfire
+* **Impacted Branches:** `1.21`, `1.21.1`.
+* **Symptom:** Right-clicking any campfire with an item caused an immediate game crash with the error:
+  `java.lang.ClassCastException: class net.minecraft.util.ActionResult cannot be cast to class net.minecraft.util.ItemActionResult`.
+* **Root Cause:** In Minecraft 1.21 and 1.21.1, Mojang introduced `ItemActionResult` for block interaction methods executed with an item in hand (`CampfireBlock.onUseWithItem`). `CampfireBlockMixin` declared its injection callback as `CallbackInfoReturnable<ActionResult>`, returning `ActionResult.CONSUME`/`SUCCESS`. At runtime, the JVM attempted to cast `ActionResult` to `ItemActionResult`, resulting in an unhandled crash.
+* **Fix Implemented:** Updated `CampfireBlockMixin` in `1.21` and `1.21.1` to target `ItemActionResult` and return `ItemActionResult.CONSUME` on client and `ItemActionResult.SUCCESS` on server. (In `1.21.2`+ and `26.X`, Mojang reverted block interactions to `ActionResult` and `InteractionResult`, making this issue non-existent in subsequent versions).
+
+---
+
+### 15.3. Version Compatibility and Implementation Matrix
+
+| Branch | Minecraft | Java | Mapping Type | Recipe Engine Hook | Screen Navigation | Applicable Fixes Applied |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **`1.21`** | 1.21 | Java 21 | Yarn | `RecipeManagerMixin` (unified) | `setScreen` | **Bugs 1, 2, 3, 4, 5** (`c5e8c3f`) |
+| **`1.21.1`** | 1.21.1 | Java 21 | Yarn | `RecipeManagerMixin` (unified) | `setScreen` | **Bugs 1, 2, 3, 4, 5** (`555e8a2`) |
+| **`1.21.2`** | 1.21.2 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b6b0075`) |
+| **`1.21.3`** | 1.21.3 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`8442a93`) |
+| **`1.21.4`** | 1.21.4 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b0841cc`) |
+| **`1.21.5`** | 1.21.5 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`9e0c0e6`) |
+| **`1.21.6`** | 1.21.6 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`3f4d520`) |
+| **`1.21.7`** | 1.21.7 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`3d4415b`) |
+| **`1.21.8`** | 1.21.8 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b017fc2`) |
+| **`1.21.9`** | 1.21.9 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`d3efb4f`) |
+| **`1.21.10`** | 1.21.10 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b19a434`) |
+| **`1.21.11`** | 1.21.11 | Java 21 | Yarn | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`b964613`) |
+| **`26.1`** | 26.1 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`10a17cb`) |
+| **`26.1.1`** | 26.1.1 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`1b349ad`) |
+| **`26.1.2`** | 26.1.2 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`fcf1332`) |
+| **`26.2`** | 26.2 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreen` | **Bug 3** (`380683f`) |
+| **`26.3`** | 26.3 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreenAndShow` | **Bug 3** (`0634b94`) |
+| **`main`** | 26.3 | Java 25 | Mojang | `ServerRecipeManagerMixin` (split) | `setScreenAndShow` | **Bug 3** (`0634b94`) |
+
