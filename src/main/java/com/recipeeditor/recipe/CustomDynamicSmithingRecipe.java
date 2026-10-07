@@ -68,8 +68,8 @@ public class CustomDynamicSmithingRecipe implements SmithingRecipe {
     }
 
     @Override
-    public Optional<Ingredient> base() {
-        return this.base;
+    public Ingredient base() {
+        return this.base.orElseGet(Ingredient::ofItems);
     }
 
     @Override

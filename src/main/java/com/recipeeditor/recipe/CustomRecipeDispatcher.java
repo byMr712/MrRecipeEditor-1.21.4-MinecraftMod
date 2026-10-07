@@ -478,9 +478,9 @@ public class CustomRecipeDispatcher {
 
     public static CraftingRecipeCategory getCraftingCategory(Item item) {
         if (item == null || item == Items.AIR) return CraftingRecipeCategory.MISC;
-        if (item instanceof net.minecraft.item.SwordItem ||
-            item instanceof net.minecraft.item.MiningToolItem ||
-            item instanceof net.minecraft.item.ArmorItem ||
+        if (item.getDefaultStack().contains(net.minecraft.component.DataComponentTypes.EQUIPPABLE) ||
+            item.getDefaultStack().contains(net.minecraft.component.DataComponentTypes.TOOL) ||
+            item.getDefaultStack().contains(net.minecraft.component.DataComponentTypes.WEAPON) ||
             item instanceof net.minecraft.item.ShieldItem ||
             item instanceof net.minecraft.item.BowItem ||
             item instanceof net.minecraft.item.CrossbowItem ||

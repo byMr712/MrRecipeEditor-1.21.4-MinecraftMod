@@ -1188,7 +1188,8 @@ public class RecipeInspector {
         } else if (recipe instanceof SmithingTransformRecipe smithing) {
             data.type = RecipeTypeEnum.SMITHING;
             smithing.template().ifPresent(ing -> data.setSlotString(0, getSlotStringFromIngredient(ing)));
-            smithing.base().ifPresent(ing -> data.setSlotString(1, getSlotStringFromIngredient(ing)));
+            Ingredient baseIng = smithing.base();
+            if (baseIng != null && !baseIng.isEmpty()) data.setSlotString(1, getSlotStringFromIngredient(baseIng));
             smithing.addition().ifPresent(ing -> data.setSlotString(2, getSlotStringFromIngredient(ing)));
             result = data;
         } else if (recipe instanceof BlastingRecipe blasting) {
