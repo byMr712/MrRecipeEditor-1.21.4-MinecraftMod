@@ -19,13 +19,21 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Minecraft:** 1.21.9.
 * **Yarn Mappings:** `1.21.9+build.1`.
 * **Java:** 21 (LTS).
-* **Fabric Loader:** `>= 0.19.5`.
+* **Fabric Loader:** `>= 0.16.0`.
 * **Fabric API:** `0.134.1+1.21.9`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
 * **Mod Menu:** `13.0.1` (declared dependency in `depends` within `fabric.mod.json`).
 * **Roughly Enough Items (REI):** `18.0.815` (declared dependency in `suggests`, official API integration).
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
+
+### 1.4. Build Instructions
+To compile and assemble the mod JAR for Minecraft 1.21.9:
+```bash
+./gradlew clean build
+```
+The resulting artifact will be located in:
+`build/libs/MrRecipeEditor-Fabric-1.21.9-byMr712-v1.3.jar`
 
 ---
 
