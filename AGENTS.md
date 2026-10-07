@@ -485,8 +485,12 @@ The mod enforces a strict bilingual requirement for all in-game text:
 * **Main Menu Component Safety:** Uses `RecipeInspector.ensureItemComponentsBound()` with `safeProvider` wrapper around `BuiltInRegistries.createWrapperLookup()` to prevent dynamic datapack crashes on the title screen.
 
 ### 15.2. Bug Fix Status & Implementation for 26.1
-* **Bug 1 (Recipe Book World Re-entry Persistence):** Not affected. In 26.1, recipes are synchronized through `RecipeDisplayEntry` and `NetworkRecipeId` pools inside `ServerRecipeBookMixin` and `sendInitialRecipeBook`.
-* **Bug 2 (Smithing Table Crafts):** Not affected. Uses `SmithingScreenHandlerMixin` with `createForgingSlotsManager`.
+* **Bug 1 (Workstation Recipe Book & Stonecutter Duplication):** **Fixed**.
+  - In `CustomDynamicCraftingRecipe.display()`, returns `Collections.emptyList()` so the mod's datapack serializer entry (`recipeeditor:custom_crafting.json`) does not generate duplicate displays in the client recipe book alongside `CustomRecipeDispatcher`'s synthetic entries.
+  - In `CustomRecipeDispatcher.ensureRecipeBookEntriesUpToDate()`, stonecutting recipes (`recipeData.type == STONECUTTING`) are excluded from `CUSTOM_DISPLAY_PACKET_ENTRIES` sent via `ClientboundRecipeBookAddPacket`, ensuring stonecutter recipes are only synced through `ClientboundUpdateRecipesPacket`.
+  - In `ServerRecipeManagerMixin`, `stonecutterRecipes`, `getSynchronizedStonecutterRecipes`, and `getRecipes()` filter out entries with namespace `"recipeeditor"` from `original` before adding custom recipes, preventing dual-entry collisions.
+* **Bug 2 (Variant Index Shift on Blank Target Item):** **Fixed**.
+  - In `RecipeEditorScreen.java` (`RESULT_SLOT` drop handler), when replacing the target item with an item that has no recipes, the system checks `typeVariants.size() == 1 && !hasAnyIngredients(typeVariants.get(0))`. If true, it replaces the empty placeholder variant at index 0 with `newVariant` and keeps `currentVariantIndex = 0` ("Variant 1 / 1"), instead of adding a dummy second variant.
 * **Bug 3 (Reset Defaults / Clear All Crafts & Delete Entire Craft):** **Fixed (commit `10a17cb`)**.
   - `RecipeEditorConfig.initDefaults()` now calls `rebuildEnabledCache()`, ensuring `enabledResultIds` is fully purged when resetting all crafts.
   - `RecipeEditorScreen.deleteEntireCustomCraft()` executes `removeRecipesFor(targetItem)` on both `configCopy` and the active singleton instance.
