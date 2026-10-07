@@ -219,6 +219,67 @@ public class CustomRecipeDispatcher {
         return Optional.empty();
     }
 
+    @SuppressWarnings("unchecked")
+    public static <I extends RecipeInput, T extends Recipe<I>> List<RecipeEntry<T>> getCustomMatches(RecipeType<T> type, I input, World world) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return Collections.emptyList();
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty() || input == null || input.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        RecipeTypeEnum targetEnum = getEnumForType(type);
+        if (targetEnum == null) return Collections.emptyList();
+
+        List<RecipeEntry<T>> matches = new ArrayList<>();
+        if (targetEnum == RecipeTypeEnum.SHAPED_CRAFTING && input instanceof CraftingRecipeInput craftingInput) {
+            List<CustomRecipeData> sorted = config.getSortedCraftingRecipes();
+            for (CustomRecipeData recipeData : sorted) {
+                if (!recipeData.enabled || recipeData.type != targetEnum) continue;
+                if (matchesInput(recipeData, targetEnum, input)) {
+                    RecipeEntry<T> entry = getCachedSyntheticEntry(recipeData, targetEnum, type);
+                    if (entry != null) {
+                        matches.add(entry);
+                    }
+                }
+            }
+            return matches;
+        }
+
+        for (CustomRecipeData recipeData : config.recipes.values()) {
+            if (!recipeData.enabled || recipeData.type != targetEnum) continue;
+
+            if (matchesInput(recipeData, targetEnum, input)) {
+                RecipeEntry<T> entry = getCachedSyntheticEntry(recipeData, targetEnum, type);
+                if (entry != null) {
+                    matches.add(entry);
+                }
+            }
+        }
+        return matches;
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <I extends RecipeInput, T extends Recipe<I>> List<RecipeEntry<T>> getAllCustomRecipesOfType(RecipeType<T> type) {
+        if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return Collections.emptyList();
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        RecipeTypeEnum targetEnum = getEnumForType(type);
+        if (targetEnum == null) return Collections.emptyList();
+
+        List<RecipeEntry<T>> list = new ArrayList<>();
+        for (CustomRecipeData recipeData : config.recipes.values()) {
+            if (!recipeData.enabled || recipeData.type != targetEnum) continue;
+            RecipeEntry<T> entry = getCachedSyntheticEntry(recipeData, targetEnum, type);
+            if (entry != null) {
+                list.add(entry);
+            }
+        }
+        return list;
+    }
+
     private static final Map<String, RecipeEntry<?>> SYNTHETIC_CACHE = new ConcurrentHashMap<>();
     private static volatile List<RecipeEntry<?>> CACHED_ALL_CUSTOM_RECIPES = null;
     private static volatile int lastCustomRecipesVersion = -1;
@@ -336,6 +397,29 @@ public class CustomRecipeDispatcher {
         return CACHED_ALL_CUSTOM_RECIPES;
     }
 
+    public static Optional<RecipeEntry<?>> getCustomRecipeForOverridden(Identifier id) {
+        if (id == null) return Optional.empty();
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
+            return Optional.empty();
+        }
+        String fullId = id.toString();
+        String path = id.getPath();
+        for (CustomRecipeData r : config.recipes.values()) {
+            if (!r.enabled || !r.overrideExisting) continue;
+            if (fullId.equals(r.overriddenId) || path.equals(r.overriddenId) ||
+                fullId.equals(r.id) || path.equals(r.id) ||
+                fullId.equals(r.resultItemId) || path.equals(r.resultItemId)) {
+                RecipeType<?> mcType = r.type != null ? r.type.toRecipeType() : null;
+                if (mcType != null) {
+                    RecipeEntry<?> entry = getCachedSyntheticEntry(r, r.type, mcType);
+                    if (entry != null) return Optional.of(entry);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     public static Optional<RecipeEntry<?>> getCustomRecipeEntryById(Identifier id) {
         if (id == null) return Optional.empty();
         Collection<RecipeEntry<?>> all = getAllCustomRecipes();
@@ -344,15 +428,25 @@ public class CustomRecipeDispatcher {
                 return Optional.of(entry);
             }
         }
+        String path = id.getPath();
         if ("recipeeditor".equals(id.getNamespace())) {
-            String path = id.getPath();
             for (RecipeEntry<?> entry : all) {
-                if (entry.id().getPath().startsWith(path + "_")) {
+                String entryPath = entry.id().getPath();
+                if (entryPath.equals(path) || entryPath.startsWith(path + "_")) {
                     return Optional.of(entry);
                 }
             }
+            if (path.startsWith("minecraft_")) {
+                String stripped = path.substring("minecraft_".length());
+                for (RecipeEntry<?> entry : all) {
+                    String entryPath = entry.id().getPath();
+                    if (entryPath.equals(stripped) || entryPath.startsWith(stripped + "_")) {
+                        return Optional.of(entry);
+                    }
+                }
+            }
         }
-        return Optional.empty();
+        return getCustomRecipeForOverridden(id);
     }
 
     public static RecipeTypeEnum getEnumForType(RecipeType<?> type) {
@@ -598,7 +692,18 @@ public class CustomRecipeDispatcher {
         try {
             Collection<RecipeEntry<?>> custom = getAllCustomRecipes();
             if (!custom.isEmpty()) {
-                player.unlockRecipes(custom);
+                List<Identifier> ids = new ArrayList<>();
+                for (RecipeEntry<?> entry : custom) {
+                    ids.add(entry.id());
+                    player.getRecipeBook().add(entry);
+                    player.getRecipeBook().display(entry);
+                }
+                player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket(
+                    net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket.Action.ADD,
+                    ids,
+                    ids,
+                    player.getRecipeBook().getOptions()
+                ));
             }
         } catch (Throwable ignored) {}
     }
@@ -606,12 +711,25 @@ public class CustomRecipeDispatcher {
     public static synchronized void syncRecipeBookToPlayers(Iterable<ServerPlayerEntity> players) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         Collection<RecipeEntry<?>> custom = getAllCustomRecipes();
+        List<Identifier> ids = new ArrayList<>();
+        for (RecipeEntry<?> entry : custom) {
+            ids.add(entry.id());
+        }
 
         for (ServerPlayerEntity player : players) {
             if (player == null || player.networkHandler == null || player.server == null) continue;
             try {
-                if (!custom.isEmpty()) {
-                    player.unlockRecipes(custom);
+                if (!ids.isEmpty()) {
+                    for (RecipeEntry<?> entry : custom) {
+                        player.getRecipeBook().add(entry);
+                        player.getRecipeBook().display(entry);
+                    }
+                    player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket(
+                        net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket.Action.ADD,
+                        ids,
+                        ids,
+                        player.getRecipeBook().getOptions()
+                    ));
                 }
                 player.networkHandler.sendPacket(new SynchronizeRecipesS2CPacket(player.server.getRecipeManager().values()));
             } catch (Throwable ignored) {}

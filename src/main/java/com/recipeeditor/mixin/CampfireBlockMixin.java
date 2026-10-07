@@ -13,8 +13,8 @@ import net.minecraft.recipe.RecipeType;
 import net.minecraft.recipe.input.SingleStackRecipeInput;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.stat.Stats;
-import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
+import net.minecraft.util.ItemActionResult;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
@@ -37,7 +37,7 @@ public class CampfireBlockMixin {
             PlayerEntity player,
             Hand hand,
             BlockHitResult hit,
-            CallbackInfoReturnable<ActionResult> cir
+            CallbackInfoReturnable<ItemActionResult> cir
     ) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) {
             return;
@@ -59,10 +59,10 @@ public class CampfireBlockMixin {
                         int cookTime = custom.get().value().getCookingTime();
                         if (campfireBlockEntity.addItem(player, itemStack, cookTime)) {
                             player.incrementStat(Stats.INTERACT_WITH_CAMPFIRE);
-                            cir.setReturnValue(ActionResult.SUCCESS);
+                            cir.setReturnValue(ItemActionResult.SUCCESS);
                             return;
                         } else {
-                            cir.setReturnValue(ActionResult.PASS);
+                            cir.setReturnValue(ItemActionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION);
                             return;
                         }
                     } else {
@@ -74,9 +74,9 @@ public class CampfireBlockMixin {
                             }
                         }
                         if (hasEmptySlot) {
-                            cir.setReturnValue(ActionResult.CONSUME);
+                            cir.setReturnValue(ItemActionResult.CONSUME);
                         } else {
-                            cir.setReturnValue(ActionResult.PASS);
+                            cir.setReturnValue(ItemActionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION);
                         }
                         return;
                     }

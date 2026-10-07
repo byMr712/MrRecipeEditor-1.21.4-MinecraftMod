@@ -1640,11 +1640,11 @@ public class RecipeEditorScreen extends Screen {
             if (r.type == RecipeTypeEnum.STONECUTTING) {
                 stonecutterChanged = true;
             }
-            configCopy.removeRecipe(r);
-            RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
-            actual.removeRecipe(r);
             com.recipeeditor.integration.RecipeViewerIntegration.removeRecipeFromViewers(r.getKey());
         }
+        configCopy.removeRecipesFor(targetItem);
+        RecipeEditorConfig actual = RecipeEditorConfig.getInstance();
+        actual.removeRecipesFor(targetItem);
 
         RecipeEditorConfig.getInstance().save();
         RecipeEditorConfig.getInstance().invalidateAllRecipeCaches();
@@ -1699,6 +1699,7 @@ public class RecipeEditorScreen extends Screen {
         actual.initDefaults();
         actual.save();
         actual.invalidateAllRecipeCaches();
+        com.recipeeditor.integration.RecipeViewerIntegration.reloadRecipeViewers();
         if (this.client != null && this.client.getServer() != null) {
             com.recipeeditor.recipe.CustomRecipeDispatcher.syncRecipeBookToPlayers(this.client.getServer().getPlayerManager().getPlayerList());
             syncStonecutterRecipes();
