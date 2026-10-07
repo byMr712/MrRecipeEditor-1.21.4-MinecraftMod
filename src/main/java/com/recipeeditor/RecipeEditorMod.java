@@ -77,11 +77,80 @@ public class RecipeEditorMod implements ModInitializer {
     public static void ensureItemComponentsBound() {
         try {
             if (!net.minecraft.world.item.Items.STONE.builtInRegistryHolder().areComponentsBound()) {
-                net.minecraft.core.HolderLookup.Provider provider = net.minecraft.core.HolderLookup.Provider.create(
+                net.minecraft.core.HolderLookup.Provider baseProvider = net.minecraft.core.HolderLookup.Provider.create(
                         BuiltInRegistries.REGISTRY.stream().map(r -> (net.minecraft.core.HolderLookup.RegistryLookup<?>) r)
                 );
+                net.minecraft.core.HolderLookup.Provider safeProvider = new net.minecraft.core.HolderLookup.Provider() {
+                    @Override
+                    @SuppressWarnings("unchecked")
+                    public <T> java.util.Optional<net.minecraft.core.HolderLookup.RegistryLookup<T>> lookup(net.minecraft.resources.ResourceKey<? extends net.minecraft.core.Registry<? extends T>> key) {
+                        java.util.Optional<net.minecraft.core.HolderLookup.RegistryLookup<T>> res =
+                                (java.util.Optional<net.minecraft.core.HolderLookup.RegistryLookup<T>>) (java.util.Optional<?>) baseProvider.lookup(key);
+                        if (res.isPresent()) return res;
+                        return java.util.Optional.of(new net.minecraft.core.HolderLookup.RegistryLookup<T>() {
+                            @Override
+                            public net.minecraft.resources.ResourceKey<? extends net.minecraft.core.Registry<? extends T>> key() {
+                                return key;
+                            }
+
+                            @Override
+                            public com.mojang.serialization.Lifecycle registryLifecycle() {
+                                return com.mojang.serialization.Lifecycle.stable();
+                            }
+
+                            @Override
+                            public java.util.stream.Stream<net.minecraft.core.HolderSet.Named<T>> listTags() {
+                                return java.util.stream.Stream.empty();
+                            }
+
+                            @Override
+                            public java.util.stream.Stream<net.minecraft.core.Holder.Reference<T>> listElements() {
+                                return java.util.stream.Stream.empty();
+                            }
+
+                            @Override
+                            public java.util.Optional<net.minecraft.core.Holder.Reference<T>> get(net.minecraft.resources.ResourceKey<T> resourceKey) {
+                                return java.util.Optional.of(net.minecraft.core.Holder.Reference.createStandAlone(new net.minecraft.core.HolderOwner<T>() {}, resourceKey));
+                            }
+
+                            @Override
+                            public java.util.Optional<net.minecraft.core.HolderSet.Named<T>> get(net.minecraft.tags.TagKey<T> tagKey) {
+                                return java.util.Optional.of(net.minecraft.core.HolderSet.emptyNamed(new net.minecraft.core.HolderOwner<T>() {}, tagKey));
+                            }
+                        });
+                    }
+
+                    @Override
+                    public java.util.stream.Stream<net.minecraft.resources.ResourceKey<? extends net.minecraft.core.Registry<?>>> listRegistryKeys() {
+                        return baseProvider.listRegistryKeys();
+                    }
+
+                    @Override
+                    public <T> java.util.Optional<net.minecraft.core.HolderSet.Named<T>> get(net.minecraft.tags.TagKey<T> tagKey) {
+                        java.util.Optional<net.minecraft.core.HolderSet.Named<T>> res = baseProvider.get(tagKey);
+                        if (res.isPresent()) return res;
+                        return java.util.Optional.of(net.minecraft.core.HolderSet.emptyNamed(new net.minecraft.core.HolderOwner<T>() {}, tagKey));
+                    }
+
+                    @Override
+                    public <T> net.minecraft.core.HolderSet.Named<T> getOrThrow(net.minecraft.tags.TagKey<T> tagKey) {
+                        return get(tagKey).get();
+                    }
+
+                    @Override
+                    public <T> java.util.Optional<net.minecraft.core.Holder.Reference<T>> get(net.minecraft.resources.ResourceKey<T> resourceKey) {
+                        java.util.Optional<net.minecraft.core.Holder.Reference<T>> res = baseProvider.get(resourceKey);
+                        if (res.isPresent()) return res;
+                        return java.util.Optional.of(net.minecraft.core.Holder.Reference.createStandAlone(new net.minecraft.core.HolderOwner<T>() {}, resourceKey));
+                    }
+
+                    @Override
+                    public <T> net.minecraft.core.Holder.Reference<T> getOrThrow(net.minecraft.resources.ResourceKey<T> resourceKey) {
+                        return get(resourceKey).get();
+                    }
+                };
                 java.util.List<net.minecraft.core.component.DataComponentInitializers.PendingComponents<?>> pending =
-                        BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(provider);
+                        BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(safeProvider);
                 for (net.minecraft.core.component.DataComponentInitializers.PendingComponents<?> p : pending) {
                     p.apply();
                 }
