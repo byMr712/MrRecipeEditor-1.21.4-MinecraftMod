@@ -1,6 +1,6 @@
-# Architectural Blueprint and Technical Specification for [MR] Recipe Editor (Minecraft 1.21.1 Fabric)
+# Architectural Blueprint and Technical Specification for [MR] Recipe Editor (Minecraft 1.21 Fabric)
 
-This document provides a comprehensive technical blueprint and architectural specification for the **[MR] Recipe Editor** modification for Minecraft 1.21.1 (Fabric). It is designed for AI agents, system architects, and software engineers who require an exhaustive understanding of every implementation detail: from internal data structures and pattern-matching algorithms to network synchronization, Roughly Enough Items (REI) integration, and low-level bytecode mixins.
+This document provides a comprehensive technical blueprint and architectural specification for the **[MR] Recipe Editor** modification for Minecraft 1.21 (Fabric). It is designed for AI agents, system architects, and software engineers who require an exhaustive understanding of every implementation detail: from internal data structures and pattern-matching algorithms to network synchronization, Roughly Enough Items (REI) integration, and low-level bytecode mixins.
 
 ---
 
@@ -16,14 +16,14 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * All vanilla and modded mechanics remain completely untouched until the user explicitly saves a new custom recipe or overrides an existing one.
 
 ### 1.3. Target Platform and Dependencies
-* **Minecraft:** 1.21.1.
-* **Yarn Mappings:** `1.21.1+build.3`.
+* **Minecraft:** 1.21.
+* **Yarn Mappings:** `1.21+build.9`.
 * **Java:** 21 (LTS).
 * **Fabric Loader:** `>= 0.19.5`.
-* **Fabric API:** `0.116.17+1.21.1`.
+* **Fabric API:** `0.102.0+1.21`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
-* **Mod Menu:** `13.0.1` (declared dependency in `depends` within `fabric.mod.json`).
-* **Roughly Enough Items (REI):** `18.0.815` (declared dependency in `suggests`, official API integration).
+* **Mod Menu:** `11.0.3` (declared dependency in `depends` within `fabric.mod.json`).
+* **Roughly Enough Items (REI):** `16.0.729` (declared dependency in `suggests`, official API integration).
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
 
