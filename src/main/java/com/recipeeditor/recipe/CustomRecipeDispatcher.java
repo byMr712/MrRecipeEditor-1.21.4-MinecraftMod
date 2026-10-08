@@ -641,6 +641,8 @@ public class CustomRecipeDispatcher {
             }
             CUSTOM_SERVER_RECIPES_BY_KEY.put(entry.id(), list);
         }
+        PREVIOUS_NETWORK_IDS.clear();
+        PREVIOUS_NETWORK_IDS.addAll(CUSTOM_SERVER_RECIPES.keySet());
         lastRecipeBookVersion = config.configVersion;
     }
 
@@ -709,6 +711,8 @@ public class CustomRecipeDispatcher {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         if (player == null || player.networkHandler == null) return;
         ensureRecipeBookEntriesUpToDate();
+        PREVIOUS_NETWORK_IDS.clear();
+        PREVIOUS_NETWORK_IDS.addAll(CUSTOM_SERVER_RECIPES.keySet());
         if (!CUSTOM_DISPLAY_PACKET_ENTRIES.isEmpty()) {
             player.networkHandler.sendPacket(new RecipeBookAddS2CPacket(new ArrayList<>(CUSTOM_DISPLAY_PACKET_ENTRIES), false));
         }
