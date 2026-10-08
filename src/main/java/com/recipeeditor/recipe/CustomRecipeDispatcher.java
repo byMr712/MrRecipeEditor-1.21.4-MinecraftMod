@@ -512,6 +512,14 @@ public class CustomRecipeDispatcher {
         return getCustomRecipeForOverridden(id);
     }
 
+    public static Set<Identifier> getRecentlyRemovedIds() {
+        return Collections.unmodifiableSet(RECENTLY_REMOVED_RECIPES.keySet());
+    }
+
+    public static RecipeEntry<?> getRecentlyRemovedEntry(Identifier id) {
+        return RECENTLY_REMOVED_RECIPES.get(id);
+    }
+
     public static RecipeTypeEnum getEnumForType(RecipeType<?> type) {
         return RecipeTypeEnum.fromRecipeType(type);
     }
@@ -810,6 +818,9 @@ public class CustomRecipeDispatcher {
                         if (remEntry != null) {
                             player.getRecipeBook().remove(remEntry);
                         }
+                        try {
+                            ((com.recipeeditor.mixin.RecipeBookInvoker) player.getRecipeBook()).recipeeditor$invokeRemove(remId);
+                        } catch (Throwable ignored) {}
                     }
                     player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket(
                         net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket.Action.REMOVE,
@@ -820,11 +831,11 @@ public class CustomRecipeDispatcher {
                 }
 
                 // 3. Add and display all active custom recipes
+                for (RecipeEntry<?> entry : custom) {
+                    player.getRecipeBook().add(entry);
+                    player.getRecipeBook().display(entry);
+                }
                 if (!ids.isEmpty()) {
-                    for (RecipeEntry<?> entry : custom) {
-                        player.getRecipeBook().add(entry);
-                        player.getRecipeBook().display(entry);
-                    }
                     player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket(
                         net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket.Action.ADD,
                         ids,
@@ -846,6 +857,9 @@ public class CustomRecipeDispatcher {
                             if (remEntry != null) {
                                 clientBook.remove(remEntry);
                             }
+                            try {
+                                ((com.recipeeditor.mixin.RecipeBookInvoker) clientBook).recipeeditor$invokeRemove(remId);
+                            } catch (Throwable ignored) {}
                         }
                         for (RecipeEntry<?> entry : custom) {
                             clientBook.add(entry);
@@ -854,6 +868,7 @@ public class CustomRecipeDispatcher {
                         if (client.world != null && client.getNetworkHandler() != null && client.getNetworkHandler().getRecipeManager() != null) {
                             clientBook.reload(client.getNetworkHandler().getRecipeManager().sortedValues(), client.world.getRegistryManager());
                         }
+                        clientBook.getOrderedResults().forEach(r -> r.initialize(clientBook));
                         if (client.currentScreen instanceof net.minecraft.client.gui.screen.recipebook.RecipeBookProvider provider) {
                             provider.refreshRecipeBook();
                         }

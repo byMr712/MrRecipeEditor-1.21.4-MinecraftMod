@@ -9,10 +9,12 @@
     "AbstractFurnaceScreenHandlerMixin",
     "AbstractFurnaceBlockEntityMixin",
     "RecipeBookMixin",
+    "RecipeBookInvoker",
     "ServerRecipeBookMixin"
   ],
   "client": [
-    "client.TextFieldWidgetAccessor"
+    "client.TextFieldWidgetAccessor",
+    "client.ClientPlayNetworkHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

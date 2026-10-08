@@ -1,6 +1,7 @@
 package com.recipeeditor.mixin;
 
 import com.recipeeditor.recipe.CustomRecipeDispatcher;
+import net.minecraft.recipe.RecipeEntry;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.network.ServerRecipeBook;
 import net.minecraft.util.Identifier;
@@ -21,6 +22,15 @@ public class ServerRecipeBookMixin {
         }
         try {
             ServerRecipeBook book = (ServerRecipeBook) (Object) this;
+            for (Identifier remId : CustomRecipeDispatcher.getRecentlyRemovedIds()) {
+                RecipeEntry<?> remEntry = CustomRecipeDispatcher.getRecentlyRemovedEntry(remId);
+                if (remEntry != null) {
+                    book.remove(remEntry);
+                }
+                try {
+                    ((com.recipeeditor.mixin.RecipeBookInvoker) book).recipeeditor$invokeRemove(remId);
+                } catch (Throwable ignored) {}
+            }
             for (net.minecraft.recipe.RecipeEntry<?> entry : CustomRecipeDispatcher.getAllCustomRecipes()) {
                 book.add(entry);
                 book.display(entry);

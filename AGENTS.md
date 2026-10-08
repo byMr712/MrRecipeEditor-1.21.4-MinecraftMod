@@ -265,19 +265,29 @@ Core interception point for server-side recipe resolution:
   * Returns `false` for overridden recipes, hiding them from the book interface.
 * `@Inject sendInitRecipesPacket`:
   * Transmits custom displays via `CustomRecipeDispatcher.sendCustomRecipeBookEntries`.
+  * Purges recently removed custom recipe IDs from the server recipe book before dispatching active recipes.
 
-### 6.3. `AbstractFurnaceScreenHandlerMixin`
+### 6.3. `RecipeBookMixin` and `RecipeBookInvoker`
+* `RecipeBookMixin`: Intercepts `contains(RecipeEntry)` and `contains(Identifier)` at `HEAD`. For `recipeeditor` namespace, resolves dynamically via `CustomRecipeDispatcher.isCustomRecipeActive` (suppresses phantom recipes after deletion). Returns `false` for overridden recipes.
+* `RecipeBookInvoker`: Exposes `@Invoker("remove")` for `Identifier`, permitting reliable recipe ID removal without requiring an active `RecipeEntry` instance.
+
+### 6.4. `ClientPlayNetworkHandlerMixin` (Client-side)
+* `@Inject onSynchronizeRecipes` at `RETURN`:
+  * Whenever the client recipe manager is synchronized and `ClientRecipeBook.reload` is triggered, calls `orderedResults.forEach(r -> r.initialize(clientBook))` and `refreshRecipeBook()`.
+  * Prevents `RecipeResultCollection.isInitialized()` from becoming `false` for vanilla and active crafts, eliminating recipe book blanking upon recipe deletion.
+
+### 6.5. `AbstractFurnaceScreenHandlerMixin`
 * `@Inject isSmeltable`:
   * Intercepts item insertion validation for furnaces, smokers, and blast furnaces.
   * Returns `true` if a custom cooking recipe exists for the item.
   * Returns `false` if the vanilla cooking recipe is overridden.
 
-### 6.4. `CampfireBlockMixin`
+### 6.6. `CampfireBlockMixin`
 * `@Inject onUseWithItem`:
   * Intercepts right-clicks on campfires.
   * When a custom campfire recipe matches, places the item onto the campfire block entity on the server or consumes animation on the client.
 
-### 6.5. `TextFieldWidgetAccessor`
+### 6.7. `TextFieldWidgetAccessor`
 Accessor exposing `firstCharacterIndex` from vanilla `TextFieldWidget`, enabling accurate character selection and mouse dragging in text input fields.
 
 ---
