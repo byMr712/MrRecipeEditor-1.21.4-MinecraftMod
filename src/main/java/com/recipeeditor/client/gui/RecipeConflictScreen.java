@@ -20,13 +20,21 @@ public class RecipeConflictScreen extends Screen {
     private final List<RecipeConflictInfo> conflicts;
     private final Runnable onConfirmOverride;
 
+    // Responsive Studio scaling matching RecipeEditorScreen
+    private float uiScale = 1.0f;
+    private static final int BASE_WIDTH = 460;
+    private static final int BASE_HEIGHT = 320;
+
     private int scrollOffset = 0;
     private int maxScroll = 0;
+    private boolean isDraggingScroll = false;
+    private double dragScrollStartY = 0;
+    private int dragScrollStartOffset = 0;
 
     public RecipeConflictScreen(Screen parent, List<RecipeConflictInfo> conflicts, Runnable onConfirmOverride) {
         super(Text.translatable("recipeeditor.gui.conflict_title"));
         this.parent = parent;
-        this.conflicts = conflicts;
+        this.conflicts = conflicts != null ? conflicts : List.of();
         this.onConfirmOverride = onConfirmOverride;
     }
 
@@ -34,14 +42,35 @@ public class RecipeConflictScreen extends Screen {
         this(parent, conflicts, null);
     }
 
+    private void updateUiScale() {
+        float scaleX = (float) this.width / (float) BASE_WIDTH;
+        float scaleY = (float) this.height / (float) BASE_HEIGHT;
+        this.uiScale = Math.min(1.0f, Math.min(scaleX, scaleY));
+        if (this.uiScale <= 0.05f) {
+            this.uiScale = 1.0f;
+        }
+    }
+
+    public int getVirtualWidth() {
+        return (int) Math.ceil(this.width / uiScale);
+    }
+
+    public int getVirtualHeight() {
+        return (int) Math.ceil(this.height / uiScale);
+    }
+
     @Override
     protected void init() {
-        int btnY = this.height - 32;
+        updateUiScale();
+        int vWidth = getVirtualWidth();
+        int vHeight = getVirtualHeight();
+
+        int btnY = vHeight - 28;
+        int btnW = 140;
+        int spacing = 12;
 
         if (onConfirmOverride != null) {
-            int btnW = 150;
-            int spacing = 10;
-            int startX = this.width / 2 - btnW - (spacing / 2);
+            int startX = (vWidth - (btnW * 2 + spacing)) / 2;
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("recipeeditor.gui.conflict_override").formatted(Formatting.GOLD),
@@ -57,14 +86,14 @@ public class RecipeConflictScreen extends Screen {
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("recipeeditor.gui.conflict_cancel"),
                     btn -> this.close())
-                    .dimensions(this.width / 2 + (spacing / 2), btnY, btnW, 20)
+                    .dimensions(startX + btnW + spacing, btnY, btnW, 20)
                     .build());
         } else {
-            int btnW = 150;
+            int startX = (vWidth - btnW) / 2;
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("recipeeditor.gui.conflict_dismiss"),
                     btn -> this.close())
-                    .dimensions((this.width - btnW) / 2, btnY, btnW, 20)
+                    .dimensions(startX, btnY, btnW, 20)
                     .build());
         }
     }
@@ -78,6 +107,9 @@ public class RecipeConflictScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        double sX = mouseX / uiScale;
+        double sY = mouseY / uiScale;
+
         if (maxScroll > 0) {
             if (verticalAmount > 0) {
                 scrollOffset = Math.max(0, scrollOffset - 24);
@@ -87,33 +119,120 @@ public class RecipeConflictScreen extends Screen {
                 return true;
             }
         }
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        return super.mouseScrolled(sX, sY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        double sX = mouseX / uiScale;
+        double sY = mouseY / uiScale;
+
+        if (button == 0 && maxScroll > 0) {
+            int vWidth = getVirtualWidth();
+            int vHeight = getVirtualHeight();
+            int listTop = 40;
+            int btnY = vHeight - 28;
+            int listBottom = btnY - 6;
+            int listW = Math.min(440, vWidth - 24);
+            int listX = (vWidth - listW) / 2;
+            int scrollbarX = listX + listW - 8;
+
+            if (sX >= scrollbarX - 4 && sX <= scrollbarX + 10 && sY >= listTop && sY <= listBottom) {
+                isDraggingScroll = true;
+                dragScrollStartY = sY;
+                dragScrollStartOffset = scrollOffset;
+                return true;
+            }
+        }
+
+        return super.mouseClicked(sX, sY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0) {
+            isDraggingScroll = false;
+        }
+        double sX = mouseX / uiScale;
+        double sY = mouseY / uiScale;
+        return super.mouseReleased(sX, sY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        double sX = mouseX / uiScale;
+        double sY = mouseY / uiScale;
+
+        if (isDraggingScroll && maxScroll > 0) {
+            int vHeight = getVirtualHeight();
+            int listTop = 40;
+            int btnY = vHeight - 28;
+            int listBottom = btnY - 6;
+            int listH = Math.max(20, listBottom - listTop);
+            float ratio = (float) (sY - dragScrollStartY) / (float) listH;
+            scrollOffset = Math.max(0, Math.min(maxScroll, (int) (dragScrollStartOffset + ratio * maxScroll)));
+            return true;
+        }
+
+        return super.mouseDragged(sX, sY, button, deltaX / uiScale, deltaY / uiScale);
+    }
+
+    @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        // Suppress default background rendering during super.render(),
+        // because super.render() is executed under scaled matrices.
+        // The background is rendered unscaled at native 1.0x in render().
     }
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        // Native Minecraft screen render: draws background and buttons first
-        super.render(context, mouseX, mouseY, delta);
+        // 1. Render native unscaled background
+        if (this.client != null) {
+            super.renderBackground(context, mouseX, mouseY, delta);
+        }
+
+        // 2. Mod's semi-transparent dark overlay across the entire unscaled screen
+        context.fill(0, 0, this.width, this.height, 0x90000000);
+
+        int scaledMouseX = (int) (mouseX / uiScale);
+        int scaledMouseY = (int) (mouseY / uiScale);
+
+        context.getMatrices().pushMatrix();
+        context.getMatrices().scale(uiScale, uiScale);
+
+        super.render(context, scaledMouseX, scaledMouseY, delta);
+
+        int vWidth = getVirtualWidth();
+        int vHeight = getVirtualHeight();
 
         // Centered Header & Description (identical style to ConfirmScreen)
-        Text titleText = Text.literal("⚠️ ").append(Text.translatable("recipeeditor.gui.conflict_title")).formatted(Formatting.GOLD, Formatting.BOLD);
-        context.drawCenteredTextWithShadow(this.textRenderer, titleText, this.width / 2, 14, 0xFFFFAA00);
+        Text titleText = Text.literal("\u26A0 ").append(Text.translatable("recipeeditor.gui.conflict_title")).append(" \u26A0").formatted(Formatting.GOLD, Formatting.BOLD);
+        context.drawCenteredTextWithShadow(this.textRenderer, titleText, vWidth / 2, 12, 0xFFFFAA00);
 
         Text desc = Text.translatable("recipeeditor.gui.conflict_desc").formatted(Formatting.GRAY);
-        context.drawCenteredTextWithShadow(this.textRenderer, desc, this.width / 2, 28, 0xFFAAAAAA);
+        context.drawCenteredTextWithShadow(this.textRenderer, desc, vWidth / 2, 26, 0xFFAAAAAA);
 
-        int listTop = 44;
-        int btnY = this.height - 32;
-        int listBottom = btnY - 8;
+        int listTop = 40;
+        int btnY = vHeight - 28;
+        int listBottom = btnY - 6;
         int listH = Math.max(20, listBottom - listTop);
-        int listW = Math.min(460, this.width - 32);
-        int listX = (this.width - listW) / 2;
+        int listW = Math.min(440, vWidth - 24);
+        int listX = (vWidth - listW) / 2;
 
         // Subtle background panel for conflict items
         context.fill(listX, listTop, listX + listW, listBottom, 0x44000000);
-        context.drawBorder(listX, listTop, listW, listH, 0x33FFFFFF);
+        drawBorder(context, listX, listTop, listW, listH, 0x33FFFFFF);
 
-        context.enableScissor(listX + 1, listTop + 1, listX + listW - 1, listBottom - 1);
+        // Safe Scissor test in physical screen coordinates
+        int scX1 = Math.max(0, (int) Math.floor((listX + 1) * uiScale));
+        int scY1 = Math.max(0, (int) Math.floor((listTop + 1) * uiScale));
+        int scX2 = Math.min(this.width, (int) Math.ceil((listX + listW - 1) * uiScale));
+        int scY2 = Math.min(this.height, (int) Math.ceil((listBottom - 1) * uiScale));
+        boolean canScissor = (scX2 > scX1 && scY2 > scY1);
+
+        if (canScissor) {
+            context.enableScissor(scX1, scY1, scX2, scY2);
+        }
 
         int totalContentHeight = 0;
         int currentY = listTop + 4 - scrollOffset;
@@ -125,12 +244,12 @@ public class RecipeConflictScreen extends Screen {
             RecipeTypeEnum wsType = info.workstationType;
 
             int entryStartY = currentY;
-            int cardH = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? 78 : 50;
+            int cardH = (wsType == RecipeTypeEnum.SHAPED_CRAFTING) ? 80 : 54;
 
-            if (entryStartY + cardH >= listTop && entryStartY <= listBottom) {
+            if (entryStartY + cardH >= listTop - 10 && entryStartY <= listBottom + 10) {
                 // Card background
                 context.fill(listX + 4, entryStartY, listX + listW - 8, entryStartY + cardH - 4, 0x44222222);
-                context.drawBorder(listX + 4, entryStartY, listW - 12, cardH - 4, 0x33FFFFFF);
+                drawBorder(context, listX + 4, entryStartY, listW - 12, cardH - 4, 0x33FFFFFF);
 
                 // Left Side: Grid & Station
                 int gridX = listX + 10;
@@ -153,7 +272,7 @@ public class RecipeConflictScreen extends Screen {
                         if (inItem != Items.AIR) {
                             ItemStack st = new ItemStack(inItem);
                             context.drawItem(st, gridX + 1, slotGridY + 1);
-                            if (isHovered(mouseX, mouseY, gridX, slotGridY, 18, 18, listTop, listH)) {
+                            if (isHovered(scaledMouseX, scaledMouseY, gridX, slotGridY, 18, 18, listTop, listH)) {
                                 hoveredStack = st;
                             }
                         }
@@ -170,7 +289,7 @@ public class RecipeConflictScreen extends Screen {
                             if (inItem != Items.AIR) {
                                 ItemStack st = new ItemStack(inItem);
                                 context.drawItem(st, slotX + 1, slotGridY + 1);
-                                if (isHovered(mouseX, mouseY, slotX, slotGridY, 18, 18, listTop, listH)) {
+                                if (isHovered(scaledMouseX, scaledMouseY, slotX, slotGridY, 18, 18, listTop, listH)) {
                                     hoveredStack = st;
                                 }
                             }
@@ -191,7 +310,7 @@ public class RecipeConflictScreen extends Screen {
                                 if (inItem != Items.AIR) {
                                     ItemStack st = new ItemStack(inItem);
                                     context.drawItem(st, slotX + 1, sY + 1);
-                                    if (isHovered(mouseX, mouseY, slotX, sY, 18, 18, listTop, listH)) {
+                                    if (isHovered(scaledMouseX, scaledMouseY, slotX, sY, 18, 18, listTop, listH)) {
                                         hoveredStack = st;
                                     }
                                 }
@@ -212,7 +331,7 @@ public class RecipeConflictScreen extends Screen {
                     ItemStack resSt = new ItemStack(info.conflictingItem);
                     context.drawItem(resSt, resX + 1, resY + 1);
                     context.drawStackOverlay(this.textRenderer, resSt, resX + 1, resY + 1);
-                    if (isHovered(mouseX, mouseY, resX, resY, 18, 18, listTop, listH)) {
+                    if (isHovered(scaledMouseX, scaledMouseY, resX, resY, 18, 18, listTop, listH)) {
                         hoveredStack = resSt;
                     }
                 }
@@ -220,11 +339,12 @@ public class RecipeConflictScreen extends Screen {
                 // Right Side: Conflict Details with multi-line text wrapping
                 int textX = resX + 24;
                 int textY = entryStartY + 6;
-                int textW = listW - (textX - listX) - 16;
+                int textW = listW - (textX - listX) - 14;
+                int safeTextW = Math.max(60, textW);
 
                 if (textW > 40) {
                     Text usedByHeader = Text.translatable("recipeeditor.gui.conflict_used_by", info.getConflictingItemName().getString()).formatted(Formatting.WHITE, Formatting.BOLD);
-                    List<OrderedText> wrappedUsedBy = this.textRenderer.wrapLines(usedByHeader, textW);
+                    List<OrderedText> wrappedUsedBy = this.textRenderer.wrapLines(usedByHeader, safeTextW);
                     for (int l = 0; l < Math.min(2, wrappedUsedBy.size()); l++) {
                         context.drawTextWithShadow(this.textRenderer, wrappedUsedBy.get(l), textX, textY, 0xFFFF5555);
                         textY += 10;
@@ -232,7 +352,7 @@ public class RecipeConflictScreen extends Screen {
 
                     if (info.conflictingRecipeId != null && !info.conflictingRecipeId.isEmpty()) {
                         Text idText = Text.literal("ID: " + info.conflictingRecipeId).formatted(Formatting.DARK_GRAY);
-                        List<OrderedText> wrappedId = this.textRenderer.wrapLines(idText, textW);
+                        List<OrderedText> wrappedId = this.textRenderer.wrapLines(idText, safeTextW);
                         if (!wrappedId.isEmpty()) {
                             context.drawTextWithShadow(this.textRenderer, wrappedId.get(0), textX, textY, 0xFF888888);
                             textY += 10;
@@ -240,9 +360,9 @@ public class RecipeConflictScreen extends Screen {
                     }
 
                     Text sourceText = Text.translatable("recipeeditor.gui.conflict_source", info.sourceName).formatted(Formatting.YELLOW);
-                    List<OrderedText> wrappedSource = this.textRenderer.wrapLines(sourceText, textW);
-                    for (int l = 0; l < Math.min(2, wrappedSource.size()); l++) {
-                        context.drawTextWithShadow(this.textRenderer, wrappedSource.get(l), textX, textY, 0xFFFFAA00);
+                    List<OrderedText> wrappedSource = this.textRenderer.wrapLines(sourceText, safeTextW);
+                    if (!wrappedSource.isEmpty()) {
+                        context.drawTextWithShadow(this.textRenderer, wrappedSource.get(0), textX, textY, 0xFFFFAA00);
                         textY += 10;
                     }
                 }
@@ -252,23 +372,33 @@ public class RecipeConflictScreen extends Screen {
             totalContentHeight += cardH;
         }
 
-        context.disableScissor();
+        if (canScissor) {
+            context.disableScissor();
+        }
 
         // Calculate max scroll
         maxScroll = Math.max(0, totalContentHeight - listH + 8);
 
         // Scrollbar
-        if (maxScroll > 0) {
+        if (maxScroll > 0 && totalContentHeight > 0) {
             int scrollbarH = Math.max(16, (int) ((float) listH / (float) totalContentHeight * listH));
-            int scrollbarY = listTop + (int) ((float) scrollOffset / (float) maxScroll * (listH - scrollbarH));
+            scrollbarH = Math.min(listH, scrollbarH);
+            int scrollTrackH = Math.max(1, listH - scrollbarH);
+            int scrollbarY = listTop + (int) ((float) scrollOffset / (float) maxScroll * scrollTrackH);
             int scrollbarX = listX + listW - 6;
-            context.fill(scrollbarX, listTop + 2, scrollbarX + 3, listBottom - 2, 0x44000000);
-            context.fill(scrollbarX, scrollbarY, scrollbarX + 3, scrollbarY + scrollbarH, 0xAAFFFFFF);
+            if (listBottom - 2 >= listTop + 2) {
+                context.fill(scrollbarX, listTop + 2, scrollbarX + 3, listBottom - 2, 0x44000000);
+                context.fill(scrollbarX, scrollbarY, scrollbarX + 3, scrollbarY + scrollbarH, 0xAAFFFFFF);
+            }
         }
 
-        // Item Tooltips
+        context.getMatrices().popMatrix();
+
+        // Native unscaled item tooltip rendering outside matrix
         if (!hoveredStack.isEmpty()) {
-            context.drawItemTooltip(this.textRenderer, hoveredStack, mouseX, mouseY);
+            try {
+                context.drawItemTooltip(this.textRenderer, hoveredStack, mouseX, mouseY);
+            } catch (Throwable ignored) {}
         }
     }
 
@@ -278,6 +408,13 @@ public class RecipeConflictScreen extends Screen {
 
     private void drawMiniSlot(DrawContext context, int x, int y) {
         context.fill(x, y, x + 18, y + 18, 0x99000000);
-        context.drawBorder(x, y, 18, 18, 0xFF555555);
+        drawBorder(context, x, y, 18, 18, 0xFF555555);
+    }
+
+    private static void drawBorder(DrawContext context, int x, int y, int w, int h, int color) {
+        context.fill(x, y, x + w, y + 1, color);
+        context.fill(x, y + h - 1, x + w, y + h, color);
+        context.fill(x, y + 1, x + 1, y + h - 1, color);
+        context.fill(x + w - 1, y + 1, x + w, y + h - 1, color);
     }
 }
