@@ -3,6 +3,7 @@ package com.recipeeditor.client.gui;
 import com.recipeeditor.config.CustomRecipeData;
 import com.recipeeditor.config.RecipeTypeEnum;
 import com.recipeeditor.inspector.RecipeConflictInfo;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -20,13 +21,21 @@ public class RecipeConflictScreen extends Screen {
     private final List<RecipeConflictInfo> conflicts;
     private final Runnable onConfirmOverride;
 
+    // Responsive Studio scaling matching RecipeEditorScreen
+    private float uiScale = 1.0f;
+    private static final int BASE_WIDTH = 460;
+    private static final int BASE_HEIGHT = 320;
+
     private int scrollOffset = 0;
     private int maxScroll = 0;
+    private boolean isDraggingScroll = false;
+    private double dragScrollStartY = 0;
+    private int dragScrollStartOffset = 0;
 
     public RecipeConflictScreen(Screen parent, List<RecipeConflictInfo> conflicts, Runnable onConfirmOverride) {
         super(Text.translatable("recipeeditor.gui.conflict_title"));
         this.parent = parent;
-        this.conflicts = conflicts;
+        this.conflicts = conflicts != null ? conflicts : List.of();
         this.onConfirmOverride = onConfirmOverride;
     }
 
@@ -34,14 +43,35 @@ public class RecipeConflictScreen extends Screen {
         this(parent, conflicts, null);
     }
 
+    private void updateUiScale() {
+        float scaleX = (float) this.width / (float) BASE_WIDTH;
+        float scaleY = (float) this.height / (float) BASE_HEIGHT;
+        this.uiScale = Math.min(1.0f, Math.min(scaleX, scaleY));
+        if (this.uiScale <= 0.05f) {
+            this.uiScale = 1.0f;
+        }
+    }
+
+    public int getVirtualWidth() {
+        return (int) Math.ceil(this.width / uiScale);
+    }
+
+    public int getVirtualHeight() {
+        return (int) Math.ceil(this.height / uiScale);
+    }
+
     @Override
     protected void init() {
-        int btnY = this.height - 32;
+        updateUiScale();
+        int vWidth = getVirtualWidth();
+        int vHeight = getVirtualHeight();
+
+        int btnY = vHeight - 28;
+        int btnW = 140;
+        int spacing = 12;
 
         if (onConfirmOverride != null) {
-            int btnW = 150;
-            int spacing = 10;
-            int startX = this.width / 2 - btnW - (spacing / 2);
+            int startX = (vWidth - (btnW * 2 + spacing)) / 2;
 
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("recipeeditor.gui.conflict_override").formatted(Formatting.GOLD),
@@ -57,14 +87,14 @@ public class RecipeConflictScreen extends Screen {
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("recipeeditor.gui.conflict_cancel"),
                     btn -> this.close())
-                    .dimensions(this.width / 2 + (spacing / 2), btnY, btnW, 20)
+                    .dimensions(startX + btnW + spacing, btnY, btnW, 20)
                     .build());
         } else {
-            int btnW = 150;
+            int startX = (vWidth - btnW) / 2;
             this.addDrawableChild(ButtonWidget.builder(
                     Text.translatable("recipeeditor.gui.conflict_dismiss"),
                     btn -> this.close())
-                    .dimensions((this.width - btnW) / 2, btnY, btnW, 20)
+                    .dimensions(startX, btnY, btnW, 20)
                     .build());
         }
     }
@@ -78,6 +108,9 @@ public class RecipeConflictScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        double sX = mouseX / uiScale;
+        double sY = mouseY / uiScale;
+
         if (maxScroll > 0) {
             if (verticalAmount > 0) {
                 scrollOffset = Math.max(0, scrollOffset - 24);
@@ -87,31 +120,112 @@ public class RecipeConflictScreen extends Screen {
                 return true;
             }
         }
-        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        return super.mouseScrolled(sX, sY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
+    public boolean mouseClicked(Click click, boolean bl) {
+        double sX = click.x() / uiScale;
+        double sY = click.y() / uiScale;
+        int button = click.button();
+        Click scaledClick = new Click(sX, sY, click.buttonInfo());
+
+        if (button == 0 && maxScroll > 0) {
+            int vWidth = getVirtualWidth();
+            int vHeight = getVirtualHeight();
+            int listTop = 40;
+            int btnY = vHeight - 28;
+            int listBottom = btnY - 6;
+            int listW = Math.min(440, vWidth - 24);
+            int listX = (vWidth - listW) / 2;
+            int scrollbarX = listX + listW - 8;
+
+            if (sX >= scrollbarX - 4 && sX <= scrollbarX + 10 && sY >= listTop && sY <= listBottom) {
+                isDraggingScroll = true;
+                dragScrollStartY = sY;
+                dragScrollStartOffset = scrollOffset;
+                return true;
+            }
+        }
+        return super.mouseClicked(scaledClick, bl);
+    }
+
+    @Override
+    public boolean mouseReleased(Click click) {
+        double sX = click.x() / uiScale;
+        double sY = click.y() / uiScale;
+        Click scaledClick = new Click(sX, sY, click.buttonInfo());
+        isDraggingScroll = false;
+        return super.mouseReleased(scaledClick);
+    }
+
+    @Override
+    public boolean mouseDragged(Click click, double deltaX, double deltaY) {
+        double sX = click.x() / uiScale;
+        double sY = click.y() / uiScale;
+        int button = click.button();
+        Click scaledClick = new Click(sX, sY, click.buttonInfo());
+
+        if (isDraggingScroll && button == 0 && maxScroll > 0) {
+            int vHeight = getVirtualHeight();
+            int listTop = 40;
+            int btnY = vHeight - 28;
+            int listBottom = btnY - 6;
+            int listH = Math.max(20, listBottom - listTop);
+            int totalContentHeight = maxScroll + listH - 8;
+            int scrollbarH = Math.max(16, (int) ((float) listH / (float) totalContentHeight * listH));
+            int trackH = listH - scrollbarH;
+            if (trackH > 0) {
+                double delta = sY - dragScrollStartY;
+                scrollOffset = Math.max(0, Math.min(maxScroll, dragScrollStartOffset + (int) (delta / trackH * maxScroll)));
+            }
+            return true;
+        }
+        return super.mouseDragged(scaledClick, deltaX / uiScale, deltaY / uiScale);
     }
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        // Native Minecraft screen render: draws background and buttons first
-        super.render(context, mouseX, mouseY, delta);
+        updateUiScale();
+        int vWidth = getVirtualWidth();
+        int vHeight = getVirtualHeight();
 
-        // Centered Header & Description (identical style to ConfirmScreen)
-        Text titleText = Text.literal("⚠️ ").append(Text.translatable("recipeeditor.gui.conflict_title")).formatted(Formatting.GOLD, Formatting.BOLD);
-        context.drawCenteredTextWithShadow(this.textRenderer, titleText, this.width / 2, 14, 0xFFFFAA00);
+        context.getMatrices().pushMatrix();
+        context.getMatrices().scale(uiScale, uiScale);
+
+        int scaledMouseX = (int) (mouseX / uiScale);
+        int scaledMouseY = (int) (mouseY / uiScale);
+
+        // Dark dim background
+        context.fill(0, 0, vWidth, vHeight, 0xCC101010);
+
+        // Header
+        Text titleText = Text.literal("\u26A0 " + Text.translatable("recipeeditor.gui.conflict_title").getString() + " \u26A0").formatted(Formatting.RED, Formatting.BOLD);
+        context.drawCenteredTextWithShadow(this.textRenderer, titleText, vWidth / 2, 12, 0xFFFF5555);
 
         Text desc = Text.translatable("recipeeditor.gui.conflict_desc").formatted(Formatting.GRAY);
-        context.drawCenteredTextWithShadow(this.textRenderer, desc, this.width / 2, 28, 0xFFAAAAAA);
+        context.drawCenteredTextWithShadow(this.textRenderer, desc, vWidth / 2, 25, 0xFFAAAAAA);
 
-        int listTop = 44;
-        int btnY = this.height - 32;
-        int listBottom = btnY - 8;
+        int listTop = 40;
+        int btnY = vHeight - 28;
+        int listBottom = btnY - 6;
         int listH = Math.max(20, listBottom - listTop);
-        int listW = Math.min(460, this.width - 32);
-        int listX = (this.width - listW) / 2;
+        int listW = Math.min(440, vWidth - 24);
+        int listX = (vWidth - listW) / 2;
 
-        // Subtle background panel for conflict items
+        // Conflict container background panel
         context.fill(listX, listTop, listX + listW, listBottom, 0x44000000);
         drawBorder(context, listX, listTop, listW, listH, 0x33FFFFFF);
+
+        renderConflictList(context, scaledMouseX, scaledMouseY, listX, listTop, listW, listH, listBottom);
+
+        super.render(context, scaledMouseX, scaledMouseY, delta);
+
+        context.getMatrices().popMatrix();
+    }
+
+    private void renderConflictList(DrawContext context, int mouseX, int mouseY, int listX, int listTop, int listW, int listH, int listBottom) {
+        if (listW <= 2 || listH <= 2) return;
 
         context.enableScissor(listX + 1, listTop + 1, listX + listW - 1, listBottom - 1);
 
