@@ -19,7 +19,7 @@ public class RecipeBookMixin {
         }
         if (entry != null && entry.id() != null) {
             if ("recipeeditor".equals(entry.id().getNamespace())) {
-                cir.setReturnValue(true);
+                cir.setReturnValue(CustomRecipeDispatcher.isCustomRecipeActive(entry.id()));
                 return;
             }
             if (CustomRecipeDispatcher.isRecipeOverridden(entry)) {
@@ -36,7 +36,7 @@ public class RecipeBookMixin {
         }
         if (id != null) {
             if ("recipeeditor".equals(id.getNamespace())) {
-                cir.setReturnValue(true);
+                cir.setReturnValue(CustomRecipeDispatcher.isCustomRecipeActive(id));
                 return;
             }
             if (CustomRecipeDispatcher.isIdentifierOverridden(id)) {

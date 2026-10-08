@@ -282,6 +282,9 @@ public class CustomRecipeDispatcher {
 
     private static final Map<String, RecipeEntry<?>> SYNTHETIC_CACHE = new ConcurrentHashMap<>();
     private static volatile List<RecipeEntry<?>> CACHED_ALL_CUSTOM_RECIPES = null;
+    private static volatile Set<Identifier> ACTIVE_CUSTOM_RECIPE_IDS = Collections.emptySet();
+    private static final Map<Identifier, RecipeEntry<?>> RECORDED_CUSTOM_ENTRIES = new ConcurrentHashMap<>();
+    private static final Map<Identifier, RecipeEntry<?>> RECENTLY_REMOVED_RECIPES = new ConcurrentHashMap<>();
     private static volatile int lastCustomRecipesVersion = -1;
 
     private static volatile int cachedSmithingVersion = -1;
@@ -292,6 +295,7 @@ public class CustomRecipeDispatcher {
     public static void clearSyntheticCache() {
         SYNTHETIC_CACHE.clear();
         CACHED_ALL_CUSTOM_RECIPES = null;
+        ACTIVE_CUSTOM_RECIPE_IDS = Collections.emptySet();
         lastCustomRecipesVersion = -1;
         cachedSmithingVersion = -1;
         CACHED_SMITHING_TEMPLATES.clear();
@@ -373,6 +377,7 @@ public class CustomRecipeDispatcher {
     public static Collection<RecipeEntry<?>> getAllCustomRecipes() {
         RecipeEditorConfig config = RecipeEditorConfig.getInstance();
         if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
+            ACTIVE_CUSTOM_RECIPE_IDS = Collections.emptySet();
             return Collections.emptyList();
         }
 
@@ -382,6 +387,7 @@ public class CustomRecipeDispatcher {
         }
 
         List<RecipeEntry<?>> list = new ArrayList<>();
+        Set<Identifier> activeIds = new HashSet<>();
         for (CustomRecipeData recipeData : config.recipes.values()) {
             if (!recipeData.enabled) continue;
             RecipeType<?> mcType = recipeData.type.toRecipeType();
@@ -389,12 +395,34 @@ public class CustomRecipeDispatcher {
                 RecipeEntry<?> entry = getCachedSyntheticEntry(recipeData, recipeData.type, mcType);
                 if (entry != null) {
                     list.add(entry);
+                    activeIds.add(entry.id());
+                    RECORDED_CUSTOM_ENTRIES.put(entry.id(), entry);
                 }
             }
         }
+        ACTIVE_CUSTOM_RECIPE_IDS = Collections.unmodifiableSet(activeIds);
         CACHED_ALL_CUSTOM_RECIPES = Collections.unmodifiableList(list);
         lastCustomRecipesVersion = currentVer;
         return CACHED_ALL_CUSTOM_RECIPES;
+    }
+
+    public static boolean isCustomRecipeActive(Identifier id) {
+        if (id == null || !"recipeeditor".equals(id.getNamespace())) return false;
+        RecipeEditorConfig config = RecipeEditorConfig.getInstance();
+        if (config == null || !config.modEnabled || config.recipes == null || config.recipes.isEmpty()) {
+            return false;
+        }
+        getAllCustomRecipes();
+        if (ACTIVE_CUSTOM_RECIPE_IDS.contains(id)) {
+            return true;
+        }
+        String path = id.getPath();
+        for (Identifier activeId : ACTIVE_CUSTOM_RECIPE_IDS) {
+            if (activeId.getPath().equals(path)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static Optional<RecipeEntry<?>> getCustomRecipeForOverridden(Identifier id) {
@@ -476,6 +504,10 @@ public class CustomRecipeDispatcher {
                 entryPath.contains(path) || path.contains(entryPath)) {
                 return Optional.of(entry);
             }
+        }
+        RecipeEntry<?> removed = RECENTLY_REMOVED_RECIPES.get(id);
+        if (removed != null) {
+            return Optional.of(removed);
         }
         return getCustomRecipeForOverridden(id);
     }
@@ -717,8 +749,6 @@ public class CustomRecipeDispatcher {
         return null;
     }
 
-    private static volatile Set<Identifier> PREVIOUS_CUSTOM_IDS = null;
-
     public static void sendCustomRecipeBookEntries(ServerPlayerEntity player) {
         if (com.recipeeditor.RecipeEditorMod.isDedicatedServer()) return;
         if (player == null || player.networkHandler == null) return;
@@ -731,6 +761,7 @@ public class CustomRecipeDispatcher {
                 List<Identifier> ids = new ArrayList<>();
                 for (RecipeEntry<?> entry : custom) {
                     ids.add(entry.id());
+                    RECORDED_CUSTOM_ENTRIES.put(entry.id(), entry);
                     player.getRecipeBook().add(entry);
                     player.getRecipeBook().display(entry);
                 }
@@ -752,17 +783,19 @@ public class CustomRecipeDispatcher {
         for (RecipeEntry<?> entry : custom) {
             ids.add(entry.id());
             currentIds.add(entry.id());
+            RECORDED_CUSTOM_ENTRIES.put(entry.id(), entry);
         }
 
         List<Identifier> removedIds = new ArrayList<>();
-        if (PREVIOUS_CUSTOM_IDS != null) {
-            for (Identifier prevId : PREVIOUS_CUSTOM_IDS) {
-                if (!currentIds.contains(prevId)) {
-                    removedIds.add(prevId);
-                }
+        for (Map.Entry<Identifier, RecipeEntry<?>> recorded : RECORDED_CUSTOM_ENTRIES.entrySet()) {
+            if (!currentIds.contains(recorded.getKey())) {
+                removedIds.add(recorded.getKey());
+                RECENTLY_REMOVED_RECIPES.put(recorded.getKey(), recorded.getValue());
             }
         }
-        PREVIOUS_CUSTOM_IDS = currentIds;
+        for (Identifier remId : removedIds) {
+            RECORDED_CUSTOM_ENTRIES.remove(remId);
+        }
 
         for (ServerPlayerEntity player : players) {
             if (player == null || player.networkHandler == null || player.server == null) continue;
@@ -772,6 +805,12 @@ public class CustomRecipeDispatcher {
 
                 // 2. Remove any deleted custom recipes from the player's recipe book
                 if (!removedIds.isEmpty()) {
+                    for (Identifier remId : removedIds) {
+                        RecipeEntry<?> remEntry = RECENTLY_REMOVED_RECIPES.get(remId);
+                        if (remEntry != null) {
+                            player.getRecipeBook().remove(remEntry);
+                        }
+                    }
                     player.networkHandler.sendPacket(new net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket(
                         net.minecraft.network.packet.s2c.play.ChangeUnlockedRecipesS2CPacket.Action.REMOVE,
                         removedIds,
@@ -801,9 +840,22 @@ public class CustomRecipeDispatcher {
             if (client != null && client.player != null && client.player.getRecipeBook() != null) {
                 client.execute(() -> {
                     try {
+                        net.minecraft.client.recipebook.ClientRecipeBook clientBook = client.player.getRecipeBook();
+                        for (Identifier remId : removedIds) {
+                            RecipeEntry<?> remEntry = RECENTLY_REMOVED_RECIPES.get(remId);
+                            if (remEntry != null) {
+                                clientBook.remove(remEntry);
+                            }
+                        }
                         for (RecipeEntry<?> entry : custom) {
-                            client.player.getRecipeBook().add(entry);
-                            client.player.getRecipeBook().display(entry);
+                            clientBook.add(entry);
+                            clientBook.display(entry);
+                        }
+                        if (client.world != null && client.getNetworkHandler() != null && client.getNetworkHandler().getRecipeManager() != null) {
+                            clientBook.reload(client.getNetworkHandler().getRecipeManager().sortedValues(), client.world.getRegistryManager());
+                        }
+                        if (client.currentScreen instanceof net.minecraft.client.gui.screen.recipebook.RecipeBookProvider provider) {
+                            provider.refreshRecipeBook();
                         }
                     } catch (Throwable ignored) {}
                 });
