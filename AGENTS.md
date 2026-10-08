@@ -19,7 +19,7 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Minecraft:** 1.21.11.
 * **Yarn Mappings:** `1.21.11+build.6`.
 * **Java:** 21 (LTS).
-* **Fabric Loader:** `>= 0.16.0`.
+* **Fabric Loader:** `>= 0.19.5`.
 * **Fabric API:** `0.141.6+1.21.11`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
 * **Mod Menu:** Declared in `modmenu` entrypoint and strictly required in `depends` (`"modmenu": "*"`) within `fabric.mod.json`.
@@ -482,5 +482,8 @@ The mod enforces a strict bilingual requirement for all in-game text:
   - In `CampfireBlockMixin`, removed `!state.get(LIT)` check (allowing items to be placed onto unlit campfires) and removed `isSneaking()`/`shouldCancelInteraction()` restrictions.
   - Client unconditionally returns `ActionResult.CONSUME`, ensuring block interaction packets are sent to the server.
   - Server returns `ActionResult.SUCCESS_SERVER` on success and falls back to `ActionResult.CONSUME` when campfire slots are occupied.
+* **Bug 9 (Recipe Book Retains Phantom Recipes on Deletion After Full Game Restart):** **Fixed**.
+  - Populated `PREVIOUS_NETWORK_IDS` in `ensureRecipeBookEntriesUpToDate()` and `sendCustomRecipeBookEntries()`.
+  - When Minecraft restarts and a custom craft is deleted, `syncRecipeBookToPlayers` accurately computes the removed `NetworkRecipeId` list via `oldIds.removeAll(newIds)` and broadcasts `RecipeBookRemoveS2CPacket(oldIds)`, preventing phantom recipes.
 
 
