@@ -19,7 +19,7 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Minecraft:** 1.21.1.
 * **Yarn Mappings:** `1.21.1+build.3`.
 * **Java:** 21 (LTS).
-* **Fabric Loader:** `>= 0.16.0`.
+* **Fabric Loader:** `>= 0.19.5`.
 * **Fabric API:** `0.116.17+1.21.1`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
 * **Mod Menu:** Declared in `modmenu` entrypoint and strictly required in `depends` (`"modmenu": "*"`) within `fabric.mod.json`.
@@ -518,3 +518,7 @@ The mod enforces a strict bilingual requirement for all in-game text:
   - **Recipe Entry Resolution for REMOVE Packets:** When vanilla client receives `ChangeUnlockedRecipesS2CPacket(Action.REMOVE)`, it queries `recipeManager.get(id)`. Storing deleted entries in `RECENTLY_REMOVED_RECIPES` ensures `RecipeManager.get(Identifier)` continues to resolve the deleted entry long enough for vanilla `clientRecipeBook.remove(...)` to execute successfully.
   - **Dynamic Active Verification in `RecipeBookMixin.onContains`:** Updated `RecipeBookMixin.onContains` and `onContainsId` to check `CustomRecipeDispatcher.isCustomRecipeActive(id)` instead of unconditionally returning `true` for all `recipeeditor` namespaces. If a recipe is deleted, `contains` returns `false`, preventing the recipe from ever being marked as unlocked or craftable in `RecipeResultCollection`.
   - **Client-Side Direct Book Removal & Provider Refresh:** In `CustomRecipeDispatcher.syncRecipeBookToPlayers`, the client-side dispatch thread immediately executes `clientBook.remove(remEntry)`, reloads group collections via `clientBook.reload(...)`, and triggers `RecipeBookProvider.refreshRecipeBook()` on open screens.
+* **Bug 10 (Campfire Accepts Items from Deleted Custom Recipes Until Rejoin):** **Fixed**.
+  - In `CustomRecipeDispatcher.getCustomRecipeEntryById(Identifier id)`, removed fallback query to `RECENTLY_REMOVED_RECIPES.get(id)`.
+  - When a campfire cooks an item, `CampfireBlockEntity` caches the last matched recipe ID in its internal `matchGetter`. When querying `recipeManager.get(id)`, `getCustomRecipeEntryById` previously returned the deleted recipe from `RECENTLY_REMOVED_RECIPES`, allowing the campfire to continue accepting and cooking items from deleted crafts until the block entity was reloaded on world rejoin.
+  - `RECENTLY_REMOVED_RECIPES` is now kept strictly internal to `syncRecipeBookToPlayers` and `ServerRecipeBookMixin` for book packet generation, ensuring `RecipeManager.get(Identifier)` immediately returns `Optional.empty()` for deleted custom recipes and campfire stops accepting deleted craft items instantly.

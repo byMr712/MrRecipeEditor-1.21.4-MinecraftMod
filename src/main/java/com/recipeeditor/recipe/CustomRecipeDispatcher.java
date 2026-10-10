@@ -505,10 +505,6 @@ public class CustomRecipeDispatcher {
                 return Optional.of(entry);
             }
         }
-        RecipeEntry<?> removed = RECENTLY_REMOVED_RECIPES.get(id);
-        if (removed != null) {
-            return Optional.of(removed);
-        }
         return getCustomRecipeForOverridden(id);
     }
 
