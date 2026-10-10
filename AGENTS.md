@@ -19,16 +19,15 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 * **Minecraft:** 26.3.
 * **Mappings:** Official Mojang Mappings.
 * **Java:** 25.
-* **Fabric Loader:** `>= 0.16.0`.
+* **Fabric Loader:** `>= 0.19.5`.
 * **Fabric API:** `0.162.0+26.3`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
 * **Mod Menu:** Declared in `modmenu` entrypoint and strictly required in `depends` (`"modmenu": "*"`) within `fabric.mod.json`.
 * **Execution Environment:** Client and Integrated Server (Singleplayer / LAN).
 * **Dedicated Server Safety:** A dedicated server environment is detected via `FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER`. When running on a dedicated server, the mod logs an informative console banner and gracefully disables all runtime features without crashing or interfering with server startup.
 
-### 1.4. Branching Strategy & Main Codebase Invariant
-* **MANDATORY INVARIANT:** The codebase of the `main` branch **must ALWAYS correspond to the latest supported Minecraft version branch** (currently `26.3`).
-* Any architectural updates, fixes, or porting to newer Minecraft versions must ensure that `main` is kept synchronized with the cutting edge (the newest version branch).
+### 1.4. Branching Strategy & Default Repository Branch
+* **Default Branch:** The repository's primary default branch is `26.3` (the latest supported Minecraft version).
 * Every supported Minecraft release maintains its own dedicated branch for targeted builds and backward-compatible patches:
   * **Java 21 (Yarn mappings):** `1.21`, `1.21.1`, `1.21.2`, `1.21.3`, `1.21.4`, `1.21.5`, `1.21.6`, `1.21.7`, `1.21.8`, `1.21.9`, `1.21.10`, `1.21.11`
   * **Java 25 (Mojang mappings):** `26.1`, `26.1.1`, `26.1.2`, `26.2`, `26.3`
@@ -517,3 +516,7 @@ The mod enforces a strict bilingual requirement for all in-game text:
 * **Bug 8 (Cannot Place Custom Recipe Item on Campfire):** **Fixed**.
   - In `CampfireBlockMixin`, removed `LIT` and sneaking checks.
   - Unconditionally return `InteractionResult.CONSUME` on client and server fallback.
+* **Bug 9 (Smithing Table Craft Execution & Tag Ingredient Resolution in 26.X):** **Fixed**.
+  - In `CustomDynamicSmithingRecipe.assemble(SmithingRecipeInput)`, replaced raw `crafted.applyComponents(baseStack.getComponents())` with vanilla Minecraft 26.X transmutation: `TransmuteRecipe.createWithOriginalComponents(new ItemStackTemplate(this.resultStack.getItem(), this.resultStack.getCount()), baseStack)`. This properly preserves enchantments, custom names, durability damage, and repair cost from the base item without corrupting the output item's model, base attributes, or identity.
+  - In `CustomRecipeData.computeIngredientForSlot(int slot)`, added a fallback to `TagResolver.getAllItemsForTag(slotStr)` when `BuiltInRegistries.ITEM.get(tagKey)` returns `Optional.empty()` (as dynamic datapack tags are not stored in the static item registry in 26.X), ensuring smithing recipes with tag ingredients (e.g., templates or additions) match and craft reliably.
+  - In `TagResolver.getAllItemsForTag`, wrapped `FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT` in a safe `try-catch` guard.
