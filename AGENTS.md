@@ -18,7 +18,7 @@ The mod fundamentally **does not bundle or inject** any preconfigured custom rec
 ### 1.3. Target Platform and Dependencies
 * **Minecraft:** 26.1.2.
 * **Java:** 25.
-* **Fabric Loader:** `>= 0.16.0`.
+* **Fabric Loader:** `>= 0.19.5`.
 * **Fabric API:** `0.155.3+26.1.2`.
 * **Fabric Loom:** `1.18-SNAPSHOT`.
 * **Mod Menu:** Declared in `modmenu` entrypoint and strictly required in `depends` (`"modmenu": "*"`) within `fabric.mod.json`.
@@ -508,4 +508,8 @@ The mod enforces a strict bilingual requirement for all in-game text:
 * **Bug 8 (Cannot Place Custom Recipe Item on Campfire):** **Fixed**.
   - In `CampfireBlockMixin`, removed `LIT` and sneaking checks.
   - Unconditionally return `InteractionResult.CONSUME` on client and server fallback.
+* **Bug 9 (Smithing Table Craft Execution & Tag Ingredient Resolution in 26.X):** **Fixed**.
+  - In `CustomDynamicSmithingRecipe.assemble(SmithingRecipeInput)`, replaced raw `crafted.applyComponents(baseStack.getComponents())` with vanilla Minecraft 26.X transmutation: `TransmuteRecipe.createWithOriginalComponents(new ItemStackTemplate(this.resultStack.getItem(), this.resultStack.getCount()), baseStack)`. This properly preserves enchantments, custom names, durability damage, and repair cost from the base item without corrupting the output item's model, base attributes, or identity.
+  - In `CustomRecipeData.computeIngredientForSlot(int slot)`, added a fallback to `TagResolver.getAllItemsForTag(slotStr)` when `BuiltInRegistries.ITEM.get(tagKey)` returns `Optional.empty()` (as dynamic datapack tags are not stored in the static item registry in 26.X), ensuring smithing recipes with tag ingredients (e.g., templates or additions) match and craft reliably.
+  - In `TagResolver.getAllItemsForTag`, wrapped `FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT` in a safe `try-catch` guard.
 

@@ -150,9 +150,11 @@ public class TagResolver {
         String tagId = tagString.startsWith("#") ? tagString.substring(1) : tagString;
         Set<Item> items = new LinkedHashSet<>();
 
-        if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
-            ClientTagHelper.queryClientWorldTags(tagId, items);
-        }
+        try {
+            if (FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
+                ClientTagHelper.queryClientWorldTags(tagId, items);
+            }
+        } catch (Throwable ignored) {}
 
         try {
             Identifier id = Identifier.tryParse(tagId);
