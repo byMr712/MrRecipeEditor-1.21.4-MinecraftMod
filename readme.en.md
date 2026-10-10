@@ -1,6 +1,6 @@
 > **Language:** [Русский](readme.md) · English
 
-# [MR] Recipe Editor (Minecraft 1.21.4 Fabric)
+# [MR] Recipe Editor
 
 ![Java 21](https://img.shields.io/badge/Java-21-blue.svg)
 ![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-blue.svg)

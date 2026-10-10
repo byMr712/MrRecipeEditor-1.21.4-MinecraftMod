@@ -1,6 +1,6 @@
 > **Language:** Русский · [English](readme.en.md)
 
-# [MR] Recipe Editor (Minecraft 1.21.4 Fabric)
+# [MR] Recipe Editor
 
 ![Java 21](https://img.shields.io/badge/Java-21-blue.svg)
 ![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-blue.svg)
@@ -100,7 +100,7 @@
    ```bash
    ./gradlew build
    ```
-3. Собранный файл находится в `build/libs/MrRecipeEditor-Fabric-1.21.4-byMr712-v1.3.jar`.
+3. Собранный файл находится в `build/libs/MrRecipeEditor-Fabric-1.21.4-byMr712-v1.4.jar`.
 
 ## Авторы и лицензия
 
