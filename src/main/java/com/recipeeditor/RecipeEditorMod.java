@@ -22,7 +22,11 @@ public class RecipeEditorMod implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     public static boolean isDedicatedServer() {
-        return FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER;
+        try {
+            return FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     public static final RecipeSerializer<CustomDynamicCraftingRecipe> CUSTOM_CRAFTING_SERIALIZER = Registry.register(
