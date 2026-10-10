@@ -266,6 +266,10 @@ public class CustomRecipeData {
                     return Ingredient.of(entryList.get());
                 }
             }
+            List<Item> items = com.recipeeditor.inspector.TagResolver.getAllItemsForTag(slotStr);
+            if (!items.isEmpty()) {
+                return Ingredient.of(items.toArray(new Item[0]));
+            }
             return null;
         }
         Item item = getItemAt(slot);

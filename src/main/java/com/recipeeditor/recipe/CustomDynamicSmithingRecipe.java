@@ -46,12 +46,10 @@ public class CustomDynamicSmithingRecipe implements SmithingRecipe {
         ItemStack baseStack = input != null ? input.base() : ItemStack.EMPTY;
         if (!baseStack.isEmpty()) {
             try {
-                ItemStack crafted = this.resultStack.copy();
-                crafted.applyComponents(baseStack.getComponents());
-                if (!this.resultStack.isDamageableItem()) {
-                    crafted.remove(DataComponents.DAMAGE);
-                }
-                return crafted;
+                return TransmuteRecipe.createWithOriginalComponents(
+                        new ItemStackTemplate(this.resultStack.getItem(), this.resultStack.getCount()),
+                        baseStack
+                );
             } catch (Throwable ignored) {}
         }
         return this.resultStack.copy();
