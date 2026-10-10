@@ -350,8 +350,18 @@ public class RecipeEditorScreen extends Screen {
                 }
                 currentVariantIndex = Math.min(typeVariants.size() - 1, Math.max(0, sessionVariantIndexByType.getOrDefault(type, 0)));
                 currentRecipe = typeVariants.get(currentVariantIndex);
+                if (resultCountField != null) {
+                    resultCountField.setText(String.valueOf(currentRecipe.getResultCountForType(selectedType)));
+                }
+                if (cookingTimeField != null) {
+                    cookingTimeField.setText(String.valueOf(currentRecipe.cookingTime));
+                }
+                if (experienceField != null) {
+                    experienceField.setText(String.format(Locale.ROOT, "%.1f", currentRecipe.experience));
+                }
                 updateEditorWidgetsVisibility();
                 updateVariantButtons();
+                updateToggleBtn(leftPaneX, contentY);
                 updateButtonStates();
                 return;
             }
@@ -446,9 +456,50 @@ public class RecipeEditorScreen extends Screen {
         updateButtonStates();
     }
 
+    private void flushFurnaceFieldsToCurrentRecipe() {
+        if (currentRecipe == null) return;
+        boolean isFurnace = (selectedType == RecipeTypeEnum.SMELTING || selectedType == RecipeTypeEnum.BLASTING ||
+                selectedType == RecipeTypeEnum.SMOKING || selectedType == RecipeTypeEnum.CAMPFIRE_COOKING);
+        if (isFurnace) {
+            if (cookingTimeField != null && cookingTimeField.isVisible()) {
+                try {
+                    String text = cookingTimeField.getText().trim();
+                    if (!text.isEmpty()) {
+                        int val = Integer.parseInt(text);
+                        if (val < 1) val = 1;
+                        if (val > 72000) val = 72000;
+                        currentRecipe.cookingTime = val;
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+            if (experienceField != null && experienceField.isVisible()) {
+                try {
+                    String text = experienceField.getText().trim().replace(',', '.');
+                    if (!text.isEmpty()) {
+                        float val = Float.parseFloat(text);
+                        if (val < 0.0f) val = 0.0f;
+                        if (val > 100.0f) val = 100.0f;
+                        currentRecipe.experience = val;
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        if (resultCountField != null && resultCountField.isVisible()) {
+            try {
+                String text = resultCountField.getText().trim();
+                if (!text.isEmpty()) {
+                    int val = Integer.parseInt(text);
+                    if (val < 1) val = 1;
+                    currentRecipe.setResultCountForType(selectedType, val);
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+    }
+
     private void switchMachineType(RecipeTypeEnum newType) {
         if (targetItem == null) return;
         this.selectedSlot = 0;
+        flushFurnaceFieldsToCurrentRecipe();
         if (selectedType != newType && !typeVariants.isEmpty()) {
             List<CustomRecipeData> copyList = new ArrayList<>();
             for (CustomRecipeData d : typeVariants) {
@@ -1424,6 +1475,7 @@ public class RecipeEditorScreen extends Screen {
 
     private void saveCurrentCraft() {
         if (!hasEditPermission() || targetItem == null || targetItem == Items.AIR) return;
+        flushFurnaceFieldsToCurrentRecipe();
 
         List<CustomRecipeData> toSave = new ArrayList<>();
         for (CustomRecipeData v : typeVariants) {
@@ -2602,7 +2654,7 @@ public class RecipeEditorScreen extends Screen {
             } else {
                 double distSq = (sX - dragStartX) * (sX - dragStartX) + (sY - dragStartY) * (sY - dragStartY);
                 if (dragSourceSlot == -1 && distSq < 36) {
-                    if (currentFilter == CatalogFilter.CUSTOM && (currentRecipe == null || selectedSlot == RESULT_SLOT || getCatalogItemAt(sX, sY) != null)) {
+                    if (currentFilter == CatalogFilter.CUSTOM && (currentRecipe == null || selectedSlot == RESULT_SLOT)) {
                         loadRecipeForTarget(draggedItem);
                     } else if (currentRecipe != null && selectedSlot >= 0 && selectedSlot < 9) {
                         currentRecipe.setItemAt(selectedSlot, draggedItem);
