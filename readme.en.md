@@ -1,9 +1,9 @@
 > **Language:** [Русский](readme.md) · English
 
-# [MR] Recipe Editor (Minecraft 1.21.4 Fabric)
+# [MR] Recipe Editor
 
-![Java 21](https://img.shields.io/badge/Java-21-blue.svg)
-![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-blue.svg)
+![Java 21](https://img.shields.io/badge/Java-25-blue.svg)
+![Minecraft](https://img.shields.io/badge/Minecraft-26.3-blue.svg)
 ![Fabric](https://img.shields.io/badge/Loader-Fabric-blue.svg)
 ![ModMenu](https://img.shields.io/badge/ModMenu-Supported-blue.svg)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
@@ -95,7 +95,7 @@ Configuration file is saved at: `config/mrrecipeeditor.json`.
 
 ## Building
 
-1. Requires Java 21 and Fabric Loader for Minecraft 1.21.4.
+1. Requires Java 25 and Fabric Loader for Minecraft 26.3.
 2. To build the project, run:
    ```bash
    ./gradlew build
