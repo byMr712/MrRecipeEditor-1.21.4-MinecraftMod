@@ -1,9 +1,9 @@
 > **Language:** Русский · [English](readme.en.md)
 
-# [MR] Recipe Editor (Minecraft 1.21.4 Fabric)
+# [MR] Recipe Editor
 
 ![Java 21](https://img.shields.io/badge/Java-21-blue.svg)
-![Minecraft](https://img.shields.io/badge/Minecraft-1.21.4-blue.svg)
+![Minecraft](https://img.shields.io/badge/Minecraft-1.21.2-blue.svg)
 ![Fabric](https://img.shields.io/badge/Loader-Fabric-blue.svg)
 ![ModMenu](https://img.shields.io/badge/ModMenu-Supported-blue.svg)
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
@@ -95,12 +95,12 @@
 
 ## Сборка
 
-1. Требуется Java 21 и Fabric Loader для Minecraft 1.21.4.
+1. Требуется Java 21 и Fabric Loader для Minecraft 1.21.2.
 2. Для сборки выполните:
    ```bash
    ./gradlew build
    ```
-3. Собранный файл находится в `build/libs/MrRecipeEditor-Fabric-1.21.4-byMr712-v1.3.jar`.
+3. Собранный файл находится в `build/libs/MrRecipeEditor-Fabric-1.21.2-byMr712-v1.4.jar`.
 
 ## Авторы и лицензия
 
